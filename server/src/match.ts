@@ -45,6 +45,10 @@ export interface MatchState {
   // window -- cleared on rejoin, and on expiry the match is forfeited to
   // the other side. See index.ts's RECONNECT_GRACE_MS.
   forfeitTimers: Partial<Record<PieceColor, NodeJS.Timeout>>;
+  // The side with an outstanding draw offer, if any. Cleared when the
+  // opponent responds or when either side moves (an offer doesn't survive a
+  // change in the position).
+  drawOfferBy?: PieceColor;
   // Cumulative ms since createdAt, one entry per ply, appended in applyMove.
   // Deliberately just timing -- everything else about a move (san, from,
   // to, piece, captured, promotion, flags, before/after FEN) is already
@@ -69,7 +73,10 @@ export interface MoveInput {
 export type MatchEndResult =
   | { type: 'resignation'; winner: PieceColor }
   | { type: 'forfeit'; winner: PieceColor }
-  | { type: 'timeout'; winner: PieceColor };
+  | { type: 'timeout'; winner: PieceColor }
+  // A negotiated (agreed) draw -- unlike checkmate/stalemate/natural draw,
+  // both clients can't derive this from a move, so it IS broadcast.
+  | { type: 'draw'; winner: null };
 
 const matches = new Map<string, MatchState>();
 

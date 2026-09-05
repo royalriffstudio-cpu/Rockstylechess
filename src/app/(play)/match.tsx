@@ -1,9 +1,8 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, type ColorValue } from 'react-native';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   Easing,
@@ -13,37 +12,33 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { BottomNav, ChatPanel, ChatToast, ChessBoard, EmberParticles, PlayerAvatar, RockCard } from '@/components/ui';
+import { ChatPanel, ChatToast, ChessBoard, ConfirmModal, PlayerAvatar, VenueBackdrop } from '@/components/ui';
 import { StockfishEngine, type StockfishEngineHandle } from '@/components/StockfishEngine';
 import { getPieceSprites } from '@/components/ui/pieceSprites';
-import { getAvatarEmoji } from '@/constants/avatars';
+import { getAvatarImage } from '@/constants/avatars';
 import { getBoardTheme } from '@/constants/boardThemes';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { ScreenArt } from '@/constants/screenArt';
+import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { getVenue, getVenueIntensity } from '@/constants/venues';
 import { useChessClock, type ClockTimes } from '@/hooks/useChessClock';
 import { useChessGame, type BotDifficulty, type ChessGameResult, type GameMode } from '@/hooks/useChessGame';
 import { useMatchChat } from '@/hooks/useMatchChat';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { claimMatchReward, reportMatchForQuests } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
+import { getSocket } from '@/lib/socket';
 import type { EngineMove, StockfishConfig } from '@/lib/botEngine';
 import { setPendingLocalReplay, type LocalMatchReplay } from '@/lib/localMatchReplayStore';
 import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
+import { DURATION_MS, isDuration, isVenueTier } from '@/lib/onlineMatch';
 
-// Real, currently-live Stitch preview asset (lh3.googleusercontent.com/aida-public/...),
-// verified resolvable. No documented permanence guarantee.
-const CROWD_SILHOUETTE_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuDaXXF0CMT7YW54CZmBpXIOWSCkNu7f13zeFglHBL71SHNZUnIcnmsAPYJuARLUDUhW2NLzJeYUoroRs7WPB1MX64AwC4XcrsGxqyHm0rwQMwHXNDD4bM2A2mmcbPGaofF-E65LuOEAmQnE76snvgaeLDgOkZQaIRDsMuRZb6zpM8cpvnCavM9yobNyZJ5Beuq0tWPeQheeG4D22tc0571ruxYhbts4_8_jNbt8Y-ENdSAul4ZsKWQxW1Xzqd2801Uz8BWyT-lmbKg';
 
 // Bot/local always default to this (matches setup.tsx's own default duration
 // pick, no dedicated picker exists for these modes). Online's real starting
-// time comes from the server once phase 2 lands (server/src/match.ts's
-// createMatch, threaded through setup.tsx's actual 3m/5m/10m picker) -- this
-// is the interim guess used until then, so online still gets a real ticking
-// clock today rather than reverting to static placeholder text.
+// time comes from the server (via matchmaking.tsx/game-room.tsx's route params,
+// themselves from queue:matched) -- clockW/clockB/incrementMs are only ever
+// present for mode === 'online'; bot/local always fall through to this.
 const DEFAULT_CLOCK_MS = 5 * 60_000;
-
-const MOVE_HISTORY =
-  '1.e4 c5 2.Nf3 d6 3.d4 cxd4 4.Nxd4 Nf6 5.Nc3 a6 6.Be3 e5 7.Nb3 Be7 8.f3 Be6 9.Qd2 Nbd7 10.O-O-O O-O 11.g4 b5 12.g5 Nh5  •  ';
 
 // Pieces are always lowercase letters from chess.js's `captured` field --
 // a tiny local glyph map just for rendering the captured-piece trays.
@@ -51,10 +46,17 @@ const CAPTURED_GLYPHS: Record<string, string> = {
   p: '♟', n: '♞', b: '♝', r: '♜', q: '♛',
 };
 
+const CAPTURED_TRAY_STYLE = {
+  paddingVertical: 2,
+  backgroundColor: withOpacity(Colors.chromeDark, 0.35),
+  maxWidth: 120,
+} as const;
+
 // Navigation params: bots.tsx passes mode=bot + difficulty (which of the
-// four bot engines to use); matchmaking.tsx passes mode=online + matchId/
-// color/fen/opponentName once the server has paired a real opponent; the
-// PvP/"Iron Duel" flow otherwise defaults to local pass-and-play.
+// four bot engines to use) + color (the "Play As" pick); matchmaking.tsx
+// passes mode=online + matchId/color/fen/opponentName once the server has
+// paired a real opponent; the PvP/"Iron Duel" flow otherwise defaults to
+// local pass-and-play. `color=b` also flips the board (see flipBoard below).
 export default function MatchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -66,11 +68,14 @@ export default function MatchScreen() {
     fen: fenParam,
     opponentName,
     opponentAvatarId,
+    opponentUserId,
     botName,
     botEmoji,
     clockW: clockWParam,
     clockB: clockBParam,
     incrementMs: incrementMsParam,
+    duration: durationParam,
+    venueTier: venueTierParam,
   } = useLocalSearchParams<{
     mode?: string;
     difficulty?: string;
@@ -79,11 +84,19 @@ export default function MatchScreen() {
     fen?: string;
     opponentName?: string;
     opponentAvatarId?: string;
+    opponentUserId?: string;
     botName?: string;
     botEmoji?: string;
     clockW?: string;
     clockB?: string;
     incrementMs?: string;
+    // bot/local only -- picked on the bots screen's Match Options. Online's
+    // clock comes from the server (clockW/clockB) instead.
+    duration?: string;
+    // Set by bots.tsx (Match Options) or matchmaking.tsx once matched; falls
+    // back to Garage when absent (local pass-and-play, private room, friend
+    // challenge -- none of those flows carry a venue today).
+    venueTier?: string;
   }>();
   const mode: GameMode = modeParam === 'bot' ? 'bot' : modeParam === 'online' ? 'online' : 'local';
   const difficulty: BotDifficulty =
@@ -95,21 +108,57 @@ export default function MatchScreen() {
       : 'easy';
   const isStockfishTier =
     difficulty === 'stockfish-basic' || difficulty === 'stockfish-lite' || difficulty === 'stockfish-strong';
+  // Which color this device plays. Online: the server's coin-flip, delivered as
+  // the `color` param. Bot: the "Play As" pick from the bots screen (also the
+  // `color` param). Local pass-and-play: no param -> White. Fixed for the life
+  // of this screen (it remounts per game).
   const playerColor: 'w' | 'b' = colorParam === 'b' ? 'b' : 'w';
-  const online =
-    mode === 'online' && matchId && fenParam
-      ? { matchId, playerColor, initialFen: fenParam }
-      : undefined;
+  const opponentColor: 'w' | 'b' = playerColor === 'w' ? 'b' : 'w';
+  // Render the board from Black's side when this device has Black, so the
+  // player's own pieces are at the bottom (online + bot).
+  const flipBoard = playerColor === 'b';
+  const online = useMemo(
+    () =>
+      mode === 'online' && matchId && fenParam
+        ? { matchId, playerColor, initialFen: fenParam }
+        : undefined,
+    [mode, matchId, fenParam, playerColor],
+  );
   const opponentDisplayName =
     mode === 'online' ? opponentName || 'OPPONENT' : mode === 'bot' ? botName || 'STORM_KING' : 'LOCAL PLAYER';
-  const opponentEmoji =
-    mode === 'bot' ? botEmoji || '🤖' : mode === 'online' ? getAvatarEmoji(opponentAvatarId) : '🤘';
+  // Online opponents get their picked avatar badge; bots keep their roster
+  // emoji, and a same-device "local" opponent falls back to the rock hand.
+  const opponentAvatarSource = mode === 'online' ? getAvatarImage(opponentAvatarId) : undefined;
+  const opponentAvatarEmoji = mode === 'bot' ? botEmoji || '🤖' : mode === 'online' ? undefined : '🤘';
   const navigatedRef = useRef(false);
   const stockfishRef = useRef<StockfishEngineHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [resignVisible, setResignVisible] = useState(false);
   const { profile, refresh: refreshPlayerProfile } = usePlayerProfile();
   const boardTheme = getBoardTheme(profile?.equippedBoardId);
   const pieceSprites = getPieceSprites(profile?.equippedPieceId);
+  // Atmosphere only -- never feeds boardTheme/pieceSprites above, which stay
+  // driven purely by the player's equipped Forge cosmetic regardless of venue.
+  const venueTier = isVenueTier(venueTierParam) ? venueTierParam : 'garage';
+  const venue = getVenue(venueTier);
+  const venueIntensity = getVenueIntensity(venueTier);
+  const menuButtonStyle = useMemo(
+    () => ({
+      backgroundColor: withOpacity(Colors.bgPanel, 0.6),
+      borderWidth: 1,
+      borderColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.6),
+    }),
+    [venue.accentColor, venueIntensity.glowOpacity],
+  );
+  const actionBarStyle = useMemo(
+    () => ({
+      backgroundColor: withOpacity(Colors.bgPanel, 0.96),
+      borderTopWidth: 1,
+      borderTopColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.6),
+      boxShadow: `0px -2px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}`,
+    }),
+    [venue.accentColor, venueIntensity.glowOpacity, venueIntensity.glowRadius],
+  );
 
   const requestEngineMove = useCallback((fen: string, config: StockfishConfig): Promise<EngineMove | null> => {
     if (!stockfishRef.current) return Promise.resolve(null);
@@ -142,7 +191,7 @@ export default function MatchScreen() {
       reason = 'stalemate';
     } else {
       outcome = 'draw';
-      reason = 'draw';
+      reason = result.agreed ? 'agreement' : 'draw';
     }
     console.log('Game over', outcome, reason);
 
@@ -207,82 +256,179 @@ export default function MatchScreen() {
     setTimeout(() => {
       router.replace({
         pathname: '/result-placeholder',
-        params: { outcome, reason, chipsGranted: String(chipsGranted) },
+        params: {
+          outcome,
+          reason,
+          chipsGranted: String(chipsGranted),
+          venueTier,
+          // Lets the result screen offer "Add Friend" for a signed-in online
+          // opponent you just played.
+          ...(mode === 'online' && opponentUserId
+            ? { opponentUserId, opponentName: opponentDisplayName }
+            : {}),
+        },
       });
     }, 900);
   }
 
-  // useChessClock needs game.turn/isGameOver, so it can't be created before
-  // `game` -- but useChessGame's onClockSync needs to reach whichever clock
-  // instance that later-created hook returns. Broken via a ref: the arrow
-  // passed to useChessGame below only looks up clockReconcileRef.current at
-  // CALL time (when a move actually arrives), by which point the clock
-  // instance has already been assigned into it a few lines further down,
-  // synchronously, in the same render.
-  const clockReconcileRef = useRef<((clocks: ClockTimes) => void) | null>(null);
+  // useChessClock is created *after* game (it needs game.turn/isGameOver), but
+  // useChessGame's onClockSync needs to reach it. Broken with a ref assigned
+  // in an effect (not in render -- keeps this component optimizable): the
+  // stable onClockSync closure below reads clockRef.current at CALL time (only
+  // when a move:applied arrives), by which point the effect has run.
+  const clockRef = useRef<{ reconcile: (c: ClockTimes) => void } | null>(null);
+  const onClockSync = useCallback((clocks: ClockTimes) => clockRef.current?.reconcile(clocks), []);
+
   const game = useChessGame({
     mode,
     difficulty,
     requestEngineMove,
+    // Bot mode only: the human picked a side, so the bot takes the other one.
+    botColor: opponentColor,
     online,
     onGameOver: handleGameOver,
-    onClockSync: (clocks) => clockReconcileRef.current?.(clocks),
+    onClockSync,
   });
   const chat = useMatchChat({ mode, online, isOpen: chatOpen });
   const animateOpponentMove = game.lastMoveSource !== null && game.lastMoveSource !== 'human';
+  // Destructured so the useCallbacks below can depend on the individual
+  // methods (stable via React Compiler) rather than the whole `game` object,
+  // which changes identity on every move.
+  const { handleSquarePress, reportTimeout, resign, offerDraw, respondToDraw } = game;
 
-  // Online's real starting time/increment come from the server (via
-  // matchmaking.tsx/game-room.tsx's route params, themselves from
-  // queue:matched) -- clockW/clockB/incrementMs are only ever present for
-  // mode === 'online'; bot/local always fall through to the fixed default.
   const parsedClockW = Number(clockWParam);
   const parsedClockB = Number(clockBParam);
   const parsedIncrement = Number(incrementMsParam);
-  const initialClockMs =
-    mode === 'online' && Number.isFinite(parsedClockW) && Number.isFinite(parsedClockB)
-      ? { w: parsedClockW, b: parsedClockB }
-      : { w: DEFAULT_CLOCK_MS, b: DEFAULT_CLOCK_MS };
+  // bot/local: honour the time control picked on the bots screen; fall back to
+  // 5 min for online (server-authoritative), private rooms, and direct nav.
+  const pickedDuration = isDuration(durationParam) ? durationParam : null;
+  const initialClockMs = useMemo(() => {
+    if (mode === 'online' && Number.isFinite(parsedClockW) && Number.isFinite(parsedClockB)) {
+      return { w: parsedClockW, b: parsedClockB };
+    }
+    const ms = pickedDuration ? DURATION_MS[pickedDuration] : DEFAULT_CLOCK_MS;
+    return { w: ms, b: ms };
+  }, [mode, parsedClockW, parsedClockB, pickedDuration]);
   const clockIncrementMs = mode === 'online' && Number.isFinite(parsedIncrement) ? parsedIncrement : 0;
 
+  const onExpire = useCallback((color: 'w' | 'b') => reportTimeout(color), [reportTimeout]);
   const clock = useChessClock({
     turn: game.turn,
     isGameOver: game.isGameOver,
     initialMs: initialClockMs,
     incrementMs: clockIncrementMs,
-    onExpire: (color) => game.reportTimeout(color),
+    onExpire,
   });
-  clockReconcileRef.current = clock.reconcile;
+  useEffect(() => {
+    clockRef.current = clock;
+  }, [clock]);
+
+  // A match you've started can't be walked out of -- Android hardware back
+  // opens the resign confirmation instead of leaving. The swipe-back gesture
+  // is already disabled app-wide (_layout.tsx). The only exits are the result
+  // screen (game over), Resign, or an agreed Draw.
+  useEffect(() => {
+    const onBack = () => {
+      if (!game.isGameOver && !navigatedRef.current) setResignVisible(true);
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [game.isGameOver]);
+
+  // Safety net: if the match screen ever unmounts for a reason we didn't
+  // block (a bug, a forced logout) while an online game is still live, resign
+  // it server-side so the opponent isn't left hanging until the disconnect
+  // timer. `matchId` is a stable string, so this cleanup only runs on a real
+  // unmount.
+  const liveGameOverRef = useRef(game.isGameOver);
+  liveGameOverRef.current = game.isGameOver;
+  const onlineMatchId = online?.matchId;
+  useEffect(() => {
+    return () => {
+      if (mode === 'online' && onlineMatchId && !liveGameOverRef.current && !navigatedRef.current) {
+        getSocket().emit('match:resign', { matchId: onlineMatchId });
+      }
+    };
+  }, [mode, onlineMatchId]);
+
+  const handleBoardSquarePress = useCallback(
+    (square: string) => handleSquarePress(square as Parameters<typeof handleSquarePress>[0]),
+    [handleSquarePress],
+  );
+  const openChat = useCallback(() => setChatOpen(true), []);
+  const closeChat = useCallback(() => setChatOpen(false), []);
+  const openResign = useCallback(() => setResignVisible(true), []);
+  const cancelResign = useCallback(() => setResignVisible(false), []);
+  const confirmResign = useCallback(() => {
+    setResignVisible(false);
+    resign(playerColor);
+  }, [resign, playerColor]);
+  const acceptDraw = useCallback(() => respondToDraw(true), [respondToDraw]);
+  const declineDraw = useCallback(() => respondToDraw(false), [respondToDraw]);
+
+  const drawIncoming = game.drawOfferFrom !== null && game.drawOfferFrom !== playerColor && !game.isGameOver;
+  const headerPad = useMemo(() => ({ paddingTop: insets.top + Spacing.sm }), [insets.top]);
+  const actionBarPad = useMemo(
+    () => ({ ...actionBarStyle, paddingBottom: insets.bottom + 10 }),
+    [actionBarStyle, insets.bottom],
+  );
 
   return (
     <View style={styles.root}>
+      <VenueBackdrop venueTier={venueTier} />
       <StockfishEngine ref={stockfishRef} enabled={isStockfishTier} />
       <Image
-        source={{ uri: CROWD_SILHOUETTE_URI }}
+        source={ScreenArt.frontRowCrowd}
         contentFit="cover"
         cachePolicy="memory-disk"
         style={styles.crowdImage}
       />
-      <EmberParticles count={8} />
 
-      <View style={[styles.topBar, { paddingTop: insets.top + Spacing.sm }]}>
-        <Text style={styles.topBarTitle}>RockStyle Chess</Text>
-        <View style={styles.xpPill}>
-          <Text style={styles.xpPillText}>XP: 2400</Text>
+      <View className="flex-row items-center justify-between px-lg pb-sm" style={headerPad}>
+        <View className="flex-row items-center" style={{ gap: Spacing.sm }}>
+          <Text className="font-display-hero text-cyan" style={styles.wordmark}>
+            RockStyle Chess
+          </Text>
+          <View
+            className="flex-row items-center rounded-full px-sm"
+            style={{
+              gap: 4,
+              paddingVertical: 3,
+              borderWidth: 1,
+              backgroundColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.15),
+              borderColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity),
+              boxShadow: `0px 0px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}`,
+            }}
+          >
+            <MaterialCommunityIcons name={venue.icon} size={11} color={venue.accentColor} />
+            <Text className="font-heading" style={{ fontSize: 9, color: venue.accentColor }}>
+              {venue.name.toUpperCase()}
+            </Text>
+          </View>
         </View>
+        <Pressable
+          onPress={openResign}
+          className="h-10 w-10 items-center justify-center rounded-full"
+          style={menuButtonStyle}
+        >
+          <MaterialCommunityIcons name="dots-vertical" size={20} color={Colors.textPrimary} />
+        </Pressable>
       </View>
 
-      <View style={styles.middle}>
+      <View className="flex-1 justify-between px-md pb-sm">
         <PlayerRow
           name={opponentDisplayName}
-          emoji={opponentEmoji}
+          avatarSource={opponentAvatarSource}
+          avatarEmoji={opponentAvatarEmoji}
           rank="GRANDMASTER (2150)"
-          remainingMs={clock.remainingMs.b}
+          getRemaining={clock.getRemaining}
+          color={opponentColor}
           accent={Colors.crimson}
-          pulsing={game.turn === 'b'}
-          captured={game.capturedByBlack}
+          pulsing={game.turn === opponentColor}
+          running={!game.isGameOver}
+          captured={opponentColor === 'w' ? game.capturedByWhite : game.capturedByBlack}
         />
-
-        <MoveTicker />
 
         <ChessBoard
           board={game.board}
@@ -291,46 +437,49 @@ export default function MatchScreen() {
           checkSquare={game.checkSquare}
           lastMove={game.lastMove}
           turn={game.turn}
+          flipped={flipBoard}
           animateLastMove={animateOpponentMove}
           lastMoveSound={game.lastMoveSound}
-          onSquarePress={(square) => game.handleSquarePress(square as Parameters<typeof game.handleSquarePress>[0])}
+          onSquarePress={handleBoardSquarePress}
           theme={boardTheme}
           pieceSprites={pieceSprites}
         />
 
-        <ActionBar
-          onResign={() => game.resign(playerColor)}
-          mode={mode}
-          unreadCount={chat.unreadCount}
-          onOpenChat={() => setChatOpen(true)}
-        />
-
         <PlayerRow
           name={profile?.displayName ?? 'AXL_CHESS'}
-          emoji={getAvatarEmoji(profile?.avatarId)}
+          avatarSource={getAvatarImage(profile?.avatarId)}
           rank="PRO (2145)"
-          remainingMs={clock.remainingMs.w}
+          getRemaining={clock.getRemaining}
+          color={playerColor}
           accent={Colors.cyan}
-          pulsing={game.turn === 'w'}
-          captured={game.capturedByWhite}
+          pulsing={game.turn === playerColor}
+          running={!game.isGameOver}
+          captured={playerColor === 'w' ? game.capturedByWhite : game.capturedByBlack}
         />
       </View>
 
-      <View style={styles.navWrap}>
-        <BottomNav
-          activeTab="play"
-          onTabPress={(tab) => {
-            if (tab === 'ranks') router.push('/world-rankings');
-            else if (tab === 'profile') router.push('/iron-id');
-            else if (tab === 'shop') router.push('/shop');
-            else console.log('tab pressed', tab);
-          }}
+      <View className="flex-row items-center gap-sm rounded-t-xl px-margin-mobile pt-md" style={actionBarPad}>
+        <ActionPillButton
+          icon="chat"
+          label="Chat"
+          onPress={openChat}
+          disabled={mode !== 'online'}
+          badgeCount={mode === 'online' ? chat.unreadCount : 0}
         />
+        <ActionPillButton icon="flag" label="Resign" tone="danger" onPress={openResign} />
+        {mode !== 'bot' ? (
+          <ActionPillButton
+            icon="handshake"
+            label={game.drawOfferFrom === playerColor ? 'Offered' : 'Draw'}
+            onPress={offerDraw}
+            disabled={game.isGameOver || game.drawOfferFrom === playerColor}
+          />
+        ) : null}
       </View>
 
       <ChatPanel
         visible={chatOpen}
-        onClose={() => setChatOpen(false)}
+        onClose={closeChat}
         messages={chat.messages}
         myColor={playerColor}
         onSend={chat.send}
@@ -340,55 +489,92 @@ export default function MatchScreen() {
       {chat.toastMessage ? (
         <ChatToast key={chat.toastMessage.id} message={chat.toastMessage} onDismiss={chat.dismissToast} />
       ) : null}
-    </View>
-  );
-}
 
-function PlayerRow({
-  name,
-  emoji,
-  rank,
-  remainingMs,
-  accent,
-  pulsing = false,
-  captured = [],
-}: {
-  name: string;
-  emoji: string;
-  rank: string;
-  remainingMs: number;
-  accent: string;
-  pulsing?: boolean;
-  captured?: string[];
-}) {
-  return (
-    <View style={styles.playerBlock}>
-      <View style={styles.playerRow}>
-        <RockCard style={styles.playerCard}>
-          <View style={styles.playerCardInner}>
-            <PlayerAvatar emoji={emoji} size="tiny" />
-            <View>
-              <Text style={styles.playerCardName}>{name}</Text>
-              <Text style={styles.playerCardRank}>{rank}</Text>
-            </View>
-          </View>
-        </RockCard>
+      {resignVisible ? (
+        <ConfirmModal
+          visible
+          variant="danger"
+          icon="flag"
+          title="Resign Match?"
+          message="This counts as a loss and your rating will drop. This can't be undone."
+          confirmLabel="Resign"
+          onCancel={cancelResign}
+          onConfirm={confirmResign}
+        />
+      ) : null}
 
-        <TimerPill remainingMs={remainingMs} accent={accent} pulsing={pulsing} />
-      </View>
-
-      {captured.length > 0 ? (
-        <View style={styles.capturedRow}>
-          {captured.map((piece, index) => (
-            <Text key={`${piece}-${index}`} style={[styles.capturedGlyph, { color: accent }]}>
-              {CAPTURED_GLYPHS[piece] ?? ''}
-            </Text>
-          ))}
-        </View>
+      {drawIncoming ? (
+        <ConfirmModal
+          visible
+          variant="neutral"
+          icon="handshake"
+          title="Accept Draw?"
+          message={`${opponentDisplayName} offers a draw. Accepting ends the match as a draw.`}
+          confirmLabel="Accept"
+          cancelLabel="Decline"
+          onConfirm={acceptDraw}
+          onCancel={declineDraw}
+        />
       ) : null}
     </View>
   );
 }
+
+const PlayerRow = memo(function PlayerRow({
+  name,
+  avatarSource,
+  avatarEmoji,
+  rank,
+  getRemaining,
+  color,
+  accent,
+  pulsing = false,
+  running,
+  captured = [],
+}: {
+  name: string;
+  avatarSource?: ImageSourcePropType;
+  avatarEmoji?: string;
+  rank: string;
+  getRemaining: (color: 'w' | 'b') => number;
+  color: 'w' | 'b';
+  accent: string;
+  pulsing?: boolean;
+  running: boolean;
+  captured?: string[];
+}) {
+  return (
+    <View className="flex-row items-center justify-between gap-sm px-sm py-xs">
+      <View className="flex-shrink flex-row items-center gap-sm">
+        <PlayerAvatar source={avatarSource} emoji={avatarEmoji} size="small" />
+        <View className="flex-shrink">
+          <Text className="font-display-hero uppercase text-text-primary" style={styles.playerName} numberOfLines={1}>
+            {name}
+          </Text>
+          <View className="mt-0.5 flex-row items-center gap-1">
+            <MaterialCommunityIcons name="star" size={11} color={Colors.gold} />
+            <Text className="font-heading-md uppercase text-text-muted" style={styles.playerRank}>
+              {rank}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View className="items-end gap-1">
+        <TimerPill getRemaining={getRemaining} color={color} accent={accent} pulsing={pulsing} running={running} />
+        {captured.length > 0 ? (
+          <View className="flex-row flex-wrap rounded-full px-sm" style={CAPTURED_TRAY_STYLE}>
+            {captured.map((piece, index) => (
+              <Text key={`${piece}-${index}`} style={{ fontSize: 13, color: accent, opacity: 0.9 }}>
+                {CAPTURED_GLYPHS[piece] ?? ''}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+});
 
 type ClockUrgency = 'normal' | 'low' | 'critical';
 
@@ -408,12 +594,37 @@ function formatClockMs(ms: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
-// Urgency color applies regardless of whose turn it is (a frozen-but-low
-// clock is still worth flagging visually) -- the breathing pulse below is
-// reserved for critical AND actively ticking, since a clock that isn't
-// running can't be racing toward zero.
-function TimerPill({ remainingMs, accent, pulsing }: { remainingMs: number; accent: string; pulsing: boolean }) {
-  const urgency = clockUrgency(remainingMs);
+// Owns its own 1Hz tick so the clock counting down never re-renders the match
+// screen (or the board) -- only this ~90px pill re-renders each second. Polls
+// the stable clock.getRemaining() (see useChessClock.ts). Urgency color
+// applies regardless of whose turn it is (a frozen-but-low clock is still
+// worth flagging); the breathing pulse is reserved for critical AND actively
+// ticking.
+const TimerPill = memo(function TimerPill({
+  getRemaining,
+  color,
+  accent,
+  pulsing,
+  running,
+}: {
+  getRemaining: (color: 'w' | 'b') => number;
+  color: 'w' | 'b';
+  accent: string;
+  pulsing: boolean;
+  running: boolean;
+}) {
+  const [ms, setMs] = useState(() => getRemaining(color));
+
+  useEffect(() => {
+    // Re-sync immediately on mount / turn flip / game-over / online reconcile,
+    // then tick once a second while the game is live.
+    setMs(getRemaining(color));
+    if (!running) return;
+    const id = setInterval(() => setMs(getRemaining(color)), 1000);
+    return () => clearInterval(id);
+  }, [getRemaining, color, running, pulsing]);
+
+  const urgency = clockUrgency(ms);
   const isCriticalAndTicking = urgency === 'critical' && pulsing;
   const pulse = useSharedValue(0);
 
@@ -428,166 +639,70 @@ function TimerPill({ remainingMs, accent, pulsing }: { remainingMs: number; acce
     transform: [{ scale: isCriticalAndTicking ? 1 + pulse.value * 0.05 : 1 }],
   }));
 
-  const urgencyColor = urgency === 'critical' ? Colors.crimson : urgency === 'low' ? Colors.gold : accent;
+  const urgencyColor =
+    urgency === 'critical' ? Colors.crimson : urgency === 'low' ? Colors.gold : pulsing ? accent : Colors.chromeMid;
 
   return (
     <Animated.View
+      className="items-center justify-center rounded-lg px-md"
       style={[
-        styles.timerPill,
         {
-          backgroundColor: withOpacity(urgencyColor, 0.18),
-          borderColor: urgencyColor,
+          minWidth: 92,
+          paddingVertical: 6,
+          borderWidth: 1,
+          backgroundColor: withOpacity(urgencyColor, pulsing ? 0.12 : 0.06),
+          borderColor: withOpacity(urgencyColor, pulsing ? 0.9 : 0.35),
           boxShadow: pulsing ? `0px 0px 15px ${withOpacity(urgencyColor, 0.5)}` : undefined,
         },
         animatedStyle,
       ]}
     >
-      <Text style={[styles.timerText, { color: urgencyColor }]}>{formatClockMs(remainingMs)}</Text>
+      <Text className="font-display-hero" style={{ fontSize: 22, color: urgencyColor }}>
+        {formatClockMs(ms)}
+      </Text>
     </Animated.View>
   );
-}
+});
 
-function MoveTicker() {
-  const [textWidth, setTextWidth] = useState(0);
-  const translateX = useSharedValue(0);
-
-  useEffect(() => {
-    if (textWidth === 0) return;
-    translateX.value = 0;
-    translateX.value = withRepeat(withTiming(-textWidth, { duration: 14000, easing: Easing.linear }), -1, false);
-  }, [textWidth, translateX]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  return (
-    <View style={styles.tickerContainer}>
-      <Animated.Text
-        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
-        style={[styles.tickerText, animatedStyle]}
-        numberOfLines={1}
-      >
-        {MOVE_HISTORY + MOVE_HISTORY}
-      </Animated.Text>
-    </View>
-  );
-}
-
-function ActionBar({
-  onResign,
-  mode,
-  unreadCount,
-  onOpenChat,
-}: {
-  onResign: () => void;
-  mode: GameMode;
-  unreadCount: number;
-  onOpenChat: () => void;
-}) {
-  return (
-    <View style={styles.actionBarWrap}>
-      <RockCard style={styles.actionBarCard}>
-        <View style={styles.actionBarRow}>
-          <ActionButton
-            icon="message-text-outline"
-            label="Chat"
-            colors={[Colors.chromeDark, Colors.bgBase]}
-            onPress={onOpenChat}
-            badgeCount={mode === 'online' ? unreadCount : 0}
-            disabled={mode !== 'online'}
-          />
-          <ActionButton
-            icon="lightbulb-on-outline"
-            label="Hint"
-            colors={[Colors.cyan, Colors.cyan]}
-            onPress={() => console.log('Hint pressed')}
-          />
-          <ActionButton
-            icon="flag"
-            label=""
-            colors={[Colors.crimson, Colors.crimson]}
-            shape="circle"
-            size={60}
-            iconSize={24}
-            onPress={onResign}
-          />
-          <ActionButton
-            icon="handshake"
-            label="Draw"
-            colors={[Colors.chromeDark, Colors.bgBase]}
-            onPress={() => console.log('Draw offered')}
-          />
-          <ActionButton
-            icon="menu"
-            label="Menu"
-            colors={[Colors.chromeDark, Colors.bgBase]}
-            onPress={() => console.log('Menu pressed')}
-          />
-        </View>
-      </RockCard>
-    </View>
-  );
-}
-
-function ActionButton({
+const ActionPillButton = memo(function ActionPillButton({
   icon,
   label,
-  colors,
   onPress,
-  shape = 'square',
-  size = 52,
-  iconSize = 20,
-  badgeCount = 0,
+  tone = 'neutral',
   disabled = false,
+  badgeCount = 0,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
-  colors: readonly [ColorValue, ColorValue];
   onPress: () => void;
-  shape?: 'square' | 'circle';
-  size?: number;
-  iconSize?: number;
-  badgeCount?: number;
+  tone?: 'neutral' | 'danger';
   disabled?: boolean;
+  badgeCount?: number;
 }) {
-  const radius = shape === 'circle' ? size / 2 : Radius.md;
+  const bg = tone === 'danger' ? Colors.crimson : withOpacity(Colors.chromeDark, 0.25);
+  const border = tone === 'danger' ? withOpacity(Colors.textPrimary, 0.2) : withOpacity(Colors.chromeDark, 0.4);
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
-      style={({ pressed }) => [
-        styles.actionButton,
-        {
-          width: size,
-          height: size,
-          borderRadius: radius,
-          boxShadow: `0px 4px 12px ${withOpacity(Colors.bgBase, 0.7)}, 0px 0px 14px ${withOpacity(String(colors[0]), 0.4)}`,
-          transform: [{ scale: pressed ? 0.92 : 1 }],
-          opacity: disabled ? 0.4 : 1,
-        },
-      ]}
+      className="h-12 flex-1 flex-row items-center justify-center gap-1 rounded-lg"
+      style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, opacity: disabled ? 0.4 : 1 }}
     >
-      <LinearGradient
-        pointerEvents="none"
-        colors={colors}
-        style={[StyleSheet.absoluteFillObject, { borderRadius: radius }]}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[withOpacity(Colors.chrome, 0.4), withOpacity(Colors.chrome, 0)]}
-        style={[styles.actionButtonGloss, { borderRadius: radius }]}
-      />
-      <MaterialCommunityIcons name={icon} size={iconSize} color={Colors.textPrimary} />
-      {label ? <Text style={styles.actionButtonLabel}>{label}</Text> : null}
+      <MaterialCommunityIcons name={icon} size={16} color={Colors.textPrimary} />
+      <Text className="font-button-label uppercase text-text-primary" style={styles.actionLabel}>
+        {label}
+      </Text>
       {badgeCount > 0 ? (
-        <View style={styles.actionButtonBadge}>
-          <Text style={styles.actionButtonBadgeText}>{badgeCount > 9 ? '9+' : badgeCount}</Text>
+        <View className="absolute items-center justify-center rounded-full px-1" style={styles.actionBadge}>
+          <Text className="font-heading-md" style={styles.actionBadgeText}>
+            {badgeCount > 9 ? '9+' : badgeCount}
+          </Text>
         </View>
       ) : null}
     </Pressable>
   );
-}
+});
 
+// #region Styles
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -601,160 +716,11 @@ const styles = StyleSheet.create({
     height: '22%',
     opacity: 0.35,
   },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.sm,
-  },
-  topBarTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.cyan,
-    fontStyle: 'italic',
-    letterSpacing: 0.5,
-  },
-  xpPill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 4,
-    borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.cyan, 0.1),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.2),
-  },
-  xpPillText: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.cyan,
-  },
-  middle: {
-    flex: 1,
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
-    justifyContent: 'space-between',
-  },
-  playerBlock: {
-    gap: 4,
-  },
-  playerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  capturedRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 2,
-    paddingHorizontal: Spacing.sm,
-  },
-  capturedGlyph: {
-    fontSize: 14,
-    opacity: 0.85,
-  },
-  playerCard: {
-    flexShrink: 1,
-  },
-  playerCardInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  playerCardName: {
-    fontFamily: Fonts.display,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  playerCardRank: {
-    fontFamily: Fonts.heading,
-    fontSize: 10,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-  },
-  timerPill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-  },
-  timerText: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-  },
-  tickerContainer: {
-    height: 28,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.6),
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.2),
-  },
-  tickerText: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.cyan,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    width: 2000,
-  },
-  actionBarWrap: {
-    marginTop: Spacing.xs,
-  },
-  actionBarCard: {},
-  actionBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-  },
-  actionButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  actionButtonGloss: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '45%',
-  },
-  actionButtonLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 9,
-    // Pinned explicitly (not left to the font's natural metrics) -- custom
-    // TTFs like Oswald can report a much taller default line height on
-    // native than in a browser, which combined with actionButton's
-    // overflow: 'hidden' silently clipped the bottom of this label on
-    // native even though it looked fine on web.
-    lineHeight: 11,
-    color: withOpacity(Colors.textPrimary, 0.85),
-    textTransform: 'uppercase',
-    marginTop: 2,
-  },
-  actionButtonBadge: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.emberLight,
-    boxShadow: `0px 0px 8px ${withOpacity(Colors.emberLight, 0.6)}`,
-  },
-  actionButtonBadgeText: {
-    fontFamily: Fonts.heading,
-    fontSize: 9,
-    color: Colors.bgBase,
-  },
-  navWrap: {
-    left: 0,
-    right: 0,
-  },
+  wordmark: { fontSize: 16, fontStyle: 'italic', letterSpacing: 0.5 },
+  playerName: { fontSize: 14 },
+  playerRank: { fontSize: 10 },
+  actionLabel: { fontSize: 13 },
+  actionBadge: { top: -4, right: -4, minWidth: 16, height: 16, backgroundColor: Colors.emberLight },
+  actionBadgeText: { fontSize: 9, color: Colors.bgBase },
 });
+// #endregion

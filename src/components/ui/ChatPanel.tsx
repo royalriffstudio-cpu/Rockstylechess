@@ -148,6 +148,7 @@ export function ChatPanel({ visible, onClose, messages, myColor, onSend, canSend
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
@@ -267,3 +268,4 @@ const styles = StyleSheet.create({
     boxShadow: 'none',
   },
 });
+// #endregion

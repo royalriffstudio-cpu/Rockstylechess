@@ -54,6 +54,15 @@ Three things about it are easy to break:
   selects which set actually renders.
 - **Square colours come from `BoardSquares` per rank**, not one flat pair. Both
   are measured off the reference; see the theme.
+- **`flipped` is a coordinate transform, not a `rotate`.** Pass `flipped` (Match
+  does, when the local player has Black) and the board renders from Black's side
+  with pieces and coordinate labels still upright. Canonical space (row 0 = rank
+  8, col 0 = file a) stays the source of truth for every square string; only the
+  per-piece shared-value positions and the visual grid order (`flexDirection:
+  *-reverse`) are in "display" space, bridged by `flipIndex`/`displayRowCol`.
+  Every Reanimated worklet is untouched. `flipped` must be constant for the
+  component's lifetime — mounted piece positions are not re-seeded if it changes.
+  The per-rank square tint stays screen-fixed (top-lit, matching the frame).
 
 Pieces get their contact shadow from `ChessBoard`, not from the sprite — the
 extractor can only strip baked shadows from the pale set, so drawing one shadow

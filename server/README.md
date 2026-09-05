@@ -130,25 +130,59 @@ Client -> Server:
 - `room:cancel`
 - `move:make { matchId, from, to, promotion? }`
 - `match:resign { matchId }`
+- `draw:offer { matchId }` -- one outstanding offer per match; cleared by any move
+- `draw:respond { matchId, accept }` -- only the player who didn't offer can answer
 - `match:rejoin { matchId, guestId }`
 - `match:chat:send { matchId, text }`
+- `friend:challenge { guestId, toUserId, duration }` -- authed only
+- `friend:challenge:respond { guestId, challengeId, accept }` -- authed only
+- `friend:challenge:cancel { challengeId }` -- authed only
+- `dm:send { toUserId, text }` -- authed only; persisted, friends-only
 
 Server -> Client:
-- `queue:matched { matchId, color, opponent: { displayName }, fen }` --
-  emitted for a tier-queue pairing, a room-code pairing, or a rejoin alike
-  (see `gameRoom.ts` below); the client doesn't need to know which path
-  produced it.
+- `queue:matched { matchId, color, opponent: { userId, displayName, avatarId }, fen, clocks, incrementMs }` --
+  emitted for a tier-queue pairing, a room-code pairing, a friend challenge,
+  or a rejoin alike (see `gameRoom.ts` below); the client doesn't need to
+  know which path produced it.
 - `room:created { code }`
 - `room:error { reason: 'not-found' | 'own-room' }`
-- `move:applied { from, to, promotion, fen, turn, isGameOver }`
+- `move:applied { from, to, promotion, fen, turn, isGameOver, clocks }`
 - `move:rejected { reason }`
 - `match:opponentDisconnected { color }`
 - `match:opponentReconnected { color }`
-- `match:ended { result }` -- resignation/forfeit only; checkmate/stalemate/
-  draw are derived independently by both clients from the move itself
-  (`move:applied`'s `isGameOver`), same as how the bot/local modes already
-  detect game-over locally via chess.js.
+- `match:ended { result }` -- resignation / forfeit / timeout / **agreed draw**
+  (`{ type: 'draw', winner: null }`). Checkmate / stalemate / *natural* draw
+  (repetition, 50-move, insufficient material) are still derived independently
+  by both clients from the move itself (`move:applied`'s `isGameOver`) -- only
+  a *negotiated* draw is broadcast, since a move can't imply it.
+- `draw:offered { color }` -- the opponent offered a draw
+- `draw:declined {}` -- the opponent declined your offer
+- `draw:cleared {}` -- a pending offer was voided by a move
 - `match:chat:message { color, displayName, text, sentAt }`
+- `friend:presence { userId, status: 'online' | 'offline' }` -- to a user's
+  accepted friends, on their first socket connecting / last one leaving
+- `friend:request { friend }` / `friend:request:accepted { friend }` /
+  `friend:request:withdrawn { userId }` / `friend:removed { userId }` -- so a
+  friend list updates live without a refetch (also refetched on screen mount)
+- `friend:challenge:incoming { challengeId, from, duration, expiresInMs }`
+- `friend:challenge:sent { challengeId, toUserId, duration }` (to challenger)
+- `friend:challenge:declined | :expired | :cancelled { challengeId }`
+- `friend:challenge:error { reason: 'offline' | 'not-friends' | 'expired' | 'challenger-left' }`
+- `dm:message { id, conversationId, fromUserId, toUserId, text, sentAt }` --
+  to the recipient and echoed to the sender's own other devices
+
+**Friends / DMs / challenges** (`db/friends.ts`, `db/directMessages.ts`,
+`realtime.ts`, `challenge.ts`) are the account-only social layer. Friendships
+are stored one row per pair, canonically ordered by UUID. Per-user Socket.IO
+targeting is `realtime.ts`'s `emitToUser` (each authed socket joins a
+`user:<id>` room); it also holds the presence registry. A **friend challenge**
+is a 30s in-memory rendezvous (`challenge.ts`) that bottoms out in the exact
+same `createMatch()` + `queue:matched` path as matchmaking and room codes.
+**DMs** persist to `messages` / `conversations` (`pair_key` = sorted user id
+pair) and deliver live via the socket if the recipient is online, else on
+their next `GET /me/conversations`. The REST side (list/history/requests/
+accept) is on `authRouter` in `auth.ts`; only sending (`dm:send`) and the
+challenge handshake are socket events.
 
 **Game Room** (`gameRoom.ts`) is a second way to pair two players, alongside
 the venue-tier queue above -- one player calls `room:create` and gets back

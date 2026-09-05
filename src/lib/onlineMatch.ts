@@ -1,14 +1,24 @@
 export type VenueTier = 'garage' | 'club' | 'arena' | 'stadium' | 'mainstage' | 'world-tour';
 
-// Mirrors setup.tsx's own Duration type -- the enum, not raw ms, travels
-// over the wire (server/src/index.ts's DURATION_MS resolves it), so a client
-// can't request an arbitrary duration by sending a made-up ms value.
+// The enum, not raw ms, travels over the wire (server/src/index.ts's
+// DURATION_MS resolves it for online play), so a client can't request an
+// arbitrary duration by sending a made-up ms value.
 export type Duration = '3m' | '5m' | '10m';
+
+export const DURATIONS: Duration[] = ['3m', '5m', '10m'];
+
+export const DURATION_LABELS: Record<Duration, string> = { '3m': 'Blitz', '5m': 'Blitz', '10m': 'Rapid' };
+
+// Client-side resolver for bot/local matches, which never reach the server's
+// own DURATION_MS. Values MUST match server/src/index.ts's map.
+export const DURATION_MS: Record<Duration, number> = { '3m': 180_000, '5m': 300_000, '10m': 600_000 };
 
 export interface QueueMatchedPayload {
   matchId: string;
   color: 'w' | 'b';
-  opponent: { displayName: string; avatarId: string | null };
+  // userId is null when the opponent is playing as a guest -- only signed-in
+  // opponents can be added as a friend from the post-game screen.
+  opponent: { userId: string | null; displayName: string; avatarId: string | null };
   fen: string;
   clocks: { w: number; b: number };
   incrementMs: number;
@@ -25,7 +35,15 @@ export interface MoveAppliedPayload {
 }
 
 export interface MatchEndedPayload {
-  result: { type: 'resignation' | 'forfeit' | 'timeout'; winner: 'w' | 'b' };
+  result:
+    | { type: 'resignation' | 'forfeit' | 'timeout'; winner: 'w' | 'b' }
+    | { type: 'draw'; winner: null };
+}
+
+// Server -> client when the opponent offers / withdraws a draw. An offer is
+// also implicitly cleared (draw:cleared) the moment either side moves.
+export interface DrawOfferedPayload {
+  color: 'w' | 'b';
 }
 
 export interface ChatMessagePayload {

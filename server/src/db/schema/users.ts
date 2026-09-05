@@ -26,6 +26,11 @@ export const playerProfiles = pgTable('player_profiles', {
     .references(() => users.id, { onDelete: 'cascade' }),
   displayName: varchar('display_name', { length: 40 }),
   avatarId: varchar('avatar_id', { length: 40 }),
+  // Short human-typed code another player enters to send a friend request
+  // (see db/friends.ts). Set on account creation by betterAuth.ts's
+  // user-create hook; nullable only so the 0007 migration can backfill
+  // pre-existing rows before the unique index is enforced.
+  friendCode: varchar('friend_code', { length: 12 }).unique(),
   level: integer('level').notNull().default(1),
   xp: integer('xp').notNull().default(0),
   // Standard chess-app baseline for a brand new account -- unrelated to the
@@ -36,8 +41,8 @@ export const playerProfiles = pgTable('player_profiles', {
   wins: integer('wins').notNull().default(0),
   losses: integer('losses').notNull().default(0),
   draws: integer('draws').notNull().default(0),
-  // Matches sign-up.tsx's displayed "Welcome Bonus: 10M Chips".
-  chips: bigint('chips', { mode: 'number' }).notNull().default(10_000_000),
+  // Matches sign-up.tsx's displayed "Welcome Bonus: 10,000 Chips".
+  chips: bigint('chips', { mode: 'number' }).notNull().default(10_000),
   gems: bigint('gems', { mode: 'number' }).notNull().default(0),
   country: char('country', { length: 2 }),
   // Cosmetic catalogs (forge.tsx) stay client-side constants, same pattern

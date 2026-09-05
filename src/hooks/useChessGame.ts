@@ -11,7 +11,7 @@ import {
   type VerboseLastMove,
 } from '@/lib/chessBoardSnapshot';
 import { getSocket } from '@/lib/socket';
-import type { MatchEndedPayload, MoveAppliedPayload } from '@/lib/onlineMatch';
+import type { DrawOfferedPayload, MatchEndedPayload, MoveAppliedPayload } from '@/lib/onlineMatch';
 import { parseUciMove } from '@/lib/puzzleEngine';
 import { playSound } from '@/lib/soundEffects';
 
@@ -22,7 +22,9 @@ export type GameMode = 'bot' | 'local' | 'online' | 'puzzle';
 export type ChessGameResult =
   | { type: 'checkmate'; winner: 'w' | 'b' }
   | { type: 'stalemate' }
-  | { type: 'draw' }
+  // `agreed` distinguishes a negotiated draw (players agreed) from a
+  // chess.js-detected one (repetition, 50-move, insufficient material).
+  | { type: 'draw'; agreed?: boolean }
   | { type: 'resignation'; winner: 'w' | 'b' }
   | { type: 'forfeit'; winner: 'w' | 'b' }
   | { type: 'timeout'; winner: 'w' | 'b' };
@@ -87,7 +89,13 @@ interface UseChessGameOptions {
   difficulty?: BotDifficulty;
   /** Bridges to the mounted StockfishEngine; required for the two Stockfish difficulties. */
   requestEngineMove?: RequestEngineMove;
-  /** Bot always plays black; human is white. Only relevant when mode === 'bot'. */
+  /**
+   * Which color the bot plays -- the human takes the other side. Only relevant
+   * when mode === 'bot'. Defaults to 'b' (human is White, the historical
+   * behaviour); the bots screen's "Play As" pick flips it.
+   */
+  botColor?: 'w' | 'b';
+  /** Fires exactly once per game, whatever ends it (mate/draw/resign/forfeit/timeout). */
   onGameOver?: (result: ChessGameResult) => void;
   /** Match id, which color this device plays, and the starting FEN handed
    * back by the server's queue:matched event. Required when mode === 'online'. */
@@ -128,9 +136,10 @@ function createPuzzleChess(puzzle: PuzzleInfo): Chess {
 }
 
 function buildSnapshot(chess: Chess, lastMoveSource: LastMoveSource, puzzleStatus: PuzzleStatus): GameSnapshot {
-  const board = boardGridFromChess(chess);
+  const cells = chess.board();
+  const board = boardGridFromChess(chess, cells);
   const turn = chess.turn();
-  const checkSquare = checkSquareFromChess(chess);
+  const checkSquare = checkSquareFromChess(chess, cells);
 
   const history = chess.history({ verbose: true });
   const capturedByWhite: string[] = [];
@@ -168,6 +177,7 @@ export function useChessGame({
   mode,
   difficulty = 'easy',
   requestEngineMove,
+  botColor = 'b',
   onGameOver,
   online,
   puzzle,
@@ -176,10 +186,21 @@ export function useChessGame({
   const chessRef = useRef<Chess>(puzzle ? createPuzzleChess(puzzle) : new Chess(online?.initialFen));
   const [snapshot, setSnapshot] = useState<GameSnapshot>(() => buildSnapshot(chessRef.current, null, 'playing'));
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  // Which side currently has an outstanding draw offer, or null. Cleared by
+  // the server's draw:cleared (any move) / draw:declined, and locally on every
+  // move for instant feedback.
+  const [drawOfferFrom, setDrawOfferFrom] = useState<'w' | 'b' | null>(null);
+  // Held in refs so the async callers below (setTimeout, socket handlers)
+  // always reach the latest callback without those callbacks being effect
+  // dependencies. Assigned in an effect rather than the render body -- a
+  // render-phase ref write bails React Compiler out of optimizing this whole
+  // hook, and every call site is post-commit anyway.
   const onGameOverRef = useRef(onGameOver);
-  onGameOverRef.current = onGameOver;
   const onClockSyncRef = useRef(onClockSync);
-  onClockSyncRef.current = onClockSync;
+  useEffect(() => {
+    onGameOverRef.current = onGameOver;
+    onClockSyncRef.current = onClockSync;
+  });
   const gameOverFiredRef = useRef(false);
   // Next index to consume from puzzle.moves -- 0 was already auto-played by
   // createPuzzleChess. Odd indices are the solver's own moves (applied via
@@ -265,6 +286,11 @@ export function useChessGame({
     // the opponent's moves arrive exclusively via the server (see the online
     // effect below), never through local taps.
     if (mode === 'online' && online && chess.turn() !== online.playerColor) return;
+    // Bot: the human only controls the non-bot color, and never while it's the
+    // bot's turn (including the pre-move "thinking" delay before the bot effect
+    // applies its move). Local pass-and-play stays ungated -- two humans share
+    // the one device.
+    if (mode === 'bot' && chess.turn() === botColor) return;
     // Puzzle: scripted opponent replies (even indices) are auto-played by
     // the effect below, never through local taps.
     if (mode === 'puzzle' && puzzle && !isSolverTurnInPuzzle) return;
@@ -285,6 +311,7 @@ export function useChessGame({
           playSound('illegal');
         }
         recordMoveTiming();
+        setDrawOfferFrom(null);
         refresh('human');
         reportGameOverIfDone();
         if (mode === 'online' && online) {
@@ -330,6 +357,29 @@ export function useChessGame({
     onGameOverRef.current?.({ type: 'resignation', winner: resigningColor === 'w' ? 'b' : 'w' });
   }
 
+  // Draw offer -- structurally mirrors resign(). Online defers to the server's
+  // authoritative match:ended (it must reach the opponent + persist); local
+  // pass-and-play is mutual by definition so it ends immediately; bot has no
+  // one to negotiate with (match.tsx hides the button for that mode).
+  function offerDraw() {
+    if (gameOverFiredRef.current) return;
+    if (mode === 'online' && online) {
+      getSocket().emit('draw:offer', { matchId: online.matchId });
+      return;
+    }
+    if (mode === 'local') {
+      gameOverFiredRef.current = true;
+      onGameOverRef.current?.({ type: 'draw', agreed: true });
+    }
+  }
+
+  function respondToDraw(accept: boolean) {
+    if (mode === 'online' && online) {
+      getSocket().emit('draw:respond', { matchId: online.matchId, accept });
+    }
+    setDrawOfferFrom(null);
+  }
+
   // The clock (match.tsx's useChessClock) lives entirely outside this hook --
   // ticking on wall-clock time independent of any chess.js mutation would be
   // a real boundary violation of "thin chess.js mirror" (every other change
@@ -369,21 +419,40 @@ export function useChessGame({
       } catch (error) {
         console.log('Opponent move rejected unexpectedly', error);
       }
+      setDrawOfferFrom(null);
       refresh('opponent');
       reportGameOverIfDone();
     }
 
     function handleMatchEnded(payload: MatchEndedPayload) {
+      setDrawOfferFrom(null);
       if (gameOverFiredRef.current) return;
       gameOverFiredRef.current = true;
-      onGameOverRef.current?.(payload.result);
+      // A server "draw" is always a negotiated one (chess.js-detected draws
+      // are derived client-side from the move, never broadcast).
+      const result: ChessGameResult =
+        payload.result.type === 'draw' ? { type: 'draw', agreed: true } : payload.result;
+      onGameOverRef.current?.(result);
+    }
+
+    function handleDrawOffered(payload: DrawOfferedPayload) {
+      setDrawOfferFrom(payload.color);
+    }
+    function handleDrawGone() {
+      setDrawOfferFrom(null);
     }
 
     socket.on('move:applied', handleMoveApplied);
     socket.on('match:ended', handleMatchEnded);
+    socket.on('draw:offered', handleDrawOffered);
+    socket.on('draw:declined', handleDrawGone);
+    socket.on('draw:cleared', handleDrawGone);
     return () => {
       socket.off('move:applied', handleMoveApplied);
       socket.off('match:ended', handleMatchEnded);
+      socket.off('draw:offered', handleDrawOffered);
+      socket.off('draw:declined', handleDrawGone);
+      socket.off('draw:cleared', handleDrawGone);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, online?.matchId]);
@@ -391,7 +460,7 @@ export function useChessGame({
   useEffect(() => {
     if (mode !== 'bot') return;
     const chess = chessRef.current;
-    if (chess.isGameOver() || chess.turn() !== 'b') return;
+    if (chess.isGameOver() || chess.turn() !== botColor) return;
 
     // The Stockfish tiers resolve asynchronously (a round trip through the
     // WebView), unlike easy/medium's synchronous lookups -- so the move can
@@ -421,7 +490,7 @@ export function useChessGame({
       clearTimeout(timeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, difficulty, snapshot]);
+  }, [mode, difficulty, botColor, snapshot]);
 
   useEffect(() => {
     if (mode !== 'puzzle' || !puzzle) return;
@@ -498,6 +567,9 @@ export function useChessGame({
     handleSquarePress,
     resetPuzzle,
     resign,
+    offerDraw,
+    respondToDraw,
+    drawOfferFrom,
     reportTimeout,
     getReplayData,
   };

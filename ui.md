@@ -153,9 +153,23 @@ match, puzzle, replay, and cosmetic-preview board in the app. Key mechanics:
 Expo Router, file-based, grouped by domain under `src/app/`:
 `(auth)`, `(tabs)`, `(play)`, `(rewards)`, `(settings)`, `(shop)`, `(social)`.
 Root `_layout.tsx` sets one `Stack` (`headerShown: false`,
-`contentStyle.backgroundColor: Colors.bgBase`). There is no `Tabs` navigator —
-`(tabs)` holds a single real screen (`home.tsx`); the bottom tab *look* is
-purely the cosmetic `BottomNav` component layered over stack navigation.
+`contentStyle.backgroundColor: Colors.bgBase`, **`gestureEnabled: false`**).
+There is no `Tabs` navigator — `(tabs)` holds `home.tsx`/`play.tsx`; the bottom
+tab *look* is purely the cosmetic `BottomNav` component layered over stack
+navigation.
+
+**Back = up the hierarchy, not history-undo.** `src/lib/navigation.ts` holds a
+`PARENT` map (every route → its canonical parent, root `/home`) and `goUp()`
+(`router.dismissTo(parent)` — pops to the parent if it's in the stack, else
+replaces the current screen with it). Every back affordance goes through it:
+`SubPageHeader`'s button, the custom-header chevrons (shop / bands / front-row /
+puzzle-match), and a single global Android hardware-back handler in
+`_layout.tsx`. The iOS swipe-back gesture is disabled app-wide so it can't do a
+plain pop. `BottomNav` / `TopAppBar` navigate with `router.dismissTo` (not
+`push`) so switching sections doesn't stack. `/match` and `/result-placeholder`
+register their own hardware-back handlers (resign prompt / straight-home) — a
+started match can only be left via the result screen, Resign, or an agreed
+Draw.
 
 ### 5.2 Entry / auth flow
 
@@ -194,7 +208,8 @@ index.tsx (checks stored auth token)
   these image sources.
 - **Bottom nav**: fixed 4 tabs (`home`, `ranks`→world-rankings, `shop`,
   `profile`→iron-id) plus a 5th floating circular "play" button overlapping the
-  bar's top edge.
+  bar's top edge. `BottomNav` navigates internally (via `router.dismissTo`) —
+  callers just pass `activeTab`; `onTabPress` is an optional side-effect hook.
 
 ---
 

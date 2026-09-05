@@ -20,7 +20,7 @@ export interface QuestSeed {
 // directly, so quests.tsx renders from the live response instead of a local
 // catalog.
 //
-// Amounts kept well under MATCH_CHIP_REWARDS.win (475,000, see
+// Amounts kept well under MATCH_CHIP_REWARDS.win (475, see
 // matchRewards.ts) -- same "daily quests shouldn't out-earn actually playing"
 // philosophy dailyBonusRewards.ts documents, scaled down further since these
 // are meant to be repeatable small quests rather than a curated login streak.
@@ -38,7 +38,7 @@ export const QUEST_SEED: QuestSeed[] = [
     description: 'Take the stage and come out on top three times.',
     icon: 'trophy-outline',
     target: 3,
-    rewardChips: 60_000,
+    rewardChips: 60,
     minLevel: 1,
     metric: 'wins',
   },
@@ -49,7 +49,7 @@ export const QUEST_SEED: QuestSeed[] = [
     description: 'No survivors on the board tonight.',
     icon: 'sword-cross',
     target: 20,
-    rewardChips: 40_000,
+    rewardChips: 40,
     minLevel: 1,
     metric: 'captures',
   },
@@ -60,7 +60,7 @@ export const QUEST_SEED: QuestSeed[] = [
     description: 'Sharpen your ear for the tactics backstage.',
     icon: 'puzzle-outline',
     target: 3,
-    rewardChips: 30_000,
+    rewardChips: 30,
     minLevel: 1,
     metric: 'puzzles_solved',
   },
@@ -71,7 +71,7 @@ export const QUEST_SEED: QuestSeed[] = [
     description: 'End the show with a bang, not a whimper.',
     icon: 'chess-king',
     target: 1,
-    rewardChips: 50_000,
+    rewardChips: 50,
     minLevel: 1,
     metric: 'checkmates',
   },

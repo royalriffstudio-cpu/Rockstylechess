@@ -66,7 +66,7 @@ export default function DevPreviewScreen() {
 
         <SectionLabel label="Currency Pill" />
         <View style={styles.row}>
-          <CurrencyPill type="chips" value={12450} onPressAdd={() => {}} />
+          <CurrencyPill type="chips" value={12} onPressAdd={() => {}} />
           <CurrencyPill type="gems" value={326} />
         </View>
 
@@ -98,6 +98,7 @@ export default function DevPreviewScreen() {
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -147,3 +148,4 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
 });
+// #endregion

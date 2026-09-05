@@ -7,9 +7,9 @@ export type MatchOutcome = 'win' | 'loss' | 'draw';
 // amounts, never a client-supplied number. Keep the two files in sync if
 // these change.
 export const MATCH_CHIP_REWARDS: Record<MatchOutcome, number> = {
-  win: 475_000,
+  win: 475,
   loss: 0,
-  draw: 50_000,
+  draw: 50,
 };
 
 // Pacing against server/src/leveling.ts's curve (300*L^2): at 500 xp/win,

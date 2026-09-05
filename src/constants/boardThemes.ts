@@ -51,7 +51,7 @@ function deriveSquares(
 }
 
 // Only classic-chrome is free/unlocked by default. The rest are ordered and
-// priced as an ascending ladder (gems:chips held at a constant 1:20,000
+// priced as an ascending ladder (gems:chips held at a constant 1:20
 // ratio throughout) -- keep in sync with server/src/boardThemes.ts.
 export const BOARD_THEMES: BoardTheme[] = [
   {
@@ -68,7 +68,7 @@ export const BOARD_THEMES: BoardTheme[] = [
     name: 'Cyan Storm',
     locked: true,
     gemPrice: 100,
-    chipPrice: 2_000_000,
+    chipPrice: 2_000,
     squares: deriveSquares(SLATE_STONE, 0.15, SLATE_STONE, 0.35),
     glowColor: SLATE_STONE,
   },
@@ -77,7 +77,7 @@ export const BOARD_THEMES: BoardTheme[] = [
     name: 'Gold Rush',
     locked: true,
     gemPrice: 200,
-    chipPrice: 4_000_000,
+    chipPrice: 4_000,
     squares: deriveSquares(BRONZE_STONE, 0.15, BRONZE_STONE, 0.35),
     glowColor: BRONZE_STONE,
   },
@@ -86,7 +86,7 @@ export const BOARD_THEMES: BoardTheme[] = [
     name: 'Crimson Stage',
     locked: true,
     gemPrice: 300,
-    chipPrice: 6_000_000,
+    chipPrice: 6_000,
     squares: deriveSquares(RUST_STONE, 0.15, RUST_STONE, 0.35),
     glowColor: RUST_STONE,
   },
@@ -95,7 +95,7 @@ export const BOARD_THEMES: BoardTheme[] = [
     name: 'Obsidian Void',
     locked: true,
     gemPrice: 350,
-    chipPrice: 7_000_000,
+    chipPrice: 7_000,
     squares: deriveSquares(Colors.chromeMid, 0.25, Colors.bgBase, 0.5),
     glowColor: Colors.chromeMid,
   },

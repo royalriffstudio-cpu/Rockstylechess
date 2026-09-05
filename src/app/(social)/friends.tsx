@@ -1,472 +1,373 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CurrencyPill, PlayerAvatar, RockCard } from '@/components/ui';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { FriendRow, RowAction } from '@/components/friends/FriendRow';
+import { SubPageHeader } from '@/components/layout';
+import { AppIcon, ConfirmModal, CurrencyPill, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
+import { getAvatarImage } from '@/constants/avatars';
+import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { useChallenges } from '@/hooks/useChallenges';
+import { useFriends } from '@/hooks/useFriends';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import type { Friend, FriendCodeLookup } from '@/lib/api';
+import type { Duration } from '@/lib/onlineMatch';
 
-// Real, currently-live Stitch preview asset (lh3.googleusercontent.com/aida-public/...),
-// verified resolvable. No documented permanence guarantee.
-const CROWD_SILHOUETTE_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuAWYNM0jE8WXbmtxN0d4LRVfoX7AWRGs_a084goDdQP1zSFp-lH4ZdcvoClo4Iktfxd_1ywHkmxp4SKG9sGiDkO6lUuGFUlrvuL9X3O7TONQfnUksdaTyCUQmoqENBU0ie82tGHQsIsh_RL7Yl6Zuoblb-8LpsrHTRdHYKYat-c5dWOYJRn41VmZ_KVcfyYXBORgzNUC3Mt0-Xe7oS03O8i3mQdEY61XB96VUS5h9xULktG3YI0wUQXn3mfU76s-4pGh-1hP-t_1MM';
-
-type FriendStatus = 'online' | 'offline' | 'in-game';
-
-interface Friend {
-  id: string;
-  name: string;
-  emoji: string;
-  badge?: string;
-  status: FriendStatus;
-  meta: string;
-}
-
-const FRIENDS: Friend[] = [
-  { id: 'echo-knight', name: 'ECHO_KNIGHT', emoji: '⚔️', badge: 'GM', status: 'online', meta: 'Rating: 2450' },
-  { id: 'void-strategist', name: 'VOID_STRATEGIST', emoji: '🎮', badge: 'M', status: 'online', meta: 'Rating: 2180' },
-  { id: 'zen-master-7', name: 'ZEN_MASTER_7', emoji: '🗿', status: 'offline', meta: 'Last seen 2h ago' },
-  { id: 'ember-king', name: 'EMBER_KING', emoji: '🔥', status: 'in-game', meta: 'Blitz • 5:00' },
+const DURATIONS: { id: Duration; label: string }[] = [
+  { id: '3m', label: '3 min' },
+  { id: '5m', label: '5 min' },
+  { id: '10m', label: '10 min' },
 ];
 
-const STATUS_DOT_COLOR: Record<FriendStatus, string> = {
-  online: Colors.cyan,
-  offline: Colors.chromeDark,
-  'in-game': Colors.emberLight,
-};
-
-type FriendsTab = 'all' | 'recent';
+type LookupState =
+  | { status: 'idle' }
+  | { status: 'searching' }
+  | { status: 'found'; user: FriendCodeLookup }
+  | { status: 'error'; message: string };
 
 export default function FriendsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { gems } = usePlayerProfile();
-  const [activeTab, setActiveTab] = useState<FriendsTab>('all');
+  const { gems, profile } = usePlayerProfile();
+  const friends = useFriends();
+  const { sendChallenge } = useChallenges();
+
+  const [codeInput, setCodeInput] = useState('');
+  const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
+  const [sending, setSending] = useState(false);
+  const [challengeTarget, setChallengeTarget] = useState<Friend | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<Friend | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const friendlyError = (raw: string): string => {
+    switch (raw) {
+      case 'user-not-found':
+        return 'No player has that friend code.';
+      case 'cannot-friend-self':
+        return "That's your own friend code.";
+      case 'already-friends':
+        return "You're already friends.";
+      case 'already-pending':
+        return 'A request is already pending.';
+      case 'blocked':
+        return "You can't add this player.";
+      default:
+        return 'Something went wrong. Try again.';
+    }
+  };
+
+  async function handleLookup() {
+    const code = codeInput.trim();
+    if (!code) return;
+    setLookup({ status: 'searching' });
+    try {
+      const user = await friends.lookup(code);
+      setLookup(user ? { status: 'found', user } : { status: 'error', message: 'No player has that friend code.' });
+    } catch {
+      setLookup({ status: 'error', message: 'Something went wrong. Try again.' });
+    }
+  }
+
+  async function handleSendRequest() {
+    if (lookup.status !== 'found') return;
+    setSending(true);
+    try {
+      const { accepted } = await friends.addFriend({ userId: lookup.user.userId });
+      setLookup({
+        status: 'error',
+        message: accepted ? "You're now friends!" : 'Request sent.',
+      });
+      setCodeInput('');
+    } catch (error) {
+      setLookup({ status: 'error', message: friendlyError((error as Error).message) });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleCopyCode() {
+    if (!profile?.friendCode) return;
+    await Clipboard.setStringAsync(profile.friendCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (friends.status === 'guest') {
+    return (
+      <View className="flex-1 bg-bg-base">
+        <SubPageHeader title="Friends" />
+        <View className="flex-1 items-center justify-center gap-md px-xl">
+          <AppIcon name="group" size={40} color={Colors.textMuted} />
+          <Text className="text-center font-body-base text-body-base text-text-muted">
+            Sign in to add friends, challenge them, and message between games.
+          </Text>
+          <RockButton label="Sign In" variant="primary" onPress={() => router.push('/sign-in')} />
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <View style={styles.root}>
-      <Image
-        source={{ uri: CROWD_SILHOUETTE_URI }}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        style={styles.backgroundImage}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[withOpacity(Colors.bgBase, 0.6), Colors.bgBase]}
-        style={styles.backgroundImage}
-      />
-
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <MaterialCommunityIcons name="chevron-left" size={26} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Friends</Text>
-        <CurrencyPill type="gems" value={gems} />
-      </View>
+    <View className="flex-1 bg-bg-base">
+      <SubPageHeader title="Friends" trailing={<CurrencyPill type="gems" value={gems} />} />
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 + insets.bottom }]}
+        contentContainerClassName="gap-lg px-lg py-xl"
+        contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.searchRow}>
-          <View style={styles.searchField}>
-            <MaterialCommunityIcons name="magnify" size={18} color={Colors.textMuted} />
-            <TextInput
-              placeholder="Search friends by ID or rank..."
-              placeholderTextColor={Colors.textMuted}
-              style={styles.searchInput}
-            />
-          </View>
-          <Pressable style={styles.addButton} onPress={() => console.log('Add friend pressed')}>
-            <MaterialCommunityIcons name="account-plus" size={22} color={Colors.bgBase} />
-          </Pressable>
-        </View>
+        <RockButton
+          label="Private Game Room"
+          variant="cyan"
+          icon={<AppIcon name="meeting_room" size={18} color={Colors.bgBase} />}
+          onPress={() => router.push('/game-room')}
+        />
 
-        <View style={styles.tabRow}>
-          <Pressable
-            style={[styles.tabButton, activeTab === 'all' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('all')}
-          >
-            <MaterialCommunityIcons
-              name="account-group"
-              size={14}
-              color={activeTab === 'all' ? Colors.cyan : Colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'all' && styles.tabLabelActive]}>All Friends (24)</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.tabButton, activeTab === 'recent' && styles.tabButtonActive]}
-            onPress={() => setActiveTab('recent')}
-          >
-            <MaterialCommunityIcons
-              name="lightning-bolt"
-              size={14}
-              color={activeTab === 'recent' ? Colors.cyan : Colors.textMuted}
-            />
-            <Text style={[styles.tabLabel, activeTab === 'recent' && styles.tabLabelActive]}>Recent (5)</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.list}>
-          {FRIENDS.map((friend) => {
-            const offline = friend.status === 'offline';
-            return (
-              <RockCard key={friend.id} style={[styles.friendCard, offline && styles.friendCardOffline]}>
-                <View style={styles.friendRow}>
-                  <View style={styles.friendAvatarWrap}>
-                    <PlayerAvatar emoji={friend.emoji} size="medium" />
-                    <View style={[styles.statusDot, { backgroundColor: STATUS_DOT_COLOR[friend.status] }]} />
-                  </View>
-                  <View style={styles.friendInfo}>
-                    <View style={styles.friendNameRow}>
-                      <Text style={[styles.friendName, offline && styles.friendNameOffline]}>{friend.name}</Text>
-                      {friend.badge ? (
-                        <View style={styles.badgePill}>
-                          <Text style={styles.badgePillText}>{friend.badge}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={styles.friendMeta}>{friend.meta}</Text>
-                  </View>
-                  <View style={styles.friendActions}>
-                    {friend.status === 'offline' ? (
-                      <View style={styles.offlinePill}>
-                        <Text style={styles.offlinePillText}>Offline</Text>
-                      </View>
-                    ) : friend.status === 'in-game' ? (
-                      <Pressable
-                        style={styles.watchButton}
-                        onPress={() => {
-                          console.log('Watch pressed', friend.name);
-                          router.push('/front-row');
-                        }}
-                      >
-                        <MaterialCommunityIcons name="eye-outline" size={14} color={Colors.cyan} />
-                        <Text style={styles.watchButtonText}>Watch</Text>
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        style={styles.challengeButton}
-                        onPress={() => console.log('Challenge pressed', friend.name)}
-                      >
-                        <Text style={styles.challengeButtonText}>Challenge</Text>
-                      </Pressable>
-                    )}
-                    <Pressable
-                      style={styles.chatButton}
-                      onPress={() => {
-                        console.log('Chat pressed', friend.name);
-                        router.push('/messages');
-                      }}
-                    >
-                      <MaterialCommunityIcons name="chat-outline" size={14} color={Colors.textPrimary} />
-                    </Pressable>
-                  </View>
-                </View>
-              </RockCard>
-            );
-          })}
-        </View>
-
-        <RockCard style={styles.referralCard}>
-          <Text style={styles.referralTitle}>Forge New Rivalries</Text>
-          <View style={styles.referralRow}>
-            <View style={styles.referralLeft}>
-              <View style={styles.referralIconCircle}>
-                <MaterialCommunityIcons name="share-variant" size={22} color={Colors.cyan} />
-              </View>
-              <View>
-                <Text style={styles.referralLabel}>Share Profile Link</Text>
-                <Text style={styles.referralSubtitle}>Earn 50 gems for each referral</Text>
-              </View>
+        {profile?.friendCode ? (
+          <RockCard variant="surface" contentPadding={14}>
+            <Text className="font-section-header uppercase" style={{ fontSize: 10, letterSpacing: 2, color: Colors.textMuted }}>
+              Your Friend Code
+            </Text>
+            <View className="mt-xs flex-row items-center justify-between">
+              <Text className="font-headline-lg text-cyan" style={{ fontSize: 24, letterSpacing: 4 }}>
+                {profile.friendCode}
+              </Text>
+              <Pressable
+                onPress={handleCopyCode}
+                hitSlop={8}
+                className="flex-row items-center gap-1 rounded-md px-2.5 py-1.5"
+                style={{ backgroundColor: withOpacity(Colors.cyan, 0.12), borderWidth: 1, borderColor: withOpacity(Colors.cyan, 0.35) }}
+              >
+                <AppIcon name={copied ? 'check' : 'content_copy'} size={14} color={Colors.cyan} />
+                <Text className="font-section-header uppercase" style={{ fontSize: 10, color: Colors.cyan }}>
+                  {copied ? 'Copied' : 'Copy'}
+                </Text>
+              </Pressable>
             </View>
-            <Pressable style={styles.copyButton} onPress={() => console.log('Copy referral link pressed')}>
-              <MaterialCommunityIcons name="content-copy" size={18} color={Colors.cyan} />
+            <Text className="mt-xs font-body-sm" style={{ fontSize: 11, color: Colors.textMuted }}>
+              Share it so friends can add you.
+            </Text>
+          </RockCard>
+        ) : null}
+
+        <View className="gap-sm">
+          <SectionLabel label="Add a Friend" />
+          <View className="flex-row gap-sm">
+            <View
+              className="flex-1 flex-row items-center gap-sm rounded-md px-md"
+              style={{ height: 46, backgroundColor: withOpacity(Colors.bgPanel, 0.85), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4) }}
+            >
+              <AppIcon name="person_add" size={16} color={Colors.textMuted} />
+              <TextInput
+                value={codeInput}
+                onChangeText={(t) => {
+                  setCodeInput(t.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12));
+                  setLookup({ status: 'idle' });
+                }}
+                placeholder="Enter friend code"
+                placeholderTextColor={Colors.textMuted}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                onSubmitEditing={handleLookup}
+                className="flex-1 font-body-base uppercase text-text-primary"
+                style={{ fontSize: 14, letterSpacing: 1 }}
+              />
+            </View>
+            <Pressable
+              onPress={handleLookup}
+              disabled={!codeInput.trim() || lookup.status === 'searching'}
+              className="items-center justify-center rounded-md"
+              style={{ width: 46, height: 46, backgroundColor: Colors.cyan, opacity: !codeInput.trim() ? 0.5 : 1 }}
+            >
+              {lookup.status === 'searching' ? (
+                <ActivityIndicator color={Colors.bgBase} size="small" />
+              ) : (
+                <AppIcon name="search" size={20} color={Colors.bgBase} />
+              )}
             </Pressable>
           </View>
-        </RockCard>
 
-        <View style={styles.bottomSpacer} />
+          {lookup.status === 'found' ? (
+            <RockCard variant="surface" contentPadding={12}>
+              <View className="flex-row items-center gap-md">
+                <PlayerAvatar source={getAvatarImage(lookup.user.avatarId)} size="small" />
+                <View className="flex-1">
+                  <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
+                    {lookup.user.displayName ?? 'Anonymous'}
+                  </Text>
+                  <Text className="mt-0.5 font-body-sm" style={{ fontSize: 11, color: Colors.textMuted }}>
+                    {lookup.user.rating} ELO
+                  </Text>
+                </View>
+                <RockButton
+                  label={sending ? 'Sending…' : 'Add'}
+                  variant="cyan"
+                  disabled={sending}
+                  onPress={handleSendRequest}
+                  style={{ paddingHorizontal: 18 }}
+                />
+              </View>
+            </RockCard>
+          ) : lookup.status === 'error' ? (
+            <Text className="font-body-sm" style={{ fontSize: 12, color: Colors.textMuted }}>
+              {lookup.message}
+            </Text>
+          ) : null}
+        </View>
+
+        {friends.incoming.length > 0 ? (
+          <View className="gap-sm">
+            <SectionLabel label={`Friend Requests (${friends.incoming.length})`} />
+            {friends.incoming.map((r) => (
+              <FriendRow
+                key={r.userId}
+                displayName={r.displayName}
+                avatarId={r.avatarId}
+                rating={r.rating}
+                subtitle={`Wants to be friends · ${r.rating} ELO`}
+                right={
+                  <View className="flex-row gap-1">
+                    <RowAction
+                      label="Accept"
+                      icon={<AppIcon name="check" size={12} color={Colors.cyan} />}
+                      onPress={() => void friends.acceptRequest(r.userId)}
+                    />
+                    <RowAction label="Ignore" color={Colors.chromeMid} onPress={() => void friends.declineRequest(r.userId)} />
+                  </View>
+                }
+              />
+            ))}
+          </View>
+        ) : null}
+
+        {friends.outgoing.length > 0 ? (
+          <View className="gap-sm">
+            <SectionLabel label="Sent Requests" />
+            {friends.outgoing.map((r) => (
+              <FriendRow
+                key={r.userId}
+                displayName={r.displayName}
+                avatarId={r.avatarId}
+                rating={r.rating}
+                subtitle="Request sent"
+                right={<RowAction label="Cancel" color={Colors.chromeMid} onPress={() => void friends.declineRequest(r.userId)} />}
+              />
+            ))}
+          </View>
+        ) : null}
+
+        <View className="gap-sm">
+          <SectionLabel label={`Friends (${friends.friends.length})`} />
+          {friends.status === 'loading' && friends.friends.length === 0 ? (
+            <ActivityIndicator color={Colors.cyan} style={{ marginTop: 24 }} />
+          ) : friends.friends.length === 0 ? (
+            <Text className="font-body-sm" style={{ fontSize: 12, color: Colors.textMuted }}>
+              No friends yet. Share your code, or add someone by theirs.
+            </Text>
+          ) : (
+            friends.friends.map((f) => {
+              const presence = friends.presenceOf(f.userId);
+              return (
+                <FriendRow
+                  key={f.userId}
+                  displayName={f.displayName}
+                  avatarId={f.avatarId}
+                  rating={f.rating}
+                  presence={presence}
+                  right={
+                    <View className="flex-row items-center gap-1">
+                      <RowAction
+                        label="Play"
+                        icon={<AppIcon name="swords" size={12} color={Colors.cyan} />}
+                        disabled={presence !== 'online'}
+                        onPress={() => setChallengeTarget(f)}
+                      />
+                      <RowAction
+                        label="Chat"
+                        icon={<AppIcon name="chat" size={12} color={Colors.gold} />}
+                        color={Colors.gold}
+                        onPress={() => router.push({ pathname: '/messages', params: { userId: f.userId } })}
+                      />
+                      <Pressable
+                        onPress={() => setRemoveTarget(f)}
+                        hitSlop={8}
+                        className="h-8 w-7 items-center justify-center rounded-md"
+                        style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.9), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4) }}
+                      >
+                        <AppIcon name="more_vert" size={16} color={Colors.textMuted} />
+                      </Pressable>
+                    </View>
+                  }
+                />
+              );
+            })
+          )}
+        </View>
       </ScrollView>
+
+      <Modal
+        visible={challengeTarget !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setChallengeTarget(null)}
+      >
+        <Pressable
+          onPress={() => setChallengeTarget(null)}
+          style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.lg, backgroundColor: withOpacity(Colors.bgBase, 0.8) }}
+        >
+          <Pressable onPress={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 320 }}>
+            <View
+              style={{
+                borderRadius: 20,
+                borderWidth: 1,
+                borderColor: withOpacity(Colors.cyan, 0.3),
+                backgroundColor: Colors.bgPanel,
+                padding: Spacing.lg,
+                gap: Spacing.sm,
+              }}
+            >
+              <Text style={{ textAlign: 'center', fontSize: 16, fontWeight: '600', color: Colors.textPrimary }}>
+                Challenge {challengeTarget?.displayName ?? ''}
+              </Text>
+              <Text style={{ marginBottom: Spacing.xs, textAlign: 'center', fontSize: 13, color: Colors.textMuted }}>
+                Pick a time control
+              </Text>
+              {DURATIONS.map((d) => (
+                <RockButton
+                  key={d.id}
+                  label={d.label}
+                  variant="cyan"
+                  onPress={() => {
+                    if (challengeTarget) {
+                      void sendChallenge(challengeTarget.userId, challengeTarget.displayName ?? 'Friend', d.id);
+                    }
+                    setChallengeTarget(null);
+                  }}
+                  style={{ width: '100%' }}
+                />
+              ))}
+              <RockButton label="Cancel" variant="secondary" onPress={() => setChallengeTarget(null)} style={{ width: '100%' }} />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <ConfirmModal
+        visible={removeTarget !== null}
+        variant="danger"
+        title="Remove Friend"
+        message={`Remove ${removeTarget?.displayName ?? 'this player'} from your friends?`}
+        confirmLabel="Remove"
+        onConfirm={() => {
+          if (removeTarget) void friends.unfriend(removeTarget.userId);
+          setRemoveTarget(null);
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.25,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    flex: 1,
-    textAlign: 'center',
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 60,
-    gap: Spacing.lg,
-  },
-  searchRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  searchField: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    height: 48,
-    borderRadius: Radius.md,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.85),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  addButton: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.cyan,
-    boxShadow: `0px 0px 14px ${withOpacity(Colors.cyan, 0.4)}`,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  tabButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: Radius.md,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.6),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.3),
-  },
-  tabButtonActive: {
-    backgroundColor: withOpacity(Colors.cyan, 0.14),
-    borderColor: withOpacity(Colors.cyan, 0.4),
-  },
-  tabLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-  },
-  tabLabelActive: {
-    color: Colors.cyan,
-  },
-  list: {
-    gap: Spacing.sm,
-  },
-  friendCard: {},
-  friendCardOffline: {
-    opacity: 0.7,
-  },
-  friendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  friendAvatarWrap: {
-    position: 'relative',
-  },
-  statusDot: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: Colors.bgBase,
-  },
-  friendInfo: {
-    flex: 1,
-  },
-  friendNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  friendName: {
-    fontFamily: Fonts.heading,
-    fontSize: 14,
-    color: Colors.textPrimary,
-  },
-  friendNameOffline: {
-    color: Colors.textMuted,
-  },
-  badgePill: {
-    paddingHorizontal: 4,
-    borderRadius: 3,
-    backgroundColor: withOpacity(Colors.emberLight, 0.15),
-  },
-  badgePillText: {
-    fontFamily: Fonts.heading,
-    fontSize: 9,
-    color: Colors.emberLight,
-  },
-  friendMeta: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  friendActions: {
-    gap: 6,
-    alignItems: 'flex-end',
-  },
-  challengeButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.cyan,
-    boxShadow: `0px 0px 10px ${withOpacity(Colors.cyan, 0.4)}`,
-  },
-  challengeButtonText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.bgBase,
-    textTransform: 'uppercase',
-  },
-  watchButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.sm,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.9),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.4),
-  },
-  watchButtonText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-  },
-  offlinePill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 6,
-    borderRadius: Radius.sm,
-    backgroundColor: withOpacity(Colors.chromeDark, 0.2),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  offlinePillText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-  },
-  chatButton: {
-    width: 32,
-    height: 32,
-    borderRadius: Radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.9),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  referralCard: {
-    gap: Spacing.md,
-  },
-  referralTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 18,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  referralRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  referralLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    flexShrink: 1,
-  },
-  referralIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.cyan, 0.12),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.3),
-  },
-  referralLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  referralSubtitle: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  copyButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.9),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  bottomSpacer: {
-    height: 20,
-  },
-});

@@ -22,7 +22,7 @@
  * Molten Gold / Crimson Reaper -- the mock's fourth option, Neon Cyan, was
  * dropped as a poor thematic fit, see the git history for that call),
  * re-priced into the same ascending-ladder shape as BOARD_THEMES (only
- * classic-pieces free, gems:chips held at a constant 1:20,000 ratio).
+ * classic-pieces free, gems:chips held at a constant 1:20 ratio).
  * `server/src/pieceSets.ts` mirrors the id/locked/price subset for
  * server-side equip validation -- keep in sync if sets are added/removed/
  * re-priced.
@@ -62,7 +62,7 @@ export const PIECE_SETS: PieceSet[] = [
     name: 'Graphite Tour',
     locked: true,
     gemPrice: 120,
-    chipPrice: 2_400_000,
+    chipPrice: 2_400,
     accentColor: Colors.chromeDark,
   },
   {
@@ -74,7 +74,7 @@ export const PIECE_SETS: PieceSet[] = [
     name: 'Molten Gold',
     locked: true,
     gemPrice: 320,
-    chipPrice: 6_400_000,
+    chipPrice: 6_400,
     accentColor: Colors.gold,
   },
   {
@@ -86,7 +86,7 @@ export const PIECE_SETS: PieceSet[] = [
     name: 'Crimson Reaper',
     locked: true,
     gemPrice: 420,
-    chipPrice: 8_400_000,
+    chipPrice: 8_400,
     accentColor: Colors.crimson,
   },
 ];

@@ -89,6 +89,7 @@ export function ChatToast({ message, onDismiss }: ChatToastProps) {
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
@@ -141,3 +142,4 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+// #endregion

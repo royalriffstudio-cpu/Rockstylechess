@@ -1,18 +1,25 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { Image, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 
-import { Colors, Fonts, withOpacity } from '@/constants/theme';
+import { Colors, Fonts, Gradients, withOpacity } from '@/constants/theme';
 
 export type AvatarSize = 'tiny' | 'small' | 'medium' | 'large';
 
 interface PlayerAvatarProps {
+  /** A bundled avatar image (e.g. `getAvatarImage(avatarId)`). Wins over `imageUri`/`emoji`. */
+  source?: ImageSourcePropType;
   imageUri?: string;
+  /** Fallback glyph for non-avatar-set uses (bots, mock friends, "searching…" states). */
   emoji?: string;
   /** Omit to render the avatar with no level badge (e.g. character select). */
   level?: number;
   size?: AvatarSize;
   /** Swaps the fire ring for a cyan "selected" ring, e.g. character select. */
   selected?: boolean;
+  /** Continuous ring rotation, e.g. while a spin-wheel result is pending. */
+  spinning?: boolean;
 }
 
 const SIZE_MAP: Record<AvatarSize, { outer: number; ring: number; emoji: number; badge: number }> = {
@@ -30,47 +37,65 @@ const SIZE_MAP: Record<AvatarSize, { outer: number; ring: number; emoji: number;
 // expo-linear-gradient only renders linear (not conic) gradients, so the
 // "fire ring" is approximated with a diagonal multi-stop sweep plus a
 // matching colored glow rather than a literal 360° conic gradient.
-export function PlayerAvatar({ imageUri, emoji, level, size = 'medium', selected = false }: PlayerAvatarProps) {
+export function PlayerAvatar({
+  source,
+  imageUri,
+  emoji,
+  level,
+  size = 'medium',
+  selected = false,
+  spinning = false,
+}: PlayerAvatarProps) {
   const { outer, ring, emoji: emojiSize, badge } = SIZE_MAP[size];
   const inner = outer - ring * 2;
-  const ringColors = selected
-    ? ([Colors.cyan, withOpacity(Colors.cyan, 0.6), Colors.cyan] as const)
-    : ([Colors.ember, Colors.gold, Colors.crimson, Colors.ember] as const);
+  const ringColors = selected ? ([Colors.cyan, withOpacity(Colors.cyan, 0.6), Colors.cyan] as const) : Gradients.avatarRing;
   const glowColor = selected ? Colors.cyan : Colors.ember;
+
+  const rotation = useSharedValue(0);
+  useEffect(() => {
+    if (spinning) {
+      rotation.value = withRepeat(withTiming(360, { duration: 4000, easing: Easing.linear }), -1);
+    }
+  }, [spinning, rotation]);
+  const spinStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${rotation.value}deg` }] }));
 
   return (
     <View style={[styles.container, { width: outer, height: outer + badge / 2 }]}>
-      <LinearGradient
-        colors={ringColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[
-          styles.ring,
-          {
-            width: outer,
-            height: outer,
-            borderRadius: outer / 2,
-            boxShadow: `0px 0px ${outer * 0.35}px ${withOpacity(glowColor, 0.55)}`,
-          },
-        ]}
-      >
-        <View
+      <Animated.View style={spinning ? spinStyle : undefined}>
+        <LinearGradient
+          colors={ringColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={[
-            styles.content,
+            styles.ring,
             {
-              width: inner,
-              height: inner,
-              borderRadius: inner / 2,
+              width: outer,
+              height: outer,
+              borderRadius: outer / 2,
+              boxShadow: `0px 0px ${outer * 0.35}px ${withOpacity(glowColor, 0.55)}`,
             },
           ]}
         >
-          {imageUri ? (
-            <Image source={{ uri: imageUri }} style={{ width: inner, height: inner, borderRadius: inner / 2 }} />
-          ) : (
-            <Text style={{ fontSize: emojiSize }}>{emoji ?? '♟️'}</Text>
-          )}
-        </View>
-      </LinearGradient>
+          <View
+            style={[
+              styles.content,
+              {
+                width: inner,
+                height: inner,
+                borderRadius: inner / 2,
+              },
+            ]}
+          >
+            {source ? (
+              <Image source={source} resizeMode="cover" style={{ width: inner, height: inner, borderRadius: inner / 2 }} />
+            ) : imageUri ? (
+              <Image source={{ uri: imageUri }} style={{ width: inner, height: inner, borderRadius: inner / 2 }} />
+            ) : (
+              <Text style={{ fontSize: emojiSize }}>{emoji ?? '♟️'}</Text>
+            )}
+          </View>
+        </LinearGradient>
+      </Animated.View>
 
       {level !== undefined ? (
         <View
@@ -91,6 +116,7 @@ export function PlayerAvatar({ imageUri, emoji, level, size = 'medium', selected
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
@@ -119,3 +145,4 @@ const styles = StyleSheet.create({
     color: Colors.bgBase,
   },
 });
+// #endregion

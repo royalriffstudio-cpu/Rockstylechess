@@ -49,6 +49,10 @@ expo-dev*.log
 
 example
 
+# UI-redesign staging repo (its own git repo, kept checked out here only as a
+# fusion reference -- see CLAUDE.md). Not part of this project's tree.
+new_ui/
+
 # generated native folders
 /ios
 /android

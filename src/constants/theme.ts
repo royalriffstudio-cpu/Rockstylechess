@@ -98,6 +98,25 @@ export const Spacing = {
 } as const;
 
 /**
+ * Canonical multi-stop gradient recipes for buttons/cards/avatar rings,
+ * ported from the ui.html mockup's design spec (the same source new_ui's
+ * screens were built against). Every stop not already a named Colors token
+ * is a tint/shade of one (kept inline rather than added as its own Colors
+ * entry -- these only ever appear as gradient stops, never a flat fill).
+ */
+export const Gradients = {
+  primaryButton: [Colors.emberLight, Colors.ember, Colors.crimson] as const,
+  goldButton: ['#FFDA7A', Colors.gold, '#D9A01C'] as const,
+  cyanButton: ['#9CF0FF', Colors.cyan, '#006470'] as const,
+  dangerButton: ['#FF4D58', Colors.crimson, '#991019'] as const,
+  avatarRing: [Colors.ember, Colors.gold, Colors.crimson, Colors.ember] as const,
+  // new_ui's `gradients.cardSurface` -- vertical bgPanel@0.9 -> bgBase@0.95
+  // (raw rgba: withOpacity isn't defined yet at this point in the file),
+  // used by RockCard's `surface` variant.
+  cardSurface: ['rgba(23,16,26,0.9)', 'rgba(11,7,9,0.95)'] as const,
+} as const;
+
+/**
  * Derives an rgba() string from a theme hex color, for translucent
  * backgrounds, borders, and glows. Keeps every component still sourcing
  * its color from this file instead of hand-rolling new rgba literals.

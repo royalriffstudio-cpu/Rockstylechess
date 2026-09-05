@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export interface ClockTimes {
   w: number;
@@ -22,19 +22,22 @@ interface UseChessClockOptions {
 }
 
 interface UseChessClockApi {
-  remainingMs: ClockTimes;
+  /** Remaining ms for a side, derived fresh from the anchor + true elapsed wall time.
+   * The reference is stable for the life of the match -- deliberately NOT React state:
+   * the display value changes every second, and routing that through setState re-renders
+   * the whole match screen (and the board) once a second. A leaf component (TimerPill)
+   * polls this on its own 1Hz interval instead, so only the clock text re-renders. */
+  getRemaining: (color: 'w' | 'b') => number;
   /** Online only -- overwrites both sides' clocks with the server's authoritative values.
    * Never called for bot/local, which never has anything to reconcile against. */
   reconcile: (serverRemainingMs: ClockTimes) => void;
 }
 
-// Refs hold the truth, one 1Hz React state drives the display -- avoids
-// setInterval drift accumulation (repeatedly subtracting ~1000ms per tick
-// would compound rounding/scheduling error over a long game). `remainingRef`
-// is each side's remaining time as of the START of their current/last turn,
-// only ever written at a turn-change boundary; the live display value is
-// always *derived* fresh from that anchor plus true elapsed wall time, never
-// by mutating the anchor tick-by-tick.
+// Refs hold the truth; the live value is always *derived* fresh from an anchor
+// (each side's remaining time as of the START of their current/last turn, only
+// ever written at a turn-change boundary) plus true elapsed wall time -- never
+// by mutating the anchor tick-by-tick, which would compound setInterval
+// scheduling drift over a long game.
 export function useChessClock({
   turn,
   isGameOver,
@@ -45,23 +48,21 @@ export function useChessClock({
   const remainingRef = useRef<ClockTimes>(initialMs);
   const turnStartedAtRef = useRef<number>(Date.now());
   const prevTurnRef = useRef<'w' | 'b' | null>(null);
-  const [display, setDisplay] = useState<ClockTimes>(initialMs);
+  // Mirrors of the two props the derived getters need, so getRemaining can be
+  // a stable ([]-dep) callback rather than re-created every render.
+  const turnRef = useRef<'w' | 'b'>(turn);
+  const gameOverRef = useRef<boolean>(isGameOver);
 
-  // Single effect per turn change (or game-over toggle) -- does turn-change
+  // Single effect per turn change (or game-over toggle): does turn-change
   // bookkeeping (deduct elapsed from the mover, credit increment, reset the
-  // anchor) THEN arms the 1s display tick + a precise single-shot expiry
-  // timeout for whichever side is now active, all from one consistent view
-  // of the refs. Two separate effects here would depend on declaration
-  // order to stay correct; one effect makes that ordering explicit instead
-  // of implicit.
+  // anchor) THEN arms a precise single-shot expiry timeout for whichever side
+  // is now active -- all from one consistent view of the refs.
   useEffect(() => {
     if (isGameOver) return;
 
     const now = Date.now();
     if (prevTurnRef.current === null) {
-      // First mount (or a reset -- isGameOver went true then back to false,
-      // which also clears prevTurnRef below): start fresh, no elapsed time
-      // to credit to anyone yet.
+      // First mount (or a reset): start fresh, nothing to credit yet.
       turnStartedAtRef.current = now;
     } else if (prevTurnRef.current !== turn) {
       const mover = prevTurnRef.current;
@@ -73,21 +74,11 @@ export function useChessClock({
       turnStartedAtRef.current = now;
     }
     prevTurnRef.current = turn;
+    turnRef.current = turn;
+    gameOverRef.current = false;
 
-    function currentRemaining(color: 'w' | 'b'): number {
-      if (color !== turn) return remainingRef.current[color];
-      const elapsed = Date.now() - turnStartedAtRef.current;
-      return Math.max(0, remainingRef.current[color] - elapsed);
-    }
-
-    setDisplay({ w: currentRemaining('w'), b: currentRemaining('b') });
-
-    const tick = setInterval(() => {
-      setDisplay({ w: currentRemaining('w'), b: currentRemaining('b') });
-    }, 1000);
-
-    // A 1s poll alone could lag up to 999ms behind the real deadline --
-    // this fires expiry at the exact instant the active side hits 0.
+    // A single-shot timeout fires expiry at the exact instant the active side
+    // hits 0 (a poll alone could lag up to a second behind the real deadline).
     let expired = false;
     const msLeft = Math.max(0, remainingRef.current[turn] - (Date.now() - turnStartedAtRef.current));
     const expiry = setTimeout(() => {
@@ -97,25 +88,43 @@ export function useChessClock({
     }, msLeft);
 
     return () => {
-      clearInterval(tick);
       clearTimeout(expiry);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turn, isGameOver]);
 
-  // A game-over transition (game ends, or a reset brings it back to
-  // "playing") should start the next game's bookkeeping fresh rather than
-  // treating the reset as an ordinary turn change.
+  // A game-over transition bakes the active side's final elapsed time into the
+  // anchor (so the frozen display shows the real end-of-game value) and marks
+  // the clock stopped. A reset (isGameOver -> false) is handled by the turn
+  // effect above starting fresh.
   useEffect(() => {
     if (!isGameOver) return;
+    if (prevTurnRef.current) {
+      const mover = prevTurnRef.current;
+      const elapsed = Date.now() - turnStartedAtRef.current;
+      remainingRef.current = {
+        ...remainingRef.current,
+        [mover]: Math.max(0, remainingRef.current[mover] - elapsed),
+      };
+    }
     prevTurnRef.current = null;
+    gameOverRef.current = true;
   }, [isGameOver]);
 
-  function reconcile(serverRemainingMs: ClockTimes) {
+  const getRemaining = useCallback((color: 'w' | 'b'): number => {
+    const anchor = remainingRef.current[color];
+    if (gameOverRef.current || color !== turnRef.current) return anchor;
+    return Math.max(0, anchor - (Date.now() - turnStartedAtRef.current));
+  }, []);
+
+  const reconcile = useCallback((serverRemainingMs: ClockTimes) => {
     remainingRef.current = { ...serverRemainingMs };
     turnStartedAtRef.current = Date.now();
-    setDisplay({ ...serverRemainingMs });
-  }
+  }, []);
 
-  return { remainingMs: display, reconcile };
+  // Stable API object for the life of the hook (both members are []-dep
+  // callbacks) -- so `clock` itself never changes identity and can't be a
+  // re-render trigger for any consumer.
+  const apiRef = useRef<UseChessClockApi>({ getRemaining, reconcile });
+  return apiRef.current;
 }

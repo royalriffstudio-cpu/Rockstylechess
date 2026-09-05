@@ -6,9 +6,9 @@ export type MatchOutcome = 'win' | 'loss' | 'draw';
 // already displayed as a purely decorative animation before this was wired
 // up to a real balance. Keep in sync with the server if the amounts change.
 export const MATCH_CHIP_REWARDS: Record<MatchOutcome, number> = {
-  win: 475_000,
+  win: 475,
   loss: 0,
-  draw: 50_000,
+  draw: 50,
 };
 
 export const MATCH_XP_REWARDS: Record<MatchOutcome, number> = {

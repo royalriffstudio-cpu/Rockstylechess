@@ -1,16 +1,14 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BottomNav, CurrencyPill, PlayerAvatar, RockButton, SectionLabel } from '@/components/ui';
+import { AppIcon, BottomNav, CurrencyPill, PlayerAvatar, RockButton, SectionLabel } from '@/components/ui';
 import { AVATARS, type AvatarOption } from '@/constants/avatars';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/theme';
 import { updateProfile } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
-
-const AVATAR_SLOT = 100;
 
 export default function PickRockstarScreen() {
   const router = useRouter();
@@ -46,72 +44,95 @@ export default function PickRockstarScreen() {
   }
 
   return (
-    <View style={styles.root}>
-      <View style={[styles.topBar, { paddingTop: insets.top + Spacing.sm }]}>
-        <View style={styles.topBarLeft}>
+    <View className="flex-1 bg-bg-base">
+      <View
+        className="flex-row items-center justify-between px-lg pb-md"
+        style={{ paddingTop: insets.top + 16, backgroundColor: withOpacity(Colors.bgPanel, 0.85), borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.gold, 0.15) }}
+      >
+        <View className="flex-row items-center gap-sm">
           <PlayerAvatar emoji="🎸" size="small" />
-          <Text style={styles.brandText}>RockStyle Chess</Text>
+          <Text className="font-display-hero text-text-primary" style={{ fontSize: 16, color: Colors.cyan }}>
+            RockStyle Chess
+          </Text>
         </View>
-        <View style={styles.xpPill}>
-          <Text style={styles.xpText}>XP: 2400</Text>
+        <View className="rounded-full px-md py-xs" style={{ borderWidth: 1, borderColor: Colors.chromeDark, backgroundColor: withOpacity(Colors.bgBase, 0.5) }}>
+          <Text className="font-section-header" style={{ fontSize: 13, color: Colors.emberLight }}>
+            XP: 2400
+          </Text>
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.heading}>PICK YOUR ROCKSTAR</Text>
-        <Text style={styles.subheading}>Select your stage persona</Text>
+      <ScrollView contentContainerClassName="items-center gap-xl px-lg py-xl" contentContainerStyle={{ paddingBottom: 120 + insets.bottom }} showsVerticalScrollIndicator={false}>
+        <View className="items-center">
+          <Text className="text-center font-display-hero text-display-hero uppercase tracking-widest text-text-primary" style={{ fontSize: 26 }}>
+            Pick Your Rockstar
+          </Text>
+          <Text className="mt-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Select your stage persona</Text>
+        </View>
 
-        <View style={styles.grid}>
+        <View className="w-full flex-row flex-wrap justify-between gap-y-xl" style={{ maxWidth: 440 }}>
           {AVATARS.map((option) => {
             const isSelected = !option.locked && selectedId === option.id;
             return (
-              <Pressable
-                key={option.id}
-                onPress={() => handleSelect(option)}
-                style={({ pressed }) => [styles.tile, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}
-              >
-                <View style={styles.avatarSlot}>
+              <Pressable key={option.id} onPress={() => handleSelect(option)} className="items-center gap-xs" style={({ pressed }) => [{ width: '47%' }, { transform: [{ scale: pressed ? 0.96 : 1 }] }]}>
+                <View className="items-center justify-center" style={{ width: 100, height: 100 }}>
                   <View style={{ opacity: option.locked ? 0.5 : 1 }}>
-                    <PlayerAvatar emoji={option.emoji} size="large" selected={isSelected} />
+                    <PlayerAvatar source={option.image} size="large" selected={isSelected} />
                   </View>
                   {option.locked ? (
-                    <View style={styles.lockOverlay}>
+                    <View className="items-center justify-center" style={{ position: 'absolute', top: 0, width: 100, height: 100, borderRadius: 50, backgroundColor: withOpacity(Colors.bgBase, 0.35) }}>
                       <MaterialCommunityIcons name="lock" size={26} color={Colors.gold} />
+                    </View>
+                  ) : null}
+                  {isSelected ? (
+                    <View style={{ position: 'absolute', top: 4, right: 4 }}>
+                      <AppIcon name="check_circle" size={18} color={Colors.cyan} />
                     </View>
                   ) : null}
                 </View>
 
-                <Text style={[styles.tileName, isSelected && styles.tileNameSelected]}>{option.name}</Text>
+                <Text className="font-section-header" style={{ fontSize: 16, letterSpacing: 1, color: isSelected ? Colors.cyan : Colors.textMuted }}>
+                  {option.name}
+                </Text>
 
                 {option.locked ? (
                   <CurrencyPill type="gems" value={option.gemPrice ?? 0} />
                 ) : isSelected ? (
-                  <View style={styles.selectedBadge}>
-                    <Text style={styles.selectedBadgeText}>SELECTED</Text>
+                  <View className="rounded-full px-sm" style={{ paddingVertical: 2, backgroundColor: withOpacity(Colors.cyan, 0.18), borderWidth: 1, borderColor: withOpacity(Colors.cyan, 0.45) }}>
+                    <Text className="font-section-header" style={{ fontSize: 11, letterSpacing: 1, color: Colors.cyan }}>
+                      SELECTED
+                    </Text>
                   </View>
                 ) : (
-                  <Text style={styles.starterLabel}>STARTER</Text>
+                  <Text className="font-section-header" style={{ fontSize: 11, letterSpacing: 1, color: Colors.textMuted }}>
+                    STARTER
+                  </Text>
                 )}
               </Pressable>
             );
           })}
 
-          <View style={styles.tile}>
-            <View style={[styles.avatarSlot, styles.comingSoonSlot]}>
+          <View className="items-center gap-xs" style={{ width: '47%' }}>
+            <View
+              className="items-center justify-center"
+              style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 2, borderStyle: 'dashed', borderColor: withOpacity(Colors.chromeDark, 0.6) }}
+            >
               <MaterialCommunityIcons name="plus" size={32} color={Colors.chromeMid} />
             </View>
-            <Text style={styles.tileNameMuted}>COMING</Text>
-            <Text style={styles.starterLabel}>SOON</Text>
+            <Text className="font-section-header" style={{ fontSize: 16, letterSpacing: 1, color: withOpacity(Colors.textMuted, 0.6) }}>
+              COMING
+            </Text>
+            <Text className="font-section-header" style={{ fontSize: 11, letterSpacing: 1, color: Colors.textMuted }}>
+              SOON
+            </Text>
           </View>
         </View>
 
-        <View style={styles.nameSection}>
+        <View className="w-full" style={{ maxWidth: 440 }}>
           <SectionLabel label="Stage Name" />
           <TextInput
-            style={styles.nameInput}
+            className="mt-md rounded-lg px-lg font-body-base text-text-primary"
+            style={{ height: 52, backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1.5, borderColor: withOpacity(Colors.chromeDark, 0.4) }}
             placeholder="Enter your stage name"
             placeholderTextColor={Colors.textMuted}
             value={stageName}
@@ -120,189 +141,12 @@ export default function PickRockstarScreen() {
           />
         </View>
 
-        <View style={styles.ctaWrap}>
-          <RockButton
-            label={isSubmitting ? 'Loading...' : "Let's Rock"}
-            variant="primary"
-            disabled={isSubmitting}
-            onPress={handleContinue}
-          />
+        <View className="w-full items-center" style={{ maxWidth: 440 }}>
+          <RockButton label={isSubmitting ? 'Loading...' : "Let's Rock"} variant="primary" disabled={isSubmitting} onPress={handleContinue} />
         </View>
       </ScrollView>
 
-      <View style={styles.navWrap}>
-        <BottomNav
-          activeTab="play"
-          onTabPress={(tab) => {
-            if (tab === 'ranks') router.push('/world-rankings');
-            else if (tab === 'profile') router.push('/iron-id');
-            else console.log('tab', tab);
-          }}
-        />
-      </View>
+      <BottomNav activeTab="play" />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.85),
-    borderBottomWidth: 1,
-    borderBottomColor: withOpacity(Colors.gold, 0.15),
-  },
-  topBarLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  brandText: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.cyan,
-  },
-  xpPill: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    borderColor: Colors.chromeDark,
-    backgroundColor: withOpacity(Colors.bgBase, 0.5),
-  },
-  xpText: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.emberLight,
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 120,
-    alignItems: 'center',
-  },
-  heading: {
-    fontFamily: Fonts.display,
-    fontSize: 26,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-    marginTop: Spacing.md,
-  },
-  subheading: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 2,
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.xl,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: Spacing.xl,
-    width: '100%',
-    maxWidth: 440,
-  },
-  tile: {
-    width: '47%',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  avatarSlot: {
-    width: AVATAR_SLOT,
-    height: AVATAR_SLOT,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lockOverlay: {
-    position: 'absolute',
-    top: 0,
-    width: AVATAR_SLOT,
-    height: AVATAR_SLOT,
-    borderRadius: AVATAR_SLOT / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgBase, 0.35),
-  },
-  comingSoonSlot: {
-    borderRadius: AVATAR_SLOT / 2,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: withOpacity(Colors.chromeDark, 0.6),
-  },
-  tileName: {
-    fontFamily: Fonts.heading,
-    fontSize: 16,
-    color: Colors.textMuted,
-    letterSpacing: 1,
-    marginTop: Spacing.xs,
-  },
-  tileNameSelected: {
-    color: Colors.cyan,
-  },
-  tileNameMuted: {
-    fontFamily: Fonts.heading,
-    fontSize: 16,
-    color: withOpacity(Colors.textMuted, 0.6),
-    letterSpacing: 1,
-    marginTop: Spacing.xs,
-  },
-  selectedBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.cyan, 0.18),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.45),
-  },
-  selectedBadgeText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.cyan,
-    letterSpacing: 1,
-  },
-  starterLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textMuted,
-    letterSpacing: 1,
-  },
-  nameSection: {
-    width: '100%',
-    maxWidth: 440,
-    marginTop: Spacing.xl,
-  },
-  nameInput: {
-    height: 52,
-    marginTop: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-    backgroundColor: withOpacity(Colors.bgBase, 0.5),
-    color: Colors.textPrimary,
-    fontFamily: Fonts.body,
-    fontSize: 15,
-  },
-  ctaWrap: {
-    width: '100%',
-    maxWidth: 440,
-    marginTop: Spacing.xl,
-    alignItems: 'center',
-  },
-  navWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-});

@@ -1,17 +1,18 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CurrencyPill, EmberParticles, RockButton, RockCard } from '@/components/ui';
-import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
+import { AppIcon, CurrencyIcon, CurrencyPill, EmberParticles, RockButton, RockCard, VenueBackdrop } from '@/components/ui';
+import { Colors, withOpacity } from '@/constants/theme';
+import { useFriends } from '@/hooks/useFriends';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { chargeForAnalysis } from '@/lib/api';
 import { ANALYSIS_COST } from '@/lib/analysisCost';
 import { getAuthToken } from '@/lib/authStorage';
 import { clearPendingLocalReplay, getPendingLocalReplay } from '@/lib/localMatchReplayStore';
 import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
+import { isVenueTier } from '@/lib/onlineMatch';
 
 type Outcome = 'win' | 'loss' | 'draw';
 
@@ -28,6 +29,7 @@ const REASON_LABEL: Record<string, string> = {
   checkmate: 'by Checkmate',
   stalemate: 'by Stalemate',
   draw: 'by Draw',
+  agreement: 'by Agreement',
   resignation: 'by Resignation',
   timeout: 'by Timeout',
 };
@@ -63,7 +65,18 @@ export default function ResultScreen() {
     outcome: outcomeParam,
     reason,
     chipsGranted: chipsGrantedParam,
-  } = useLocalSearchParams<{ outcome?: string; reason?: string; chipsGranted?: string }>();
+    opponentUserId,
+    opponentName,
+    venueTier: venueTierParam,
+  } = useLocalSearchParams<{
+    outcome?: string;
+    reason?: string;
+    chipsGranted?: string;
+    opponentUserId?: string;
+    opponentName?: string;
+    venueTier?: string;
+  }>();
+  const venueTier = isVenueTier(venueTierParam) ? venueTierParam : 'garage';
   const outcome: Outcome = outcomeParam === 'loss' || outcomeParam === 'draw' ? outcomeParam : 'win';
   const isVictory = outcome === 'win';
   const isDraw = outcome === 'draw';
@@ -73,6 +86,39 @@ export default function ResultScreen() {
   // it and we don't want that clear to also blank the button mid-transition.
   const [localReplay] = useState(() => getPendingLocalReplay());
   const { chips: currentChips, refresh: refreshPlayerProfile } = usePlayerProfile();
+  const friends = useFriends();
+
+  // The match is gone from the stack (match.tsx used router.replace to get
+  // here), so there's nothing valid to go "back" to -- hardware back goes
+  // straight Home, same as the Home button.
+  useEffect(() => {
+    const onBack = () => {
+      clearPendingLocalReplay();
+      router.replace('/home');
+      return true;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [router]);
+  const [addFriendState, setAddFriendState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+
+  const canAddOpponent =
+    !!opponentUserId &&
+    friends.status === 'ready' &&
+    !friends.isFriend(opponentUserId) &&
+    !friends.hasOutgoingTo(opponentUserId) &&
+    addFriendState !== 'sent';
+
+  async function handleAddOpponent() {
+    if (!opponentUserId) return;
+    setAddFriendState('sending');
+    try {
+      await friends.addFriend({ userId: opponentUserId });
+      setAddFriendState('sent');
+    } catch {
+      setAddFriendState('error');
+    }
+  }
 
   async function handleAnalyzePress() {
     const token = await getAuthToken();
@@ -115,75 +161,86 @@ export default function ResultScreen() {
   const reasonLabel = reason ? REASON_LABEL[reason] : undefined;
 
   const bannerText = isVictory ? 'Victory' : isDraw ? 'Draw' : 'Defeat';
-  const bannerStyle = isVictory ? styles.bannerVictory : isDraw ? styles.bannerDraw : styles.bannerDefeat;
+  const bannerColor = isVictory ? Colors.gold : isDraw ? Colors.chrome : Colors.textMuted;
+  const bannerGlow = isVictory ? Colors.cyan : isDraw ? Colors.chrome : Colors.crimson;
   const glowColor = isVictory ? Colors.gold : isDraw ? Colors.chrome : Colors.crimson;
 
   return (
-    <View style={[styles.root, { paddingTop: Spacing.xl + insets.top, paddingBottom: Spacing.xl + insets.bottom }]}>
+    <View className="flex-1 items-center justify-center gap-xl bg-bg-base px-xl" style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}>
+      <VenueBackdrop venueTier={venueTier} />
       <EmberParticles count={10} />
 
-      <View style={styles.bannerWrap}>
-        <Text style={[styles.banner, bannerStyle]}>{bannerText}</Text>
-        {reasonLabel ? <Text style={styles.reasonLabel}>{reasonLabel}</Text> : null}
+      <View className="items-center gap-1">
+        <Text className="font-display-hero text-display-hero uppercase tracking-widest" style={{ color: bannerColor, textShadowColor: withOpacity(bannerGlow, 0.5), textShadowRadius: 24, textShadowOffset: { width: 0, height: 0 } }}>
+          {bannerText}
+        </Text>
+        {reasonLabel ? <Text className="font-section-header text-section-header uppercase tracking-wide text-text-muted">{reasonLabel}</Text> : null}
       </View>
 
-      <RockCard glowColor={glowColor} style={styles.statsCard}>
-        <View style={styles.statRow}>
-          <MaterialCommunityIcons name="poker-chip" size={22} color={Colors.gold} />
-          <Text style={styles.chipsValue}>+{chipsWon.toLocaleString('en-US')}</Text>
+      <RockCard glowColor={glowColor} style={{ width: '100%', maxWidth: 360, alignItems: 'center' }}>
+        <View className="flex-row items-center gap-sm">
+          <View className="h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.4) }}>
+            <CurrencyIcon type="chips" size={26} />
+          </View>
+          <Text className="font-display-hero" style={{ fontSize: 28, color: Colors.gold, textShadowColor: withOpacity(Colors.gold, 0.5), textShadowRadius: 10, textShadowOffset: { width: 0, height: 0 } }}>
+            +{chipsWon.toLocaleString('en-US')}
+          </Text>
         </View>
 
-        <View style={styles.eloRow}>
-          <Text style={styles.eloValue}>{eloBefore}</Text>
-          <MaterialCommunityIcons name="arrow-right" size={18} color={Colors.textMuted} />
-          <Text style={styles.eloValue}>{eloAfter}</Text>
+        <View className="mt-md flex-row items-center gap-sm">
+          <Text className="font-heading-md" style={{ fontSize: 16, color: Colors.textPrimary }}>
+            {eloBefore}
+          </Text>
+          <AppIcon name="arrow_forward" size={18} color={Colors.textMuted} />
+          <Text className="font-heading-md" style={{ fontSize: 16, color: Colors.textPrimary }}>
+            {eloAfter}
+          </Text>
           {eloDelta !== 0 ? (
             <View
-              style={[
-                styles.eloDeltaPill,
-                eloDelta < 0 && { backgroundColor: withOpacity(Colors.crimson, 0.12), borderColor: withOpacity(Colors.crimson, 0.4) },
-              ]}
+              className="ml-xs flex-row items-center gap-1 rounded-full px-sm"
+              style={{ paddingVertical: 2, backgroundColor: withOpacity(eloDelta > 0 ? Colors.cyan : Colors.crimson, 0.12), borderWidth: 1, borderColor: withOpacity(eloDelta > 0 ? Colors.cyan : Colors.crimson, 0.4) }}
             >
-              <MaterialCommunityIcons
-                name={eloDelta > 0 ? 'arrow-up-bold' : 'arrow-down-bold'}
-                size={12}
-                color={eloDelta > 0 ? Colors.cyan : Colors.crimson}
-              />
-              <Text style={[styles.eloDeltaText, eloDelta < 0 && { color: Colors.crimson }]}>
-                {eloDelta > 0 ? '+' : ''}{eloDelta}
+              <AppIcon name={eloDelta > 0 ? 'trending_up' : 'trending_down'} size={12} color={eloDelta > 0 ? Colors.cyan : Colors.crimson} />
+              <Text className="font-heading-md text-caption" style={{ color: eloDelta > 0 ? Colors.cyan : Colors.crimson }}>
+                {eloDelta > 0 ? '+' : ''}
+                {eloDelta}
               </Text>
             </View>
           ) : null}
         </View>
       </RockCard>
 
-      <View style={styles.buttonStack}>
+      <View className="w-full gap-md" style={{ maxWidth: 320 }}>
         {localReplay && localReplay.mode !== 'online' ? (
-          <RockButton
-            label="Replay"
-            variant="primary"
-            icon={<MaterialCommunityIcons name="replay" size={20} color={Colors.bgBase} />}
-            onPress={() => router.push({ pathname: '/replay', params: { source: 'local' } })}
-          />
+          <RockButton label="Replay" variant="primary" icon={<AppIcon name="replay" size={20} color={Colors.bgBase} />} onPress={() => router.push({ pathname: '/replay', params: { source: 'local' } })} />
         ) : null}
         {localReplay ? (
-          <View style={styles.analyzeButtonWrap}>
-            <RockButton
-              label="Analyze Game"
-              variant="primary"
-              icon={<MaterialCommunityIcons name="chart-line" size={20} color={Colors.bgBase} />}
-              onPress={handleAnalyzePress}
-            />
-            <View style={styles.analyzePriceRow}>
-              <Text style={styles.analyzePriceCaption}>Costs</Text>
+          <View className="gap-xs">
+            <RockButton label="Analyze Game" variant="cyan" icon={<AppIcon name="analytics" size={20} color={Colors.bgBase} />} onPress={handleAnalyzePress} />
+            <View className="flex-row items-center justify-center gap-xs">
+              <Text className="font-body-sm text-caption uppercase tracking-wide text-text-muted">Costs</Text>
               <CurrencyPill type="chips" value={ANALYSIS_COST.chips} />
             </View>
+          </View>
+        ) : null}
+        {canAddOpponent ? (
+          <RockButton
+            label={addFriendState === 'sending' ? 'Sending…' : addFriendState === 'error' ? 'Try Again' : `Add ${opponentName ?? 'Opponent'}`}
+            variant="secondary"
+            icon={<AppIcon name="person_add" size={18} color={Colors.textPrimary} />}
+            disabled={addFriendState === 'sending'}
+            onPress={handleAddOpponent}
+          />
+        ) : addFriendState === 'sent' || (opponentUserId && friends.hasOutgoingTo(opponentUserId)) ? (
+          <View className="flex-row items-center justify-center gap-xs">
+            <AppIcon name="check" size={16} color={withOpacity(Colors.cyan, 0.8)} />
+            <Text className="font-body-sm text-caption uppercase tracking-wide text-text-muted">Friend request sent</Text>
           </View>
         ) : null}
         <RockButton
           label="Home"
           variant="reward"
-          icon={<MaterialCommunityIcons name="home" size={20} color={Colors.bgBase} />}
+          icon={<AppIcon name="home" size={20} color={Colors.bgBase} />}
           onPress={() => {
             console.log('Home pressed from result screen');
             // Explicit "going back" -- the one point the temporary bot/local
@@ -195,132 +252,12 @@ export default function ResultScreen() {
       </View>
 
       {isVictory ? (
-        <Pressable
-          onPress={() => console.log('Share this win pressed')}
-          hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-        >
-          <Text style={styles.shareLink}>Share this win</Text>
+        <Pressable onPress={() => console.log('Share this win pressed')} hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}>
+          <Text className="font-body-sm text-body-sm text-text-muted" style={{ textDecorationLine: 'underline' }}>
+            Share this win
+          </Text>
         </Pressable>
       ) : null}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xl,
-    gap: Spacing.xl,
-  },
-  bannerWrap: {
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  banner: {
-    fontFamily: Fonts.display,
-    fontSize: 48,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  reasonLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-  },
-  bannerVictory: {
-    color: Colors.gold,
-    textShadowColor: withOpacity(Colors.cyan, 0.5),
-    textShadowRadius: 24,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  bannerDraw: {
-    color: Colors.chrome,
-    textShadowColor: withOpacity(Colors.chrome, 0.4),
-    textShadowRadius: 18,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  bannerDefeat: {
-    color: Colors.textMuted,
-    textShadowColor: withOpacity(Colors.crimson, 0.5),
-    textShadowRadius: 16,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  statsCard: {
-    width: '100%',
-    maxWidth: 360,
-    alignItems: 'center',
-  },
-  statRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  chipsValue: {
-    fontFamily: Fonts.display,
-    fontSize: 28,
-    color: Colors.gold,
-    textShadowColor: withOpacity(Colors.gold, 0.5),
-    textShadowRadius: 10,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  eloRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
-  eloValue: {
-    fontFamily: Fonts.heading,
-    fontSize: 16,
-    color: Colors.textPrimary,
-  },
-  eloDeltaPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: withOpacity(Colors.cyan, 0.12),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.4),
-    marginLeft: Spacing.xs,
-  },
-  eloDeltaText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.cyan,
-  },
-  buttonStack: {
-    width: '100%',
-    maxWidth: 320,
-    gap: Spacing.md,
-  },
-  analyzeButtonWrap: {
-    gap: Spacing.xs,
-  },
-  analyzePriceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.xs,
-  },
-  analyzePriceCaption: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  shareLink: {
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textDecorationLine: 'underline',
-  },
-});

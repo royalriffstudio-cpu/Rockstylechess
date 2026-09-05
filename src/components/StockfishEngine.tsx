@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
+import { forwardRef, memo, useCallback, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import WebView, { type WebViewMessageEvent } from 'react-native-webview';
 
@@ -29,8 +29,12 @@ interface StockfishEngineProps {
 
 // Built once at module load (not per-mount) -- the vendor JS/wasm source
 // text never changes at runtime, no reason to reassemble the HTML string
-// every time a match screen mounts this component.
+// every time a match screen mounts this component. The wrapping source object
+// is also a module const so the WebView isn't handed a fresh `{ html }`
+// literal on every render.
 const ENGINE_HTML = buildStockfishHtml();
+const ENGINE_SOURCE = { html: ENGINE_HTML } as const;
+const ORIGIN_WHITELIST = ['*'];
 
 /**
  * Headless engine, no visible UI of its own. Hosts the lite single-threaded
@@ -38,27 +42,25 @@ const ENGINE_HTML = buildStockfishHtml();
  * for exactly how the vendor build is invoked and why (no Worker, no
  * network fetch, wasmBinary passed directly to the Emscripten factory).
  */
-export const StockfishEngine = forwardRef<StockfishEngineHandle, StockfishEngineProps>(function StockfishEngine(
-  { enabled },
-  ref,
-) {
+export const StockfishEngine = memo(
+  forwardRef<StockfishEngineHandle, StockfishEngineProps>(function StockfishEngine({ enabled }, ref) {
   const webviewRef = useRef<WebView>(null);
   const uciReadyRef = useRef(false);
   const readyWaitersRef = useRef<(() => void)[]>([]);
   const pendingRef = useRef<Pending | null>(null);
 
-  function send(cmd: string) {
+  const send = useCallback((cmd: string) => {
     webviewRef.current?.injectJavaScript(`window.__sfSend(${JSON.stringify(cmd)}); true;`);
-  }
+  }, []);
 
-  function waitUntilReady(): Promise<void> {
+  const waitUntilReady = useCallback((): Promise<void> => {
     if (uciReadyRef.current) return Promise.resolve();
     return new Promise((resolve) => {
       readyWaitersRef.current.push(resolve);
     });
-  }
+  }, []);
 
-  function handleMessage(event: WebViewMessageEvent) {
+  const handleMessage = useCallback((event: WebViewMessageEvent) => {
     const parsed = parseEngineLine(event.nativeEvent.data);
     if (parsed.type === 'ready') {
       // WASM instantiated -- start the UCI handshake.
@@ -91,7 +93,7 @@ export const StockfishEngine = forwardRef<StockfishEngineHandle, StockfishEngine
       if (pending?.kind === 'move') pending.resolve(null);
       else if (pending?.kind === 'eval') pending.resolve({ cp: null, mate: null, bestMove: null });
     }
-  }
+  }, [send]);
 
   useImperativeHandle(ref, () => ({
     async requestBestMove(fen, config) {
@@ -114,7 +116,7 @@ export const StockfishEngine = forwardRef<StockfishEngineHandle, StockfishEngine
         send(`go movetime ${movetimeMs}`);
       });
     },
-  }));
+  }), [send, waitUntilReady]);
 
   if (!enabled) return null;
 
@@ -132,16 +134,18 @@ export const StockfishEngine = forwardRef<StockfishEngineHandle, StockfishEngine
     <View style={styles.hiddenContainer} pointerEvents="none">
       <WebView
         ref={webviewRef}
-        originWhitelist={['*']}
-        source={{ html: ENGINE_HTML }}
+        originWhitelist={ORIGIN_WHITELIST}
+        source={ENGINE_SOURCE}
         onMessage={handleMessage}
         androidLayerType="software"
         style={styles.webview}
       />
     </View>
   );
-});
+  }),
+);
 
+// #region Styles
 const styles = StyleSheet.create({
   hiddenContainer: {
     position: 'absolute',
@@ -159,3 +163,4 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
 });
+// #endregion

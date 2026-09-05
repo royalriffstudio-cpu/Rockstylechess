@@ -262,12 +262,22 @@ currently-chosen avatar rather than layering a separate selection outline.
 
 ### Content
 
-- `imageUri` renders a cropped circular `Image` filling the inner circle.
-- Otherwise, `emoji` renders centered as `Text`, falling back to `♟️` if
-  neither `imageUri` nor `emoji` is passed — an avatar should never render
-  as an empty ring.
+Priority: `source` → `imageUri` → `emoji` → `♟️`.
+
+- `source` renders a bundled avatar image (`ImageSourcePropType`) covering
+  the inner circle — used for the **player avatar badge set**
+  ([`src/constants/avatars.ts`](src/constants/avatars.ts)): 12 neon rock
+  badges sliced from `assets/avatar/avatar_rock_12pcs_set.png` by
+  `scripts/split-avatars.mjs`, one committed PNG per `id`. Resolve a
+  profile's `avatarId` through `getAvatarImage(avatarId)` (returns the
+  `riff` badge as the default).
+- `imageUri` renders a remote/URI `Image` filling the inner circle.
+- `emoji` renders centered as `Text` — kept for non-avatar-set glyphs
+  (bots' roster faces, mock friends/conversations, `❓` "searching…"
+  states). Falls back to `♟️` if nothing is passed — an avatar should
+  never render as an empty ring.
 - Inner circle background is `Colors.bgPanel`, so partially-transparent
-  emoji/images never show the screen behind them.
+  glyphs/images never show the screen behind them.
 
 ### Level badge
 

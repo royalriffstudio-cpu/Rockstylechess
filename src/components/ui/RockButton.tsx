@@ -1,94 +1,130 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { Colors, Fonts, Gradients, Radius, Spacing, withOpacity } from '@/constants/theme';
 
-export type RockButtonVariant = 'primary' | 'reward' | 'danger';
+export type RockButtonVariant = 'primary' | 'reward' | 'gold' | 'cyan' | 'danger' | 'secondary';
 
 interface RockButtonProps {
   label: string;
-  onPress: () => void;
+  /** Shown instead of `label` while `loading` is true. */
+  loadingLabel?: string;
+  onPress?: () => void;
   variant?: RockButtonVariant;
   icon?: ReactNode;
+  loading?: boolean;
   disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
 }
 
-const VARIANT_ACCENT: Record<RockButtonVariant, string> = {
-  primary: Colors.cyan,
-  reward: Colors.gold,
-  danger: Colors.crimson,
+// `reward` is kept as an alias of `gold` -- same accent, same gradient --
+// so existing call sites (Claim & Play, Reset, Upgrade, etc.) keep working
+// unchanged; `gold` is the name new screens should reach for.
+const VARIANT_GRADIENT: Record<RockButtonVariant, readonly [string, string, ...string[]] | null> = {
+  primary: Gradients.primaryButton,
+  reward: Gradients.goldButton,
+  gold: Gradients.goldButton,
+  cyan: Gradients.cyanButton,
+  danger: Gradients.dangerButton,
+  secondary: null,
 };
 
-// Bright chips (cyan/gold) read best with dark text; crimson is dark enough
-// that it needs light text to stay legible.
+const VARIANT_ACCENT: Record<RockButtonVariant, string | null> = {
+  primary: Colors.ember,
+  reward: Colors.gold,
+  gold: Colors.gold,
+  cyan: Colors.cyan,
+  danger: Colors.crimson,
+  secondary: null,
+};
+
+// Bright chips (gold/cyan) read best with dark text; the ember/crimson and
+// danger gradients are dark enough that they need light text to stay legible.
 const VARIANT_TEXT_COLOR: Record<RockButtonVariant, string> = {
-  primary: Colors.bgBase,
+  primary: Colors.textPrimary,
   reward: Colors.bgBase,
+  gold: Colors.bgBase,
+  cyan: Colors.bgBase,
   danger: Colors.textPrimary,
+  secondary: Colors.textPrimary,
 };
 
 export function RockButton({
   label,
+  loadingLabel,
   onPress,
   variant = 'primary',
   icon,
+  loading = false,
   disabled = false,
+  style,
 }: RockButtonProps) {
+  const gradient = VARIANT_GRADIENT[variant];
   const accent = VARIANT_ACCENT[variant];
   const textColor = VARIANT_TEXT_COLOR[variant];
+  const isDisabled = disabled || loading;
 
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.base,
-        {
-          backgroundColor: accent,
-          borderTopColor: withOpacity(Colors.chrome, 0.5),
-          borderBottomColor: withOpacity(Colors.bgBase, 0.6),
-          boxShadow: pressed
-            ? `0px 2px 4px ${withOpacity(Colors.bgBase, 0.6)}, 0px 0px 8px ${withOpacity(accent, 0.35)}`
-            : `0px 4px 10px ${withOpacity(Colors.bgBase, 0.7)}, 0px 0px 18px ${withOpacity(accent, 0.5)}`,
-          opacity: disabled ? 0.45 : 1,
-          transform: [{ scale: pressed ? 0.97 : 1 }, { translateY: pressed ? 1 : 0 }],
-        },
-      ]}
-    >
-      {/* Source CSS uses a real 3-stop `linear-gradient(180deg, light, accent,
-          dark)` fill. We keep the solid accent as the base layer and lay this
-          light-to-dark gradient on top instead of inventing new off-palette
-          hex stops -- same light-top/dark-bottom depth, zero new colors. */}
+  const inner = (
+    <>
+      {/* Crisp specular highlight along the top edge -- translates the
+          source's `inset 0 2px 4px rgba(255,255,255,0.3)`. */}
       <LinearGradient
         pointerEvents="none"
-        colors={[withOpacity(Colors.chrome, 0.4), withOpacity(Colors.chrome, 0), withOpacity(Colors.bgBase, 0.35)]}
-        locations={[0, 0.45, 1]}
-        style={StyleSheet.absoluteFillObject}
-      />
-      {/* Crisper specular highlight, separate from the shading above --
-          translates the source's `inset 0 2px 4px rgba(255,255,255,0.3)`. */}
-      <LinearGradient
-        pointerEvents="none"
-        colors={[withOpacity(Colors.chrome, 0.55), withOpacity(Colors.chrome, 0)]}
+        colors={[withOpacity(Colors.chrome, 0.5), withOpacity(Colors.chrome, 0)]}
         style={styles.gloss}
       />
       <View style={styles.content}>
         {icon}
-        <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+        <Text style={[styles.label, { color: textColor }]}>{loading && loadingLabel ? loadingLabel : label}</Text>
       </View>
-    </Pressable>
+    </>
+  );
+
+  return (
+    // Outer wrapper owns the radius + clip (Android bleeds a child gradient
+    // past a rounded Pressable otherwise) and the colored glow. No width, so
+    // it stretches inside a plain column parent and shrinks to its label
+    // inside a centered one -- same as the callers already expect.
+    <View
+      style={[
+        styles.wrapper,
+        {
+          opacity: isDisabled ? 0.5 : 1,
+          boxShadow: accent
+            ? `0px 4px 12px ${withOpacity(Colors.bgBase, 0.6)}, 0px 0px 18px ${withOpacity(accent, 0.5)}`
+            : undefined,
+        },
+        style,
+      ]}
+    >
+      <Pressable
+        onPress={onPress}
+        disabled={isDisabled}
+        style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.97 : 1 }] })}
+      >
+        {gradient ? (
+          <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.fill}>
+            {inner}
+          </LinearGradient>
+        ) : (
+          <View style={[styles.fill, { backgroundColor: Colors.chromeDark }]}>{inner}</View>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
-  base: {
-    borderRadius: Radius.md,
+  wrapper: {
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+  },
+  // The gradient/solid fill IS the sized box -- padding here, content inside.
+  fill: {
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
-    borderTopWidth: 1.5,
-    borderBottomWidth: 1.5,
-    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -97,17 +133,22 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: '35%',
+    height: '38%',
   },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: Spacing.sm,
   },
   label: {
     fontFamily: Fonts.heading,
     fontSize: 16,
+    // Pinned -- Oswald reports a tall natural line box on Android, which was
+    // inflating every button's height well past its padding.
+    lineHeight: 18,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
 });
+// #endregion

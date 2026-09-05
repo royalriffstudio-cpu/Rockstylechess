@@ -69,6 +69,10 @@ export interface PlayerProfile {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  // Short code another player types in to send a friend request. Always set
+  // for a real account (see server betterAuth.ts); null only in the brief
+  // window before the profile row is read back.
+  friendCode: string | null;
   level: number;
   xp: number;
   rating: number;
@@ -243,4 +247,116 @@ export function getLeaderboard(limit?: number): Promise<{ leaderboard: Leaderboa
 // getMyProfile, so callers combine both rather than this duplicating them.
 export function getMyRank(token: string): Promise<{ rank: number; totalPlayers: number }> {
   return request('/leaderboard/me', { method: 'GET', token });
+}
+
+// --- Friends + direct messages -------------------------------------------
+// All require a real signed-in account (server 401s a guest). The realtime
+// side (presence deltas, incoming challenges, live DMs) rides the socket --
+// see src/lib/friendsSocket.ts and src/hooks/useFriends.tsx.
+
+export interface Friend {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  rating: number;
+  level: number;
+  online: boolean;
+  inGame: boolean;
+}
+
+export interface FriendRequestUser {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  rating: number;
+  level: number;
+  requestedAt: string;
+}
+
+export function getFriends(token: string): Promise<{ friends: Friend[] }> {
+  return request('/me/friends', { method: 'GET', token });
+}
+
+export function getFriendRequests(
+  token: string,
+): Promise<{ incoming: FriendRequestUser[]; outgoing: FriendRequestUser[] }> {
+  return request('/me/friends/requests', { method: 'GET', token });
+}
+
+export interface FriendCodeLookup {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  rating: number;
+}
+
+export function lookupFriendCode(token: string, code: string): Promise<{ user: FriendCodeLookup | null }> {
+  return request(`/me/friends/lookup?code=${encodeURIComponent(code)}`, { method: 'GET', token });
+}
+
+// Rejects with Error('user-not-found' | 'cannot-friend-self' | 'already-friends'
+// | 'already-pending' | 'blocked') -- callers catch specific messages.
+export function sendFriendRequest(
+  token: string,
+  target: { friendCode: string } | { userId: string },
+): Promise<{ ok: true; accepted: boolean; friend: FriendCodeLookup & { level: number } }> {
+  return request('/me/friends/request', { method: 'POST', body: target, token });
+}
+
+export function acceptFriendRequest(
+  token: string,
+  userId: string,
+): Promise<{ ok: true; friend: FriendCodeLookup & { level: number } }> {
+  return request(`/me/friends/${encodeURIComponent(userId)}/accept`, { method: 'POST', token });
+}
+
+// Declines an incoming request or cancels an outgoing one -- same endpoint.
+export function declineFriendRequest(token: string, userId: string): Promise<{ ok: true }> {
+  return request(`/me/friends/${encodeURIComponent(userId)}/decline`, { method: 'POST', token });
+}
+
+export function removeFriend(token: string, userId: string): Promise<{ ok: true }> {
+  return request(`/me/friends/${encodeURIComponent(userId)}`, { method: 'DELETE', token });
+}
+
+export interface ConversationSummary {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  rating: number;
+  online: boolean;
+  lastMessage: { text: string; sentAt: string; mine: boolean };
+  unreadCount: number;
+}
+
+export function getConversations(token: string): Promise<{ conversations: ConversationSummary[] }> {
+  return request('/me/conversations', { method: 'GET', token });
+}
+
+export interface DirectMessage {
+  id: string;
+  senderUserId: string;
+  text: string;
+  sentAt: string;
+  readAt: string | null;
+  mine: boolean;
+}
+
+export function getConversationMessages(
+  token: string,
+  userId: string,
+  opts?: { limit?: number; before?: string },
+): Promise<{ messages: DirectMessage[] }> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.before) params.set('before', opts.before);
+  const query = params.toString();
+  return request(
+    `/me/conversations/${encodeURIComponent(userId)}/messages${query ? `?${query}` : ''}`,
+    { method: 'GET', token },
+  );
+}
+
+export function markConversationRead(token: string, userId: string): Promise<{ ok: true }> {
+  return request(`/me/conversations/${encodeURIComponent(userId)}/read`, { method: 'POST', token });
 }

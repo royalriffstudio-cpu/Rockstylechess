@@ -1,14 +1,15 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StockfishEngine, type StockfishEngineHandle } from '@/components/StockfishEngine';
 import { ChessBoard, ProgressBar, RockCard } from '@/components/ui';
+import { SubPageHeader } from '@/components/layout';
 import { getPieceSprites } from '@/components/ui/pieceSprites';
 import { getBoardTheme } from '@/constants/boardThemes';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { Colors, withOpacity } from '@/constants/theme';
 import { useGameAnalysis } from '@/hooks/useGameAnalysis';
 import { useMatchReplay } from '@/hooks/useMatchReplay';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -58,8 +59,17 @@ function accuracyVerdict(accuracy: number): string {
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
+// Approx height of one move-list row (paddingVertical 6 + ~19px line + 1px
+// divider) -- used to keep the active move in view as the replay advances.
+const MOVE_ROW_HEIGHT = 32;
+
+interface MoveListRow {
+  moveNumber: number;
+  white: { ply: number; san: string; quality: MoveQuality | null } | null;
+  black: { ply: number; san: string; quality: MoveQuality | null } | null;
+}
+
 export default function ReplayScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { source, matchId, mode, opponentDisplayName, resultType, color, playedAt } = useLocalSearchParams<{
     source?: string;
@@ -135,6 +145,14 @@ export default function ReplayScreen() {
   const analysisEngineRef = useRef<StockfishEngineHandle>(null);
   const analysis = useGameAnalysis(pgn, analysisEngineRef);
 
+  // Keep the active move visible in the (independently scrolling) move list as
+  // the replay advances -- prev/next/play all move `plyIndex`.
+  const moveListRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    const rowIndex = replay.plyIndex === 0 ? 0 : Math.floor((replay.plyIndex - 1) / 2);
+    moveListRef.current?.scrollTo({ y: Math.max(0, (rowIndex - 2) * MOVE_ROW_HEIGHT), animated: true });
+  }, [replay.plyIndex]);
+
   useEffect(() => {
     if (analysisMode && pgn && analysis.status === 'idle') {
       analysis.start();
@@ -148,6 +166,23 @@ export default function ReplayScreen() {
 
   const currentMoveAnalysis = replay.plyIndex > 0 ? (analysis.result?.moves[replay.plyIndex - 1] ?? null) : null;
   const currentPositionEval = analysis.result?.positions[replay.plyIndex] ?? null;
+
+  // Pairs of (white ply, black ply) for the scrollable move list -- SAN
+  // from the replay plies themselves, per-ply quality zipped in from the
+  // analysis result when it's available.
+  const moveRows = useMemo<MoveListRow[]>(() => {
+    const rows: MoveListRow[] = [];
+    for (let i = 0; i < replay.plies.length; i += 2) {
+      const wPly = replay.plies[i];
+      const bPly = replay.plies[i + 1];
+      rows.push({
+        moveNumber: i / 2 + 1,
+        white: wPly ? { ply: i + 1, san: wPly.san, quality: analysis.result?.moves[i]?.quality ?? null } : null,
+        black: bPly ? { ply: i + 2, san: bPly.san, quality: analysis.result?.moves[i + 1]?.quality ?? null } : null,
+      });
+    }
+    return rows;
+  }, [replay.plies, analysis.result]);
 
   // "You" beats a bare color whenever we actually know which side the
   // viewer played -- online matches always do (the color route param);
@@ -164,35 +199,51 @@ export default function ReplayScreen() {
     return side === 'w' ? 'White' : 'Black';
   }
 
+  const showTransport = status === 'ready' && replay.isAvailable;
+  const verdict = analysisMode && analysis.status === 'done' && analysis.result ? analysis.result.summary : null;
+
+  // The side the viewer played, when we know it -- the floating verdict
+  // card reports on that side specifically (local pass-and-play has no
+  // single "you", so it falls back to White).
+  const knowsViewer = localReplay
+    ? localReplay.mode === 'bot' || localReplay.mode === 'online'
+    : Boolean(color);
+  const viewerColor: 'w' | 'b' = localReplay
+    ? localReplay.mode === 'bot' || localReplay.mode === 'online'
+      ? localReplay.playerColor
+      : 'w'
+    : (color ?? 'w');
+  const viewerVerdict = verdict ? verdict[viewerColor] : null;
+  const viewerAccuracy = viewerVerdict ? Math.round(viewerVerdict.accuracy) : 0;
+  const viewerBlunders = viewerVerdict ? viewerVerdict.counts.blunder : 0;
+
   return (
-    <View style={styles.root}>
+    <View className="flex-1 bg-bg-base">
       <StockfishEngine ref={analysisEngineRef} enabled={analysisMode} />
 
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <MaterialCommunityIcons name="chevron-left" size={26} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>{analysisMode ? 'Game Analysis' : 'Replay'}</Text>
-        <View style={styles.backButton} />
-      </View>
+      <SubPageHeader title={analysisMode ? 'Game Analysis' : 'Replay'} />
 
       <ScrollView
-        style={styles.middleScroll}
-        contentContainerStyle={[styles.middle, { paddingBottom: insets.bottom + Spacing.lg }]}
+        className="flex-1"
+        contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 12, paddingBottom: (showTransport ? 210 : 24) + insets.bottom, gap: 12 }}
         showsVerticalScrollIndicator={false}
       >
         {localReplay ? (
-          <RockCard style={styles.infoCard}>
-            <Text style={styles.infoOpponent}>VS. {localReplay.opponentLabel.toUpperCase()}</Text>
-            <Text style={styles.infoMeta}>
+          <RockCard>
+            <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }}>
+              VS. {localReplay.opponentLabel.toUpperCase()}
+            </Text>
+            <Text className="mt-1 font-body-sm text-text-muted" style={{ fontSize: 12 }}>
               {formatRelativeTime(localReplay.playedAt)} • {RESULT_LABEL[localReplay.resultType]} •{' '}
               {localReplay.outcome === 'win' ? 'Victory' : localReplay.outcome === 'loss' ? 'Defeat' : 'Draw'}
             </Text>
           </RockCard>
         ) : opponentDisplayName ? (
-          <RockCard style={styles.infoCard}>
-            <Text style={styles.infoOpponent}>VS. {opponentDisplayName.toUpperCase()}</Text>
-            <Text style={styles.infoMeta}>
+          <RockCard>
+            <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }}>
+              VS. {opponentDisplayName.toUpperCase()}
+            </Text>
+            <Text className="mt-1 font-body-sm text-text-muted" style={{ fontSize: 12 }}>
               {playedAt ? `${formatRelativeTime(playedAt)} • ` : ''}
               {resultType ? RESULT_LABEL[resultType] : ''}
               {color ? ` • Played as ${color === 'w' ? 'White' : 'Black'}` : ''}
@@ -201,115 +252,184 @@ export default function ReplayScreen() {
         ) : null}
 
         {status === 'loading' ? (
-          <View style={styles.centerFill}>
+          <View className="flex-1 items-center justify-center" style={{ minHeight: 240 }}>
             <ActivityIndicator color={Colors.cyan} size="large" />
           </View>
         ) : status === 'error' || !replay.isAvailable ? (
-          <View style={styles.centerFill}>
-            <Text style={styles.emptyText}>Replay isn&apos;t available for this match.</Text>
+          <View className="flex-1 items-center justify-center" style={{ minHeight: 240 }}>
+            <Text className="px-lg text-center font-body-base text-body-base text-text-muted">
+              Replay isn&apos;t available for this match.
+            </Text>
           </View>
         ) : (
           <>
             {analysisMode && analysis.status === 'analyzing' ? (
-              <RockCard style={styles.analyzingCard}>
-                <Text style={styles.analyzingTitle}>Reviewing your game…</Text>
-                <ProgressBar
-                  progress={analysis.progress.total ? analysis.progress.done / analysis.progress.total : 0}
-                  height={8}
-                />
+              <RockCard>
+                <Text className="font-heading-md text-text-primary" style={{ fontSize: 13 }}>
+                  Reviewing your game…
+                </Text>
+                <View className="mt-sm">
+                  <ProgressBar
+                    progress={analysis.progress.total ? analysis.progress.done / analysis.progress.total : 0}
+                    height={8}
+                  />
+                </View>
               </RockCard>
             ) : null}
 
             {analysisMode && analysis.status === 'error' ? (
-              <RockCard style={styles.analyzingCard}>
-                <Text style={styles.analyzingTitle}>Couldn&apos;t analyze this game.</Text>
+              <RockCard>
+                <Text className="font-heading-md text-text-primary" style={{ fontSize: 13 }}>
+                  Couldn&apos;t analyze this game.
+                </Text>
               </RockCard>
             ) : null}
 
             {analysisMode && currentPositionEval ? (
-              <View style={styles.evalBarTrack}>
-                <View style={[styles.evalBarFill, { width: `${currentPositionEval.whiteWinPercent}%` }]} />
+              <View className="gap-1">
+                <View className="flex-row items-center justify-between px-0.5">
+                  <Text className="font-heading-md text-cyan" style={{ fontSize: 12, letterSpacing: 0.5 }}>
+                    White {Math.round(currentPositionEval.whiteWinPercent)}%
+                  </Text>
+                  <Text className="font-heading-md uppercase text-text-muted" style={{ fontSize: 12, letterSpacing: 0.5 }}>
+                    Evaluation
+                  </Text>
+                </View>
+                <View className="h-3 overflow-hidden rounded-full" style={{ backgroundColor: withOpacity(Colors.crimson, 0.55) }}>
+                  <View style={{ height: '100%', width: `${currentPositionEval.whiteWinPercent}%`, backgroundColor: Colors.cyan }} />
+                </View>
               </View>
             ) : null}
 
-            <ChessBoard
-              board={replay.board}
-              checkSquare={replay.checkSquare}
-              lastMove={replay.lastMove}
-              turn={replay.turn}
-              animateLastMove
-              lastMoveSound={replay.lastMoveSound}
-              theme={boardTheme}
-              pieceSprites={pieceSprites}
-            />
+            <View className="items-center py-sm">
+              <View style={{ width: '100%', maxWidth: 300 }}>
+                <ChessBoard
+                  board={replay.board}
+                  checkSquare={replay.checkSquare}
+                  lastMove={replay.lastMove}
+                  turn={replay.turn}
+                  animateLastMove
+                  lastMoveSound={replay.lastMoveSound}
+                  theme={boardTheme}
+                  pieceSprites={pieceSprites}
+                />
+              </View>
+            </View>
 
             {analysisMode && currentMoveAnalysis ? (
-              <View style={[styles.qualityCallout, { borderColor: withOpacity(QUALITY_COLOR[currentMoveAnalysis.quality], 0.5) }]}>
-                <View style={[styles.qualityIconWrap, { backgroundColor: withOpacity(QUALITY_COLOR[currentMoveAnalysis.quality], 0.18) }]}>
+              <View
+                className="flex-row items-center gap-sm rounded-lg p-sm"
+                style={{ borderWidth: 1, borderColor: withOpacity(QUALITY_COLOR[currentMoveAnalysis.quality], 0.5), backgroundColor: withOpacity(Colors.bgPanel, 0.8) }}
+              >
+                <View
+                  className="h-10 w-10 items-center justify-center rounded-full"
+                  style={{ backgroundColor: withOpacity(QUALITY_COLOR[currentMoveAnalysis.quality], 0.18) }}
+                >
                   <MaterialCommunityIcons
                     name={QUALITY_ICON[currentMoveAnalysis.quality]}
                     size={22}
                     color={QUALITY_COLOR[currentMoveAnalysis.quality]}
                   />
                 </View>
-                <View style={styles.qualityTextCol}>
-                  <Text style={[styles.qualityLabel, { color: QUALITY_COLOR[currentMoveAnalysis.quality] }]}>
+                <View className="flex-1 gap-0.5">
+                  <Text className="font-heading-md" style={{ fontSize: 14, color: QUALITY_COLOR[currentMoveAnalysis.quality] }}>
                     {currentMoveAnalysis.san} · {MOVE_QUALITY_LABEL[currentMoveAnalysis.quality]}
                   </Text>
                   {currentMoveAnalysis.bestMoveSan ? (
-                    <Text style={styles.qualityHint}>Better was {currentMoveAnalysis.bestMoveSan}</Text>
+                    <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+                      Better was {currentMoveAnalysis.bestMoveSan}
+                    </Text>
                   ) : null}
                 </View>
               </View>
             ) : null}
 
-            <View style={styles.controlsCard}>
-              <Text style={styles.plyCounter}>
-                {replay.plyIndex === 0 ? 'Start' : `Move ${replay.plyIndex} / ${replay.totalPlies}`}
-              </Text>
-              <View style={styles.controlsRow}>
-                <Pressable
-                  style={[styles.controlButton, replay.plyIndex === 0 && styles.controlButtonDisabled]}
-                  onPress={replay.prev}
-                  disabled={replay.plyIndex === 0}
+            {/* Scrollable move list -- SAN from the replay plies, per-move
+                quality colors zipped in when analysis has run. Tapping a
+                move seeks the board to that ply. */}
+            {moveRows.length > 0 ? (
+              <View
+                className="overflow-hidden rounded-lg"
+                style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
+              >
+                <View
+                  className="flex-row px-md py-sm"
+                  style={{ borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.3) }}
                 >
-                  <MaterialCommunityIcons name="skip-previous" size={26} color={Colors.textPrimary} />
-                </Pressable>
-                <Pressable style={styles.controlButtonPrimary} onPress={replay.isPlaying ? replay.pause : replay.play}>
-                  <MaterialCommunityIcons name={replay.isPlaying ? 'pause' : 'play'} size={28} color={Colors.bgBase} />
-                </Pressable>
-                <Pressable
-                  style={[styles.controlButton, replay.plyIndex >= replay.totalPlies && styles.controlButtonDisabled]}
-                  onPress={replay.next}
-                  disabled={replay.plyIndex >= replay.totalPlies}
-                >
-                  <MaterialCommunityIcons name="skip-next" size={26} color={Colors.textPrimary} />
-                </Pressable>
+                  <Text className="w-8 font-section-header uppercase text-text-muted" style={{ fontSize: 10, letterSpacing: 1 }}>
+                    #
+                  </Text>
+                  <Text className="flex-1 font-section-header uppercase text-text-muted" style={{ fontSize: 10, letterSpacing: 1 }}>
+                    White
+                  </Text>
+                  <Text className="flex-1 font-section-header uppercase text-text-muted" style={{ fontSize: 10, letterSpacing: 1 }}>
+                    Black
+                  </Text>
+                </View>
+                <View style={{ maxHeight: 200 }}>
+                  <ScrollView
+                    ref={moveListRef}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator
+                    indicatorStyle="white"
+                    contentContainerStyle={{ paddingBottom: 4 }}
+                  >
+                    {moveRows.map((row) => (
+                      <View
+                        key={row.moveNumber}
+                        className="flex-row items-center px-md"
+                        style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.15) }}
+                      >
+                        <Text className="w-8 font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+                          {row.moveNumber}.
+                        </Text>
+                        <MoveCell cell={row.white} activePly={replay.plyIndex} onSeek={replay.goTo} />
+                        <MoveCell cell={row.black} activePly={replay.plyIndex} onSeek={replay.goTo} />
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
-            </View>
+            ) : null}
 
-            {analysisMode && analysis.status === 'done' && analysis.result ? (
-              <RockCard glowColor={Colors.gold} style={styles.summaryCard}>
-                <Text style={styles.summaryTitle}>Game Report</Text>
+            {verdict ? (
+              <RockCard glowColor={Colors.gold}>
+                <Text className="text-center font-display-hero uppercase text-gold" style={{ fontSize: 14, letterSpacing: 1 }}>
+                  Game Report
+                </Text>
                 {(['w', 'b'] as const).map((c) => {
-                  const { accuracy, counts } = analysis.result!.summary[c];
+                  const { accuracy, counts } = verdict[c];
                   return (
-                    <View key={c} style={styles.summarySideBlock}>
-                      <View style={styles.summarySideHeader}>
-                        <Text style={styles.summarySideName}>{sideLabel(c)}</Text>
-                        <Text style={styles.summaryVerdict}>{accuracyVerdict(accuracy)}</Text>
+                    <View key={c} className="mt-md gap-xs">
+                      <View className="flex-row items-center justify-between">
+                        <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 13 }}>
+                          {sideLabel(c)}
+                        </Text>
+                        <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+                          {accuracyVerdict(accuracy)}
+                        </Text>
                       </View>
-                      <View style={styles.summaryAccuracyRow}>
-                        <Text style={styles.summaryAccuracyBig}>{Math.round(accuracy)}%</Text>
-                        <Text style={styles.summaryAccuracyCaption}>accuracy</Text>
+                      <View className="flex-row items-baseline gap-1.5">
+                        <Text className="font-display-hero text-cyan" style={{ fontSize: 28 }}>
+                          {Math.round(accuracy)}%
+                        </Text>
+                        <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+                          accuracy
+                        </Text>
                       </View>
-                      <View style={styles.summaryChipsRow}>
+                      <View className="flex-row flex-wrap gap-xs">
                         {(Object.keys(MOVE_QUALITY_LABEL) as MoveQuality[])
                           .filter((q) => counts[q] > 0)
                           .map((q) => (
-                            <View key={q} style={[styles.summaryChip, { borderColor: withOpacity(QUALITY_COLOR[q], 0.4) }]}>
+                            <View
+                              key={q}
+                              className="flex-row items-center gap-1 rounded-full px-sm"
+                              style={{ paddingVertical: 4, borderWidth: 1, borderColor: withOpacity(QUALITY_COLOR[q], 0.4), backgroundColor: withOpacity(Colors.bgBase, 0.5) }}
+                            >
                               <MaterialCommunityIcons name={QUALITY_ICON[q]} size={13} color={QUALITY_COLOR[q]} />
-                              <Text style={[styles.summaryChipText, { color: QUALITY_COLOR[q] }]}>{counts[q]}</Text>
+                              <Text className="font-heading-md" style={{ fontSize: 11, color: QUALITY_COLOR[q] }}>
+                                {counts[q]}
+                              </Text>
                             </View>
                           ))}
                       </View>
@@ -321,226 +441,104 @@ export default function ReplayScreen() {
           </>
         )}
       </ScrollView>
+
+      {showTransport ? (
+        <View
+          className="absolute bottom-0 left-0 w-full"
+          style={{ backgroundColor: withOpacity(Colors.bgBase, 0.96), borderTopWidth: 1, borderTopColor: withOpacity(Colors.chromeDark, 0.3), paddingBottom: insets.bottom + 12 }}
+        >
+          {verdict ? (
+            <View
+              className="absolute flex-row items-center justify-between rounded-lg p-3"
+              style={{
+                left: '5%',
+                width: '90%',
+                top: -68,
+                backgroundColor: Colors.bgPanel,
+                borderWidth: 1,
+                borderColor: withOpacity(Colors.cyan, 0.35),
+                boxShadow: `0px 4px 20px ${withOpacity(Colors.cyan, 0.15)}`,
+              }}
+            >
+              <View>
+                <Text className="font-section-header uppercase text-text-muted" style={{ fontSize: 10, letterSpacing: 2 }}>
+                  {knowsViewer ? 'Your Verdict' : 'Verdict'}
+                </Text>
+                <Text className="font-display-hero text-cyan" style={{ fontSize: 22 }}>
+                  {viewerAccuracy}% ACCURACY
+                </Text>
+              </View>
+              <View className="items-end pl-4" style={{ borderLeftWidth: 1, borderLeftColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                <View className="flex-row items-center gap-1">
+                  <MaterialCommunityIcons name="skull" size={16} color={Colors.crimson} />
+                  <Text className="font-heading-md" style={{ fontSize: 18, color: Colors.crimson }}>
+                    {viewerBlunders}
+                  </Text>
+                </View>
+                <Text className="font-caption uppercase text-text-muted" style={{ fontSize: 10 }}>
+                  Blunders
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          <View className="flex-row items-center justify-center gap-xl px-margin-mobile" style={{ paddingTop: verdict ? 40 : 16, paddingBottom: 8 }}>
+            <Pressable
+              onPress={replay.prev}
+              disabled={replay.plyIndex === 0}
+              className="h-12 w-12 items-center justify-center rounded-full"
+              style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.9), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.5), opacity: replay.plyIndex === 0 ? 0.4 : 1 }}
+            >
+              <MaterialCommunityIcons name="skip-previous" size={24} color={Colors.textPrimary} />
+            </Pressable>
+            <Pressable
+              onPress={replay.isPlaying ? replay.pause : replay.play}
+              className="h-16 w-16 items-center justify-center rounded-full"
+              style={{ backgroundColor: Colors.cyan, boxShadow: `0px 0px 20px ${withOpacity(Colors.cyan, 0.4)}` }}
+            >
+              <MaterialCommunityIcons name={replay.isPlaying ? 'pause' : 'play'} size={32} color={Colors.bgBase} />
+            </Pressable>
+            <Pressable
+              onPress={replay.next}
+              disabled={replay.plyIndex >= replay.totalPlies}
+              className="h-12 w-12 items-center justify-center rounded-full"
+              style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.9), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.5), opacity: replay.plyIndex >= replay.totalPlies ? 0.4 : 1 }}
+            >
+              <MaterialCommunityIcons name="skip-next" size={24} color={Colors.cyan} />
+            </Pressable>
+          </View>
+          <Text className="text-center font-heading-md uppercase text-text-muted" style={{ fontSize: 11, letterSpacing: 1 }}>
+            {replay.plyIndex === 0 ? 'Start' : `Move ${replay.plyIndex} / ${replay.totalPlies}`}
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    flex: 1,
-    textAlign: 'center',
-  },
-  middleScroll: {
-    flex: 1,
-  },
-  // contentContainerStyle, not a plain View's own style -- flexGrow (not
-  // flex) so short content still stretches to fill/space-between like
-  // before, but content taller than the screen (e.g. the Game Report card
-  // pushing past the fold) scrolls instead of clipping/overflowing.
-  middle: {
-    flexGrow: 1,
-    paddingHorizontal: Spacing.md,
-    justifyContent: 'space-between',
-    gap: Spacing.md,
-  },
-  infoCard: {
-    gap: 4,
-  },
-  infoOpponent: {
-    fontFamily: Fonts.heading,
-    fontSize: 14,
-    color: Colors.cyan,
-  },
-  infoMeta: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  centerFill: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyText: {
-    fontFamily: Fonts.body,
-    fontSize: 14,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  controlsCard: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  plyCounter: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.lg,
-  },
-  controlButton: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  controlButtonDisabled: {
-    opacity: 0.4,
-  },
-  controlButtonPrimary: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.cyan,
-  },
-  analyzingCard: {
-    gap: Spacing.sm,
-  },
-  analyzingTitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  evalBarTrack: {
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.chromeDark,
-    overflow: 'hidden',
-  },
-  evalBarFill: {
-    height: '100%',
-    backgroundColor: Colors.chrome,
-  },
-  qualityCallout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-  },
-  qualityIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qualityTextCol: {
-    flex: 1,
-    gap: 2,
-  },
-  qualityLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 14,
-  },
-  qualityHint: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  summaryCard: {
-    gap: Spacing.md,
-  },
-  summaryTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 14,
-    color: Colors.gold,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    textAlign: 'center',
-  },
-  summarySideBlock: {
-    gap: Spacing.xs,
-  },
-  summarySideHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  summarySideName: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  summaryVerdict: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  summaryAccuracyRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-  },
-  summaryAccuracyBig: {
-    fontFamily: Fonts.display,
-    fontSize: 28,
-    color: Colors.cyan,
-  },
-  summaryAccuracyCaption: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  summaryChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-  },
-  summaryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    backgroundColor: withOpacity(Colors.bgBase, 0.5),
-  },
-  summaryChipText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-  },
-});
+function MoveCell({
+  cell,
+  activePly,
+  onSeek,
+}: {
+  cell: MoveListRow['white'];
+  activePly: number;
+  onSeek: (ply: number) => void;
+}) {
+  if (!cell) return <View className="flex-1" />;
+  const isActive = activePly === cell.ply;
+  const quality = cell.quality;
+  return (
+    <Pressable onPress={() => onSeek(cell.ply)} className="flex-1 flex-row items-center gap-1">
+      <Text
+        className="font-body-sm"
+        style={{ fontSize: 13, color: isActive ? Colors.cyan : Colors.textPrimary, fontWeight: isActive ? '700' : '400' }}
+      >
+        {cell.san}
+      </Text>
+      {quality && quality !== 'best' && quality !== 'good' ? (
+        <MaterialCommunityIcons name={QUALITY_ICON[quality]} size={12} color={QUALITY_COLOR[quality]} />
+      ) : null}
+    </Pressable>
+  );
+}

@@ -14,14 +14,14 @@ export interface SpinSegment {
 // our ember accent instead of an off-palette orange so it still reads as
 // the "big win" segment.
 export const SPIN_SEGMENTS: SpinSegment[] = [
-  { id: 'chips-500k', label: '500K CHIPS', color: Colors.bgBase },
+  { id: 'chips-500k', label: '500 CHIPS', color: Colors.bgBase },
   { id: 'gems-10', label: '10 GEMS', color: Colors.bgPanel },
-  { id: 'chips-400k', label: '400K CHIPS', color: Colors.bgBase },
-  { id: 'chips-1m', label: '1M CHIPS', color: Colors.bgPanel },
+  { id: 'chips-400k', label: '400 CHIPS', color: Colors.bgBase },
+  { id: 'chips-1m', label: '1K CHIPS', color: Colors.bgPanel },
   { id: 'gems-5', label: '5 GEMS', color: Colors.bgBase },
-  { id: 'chips-800k', label: '800K CHIPS', color: Colors.bgPanel },
+  { id: 'chips-800k', label: '800 CHIPS', color: Colors.bgPanel },
   { id: 'jackpot-gems-50', label: 'JACKPOT', color: Colors.ember },
-  { id: 'chips-250k', label: '250K CHIPS', color: Colors.bgPanel },
+  { id: 'chips-250k', label: '250 CHIPS', color: Colors.bgPanel },
 ];
 
 export const ANGLE_PER_SEGMENT = 360 / SPIN_SEGMENTS.length;

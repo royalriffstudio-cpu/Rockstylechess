@@ -1,34 +1,51 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { RockButton } from '@/components/ui';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { AppIcon, CurrencyIcon, EmberParticles, RockButton } from '@/components/ui';
+import { Colors, withOpacity } from '@/constants/theme';
 
-const REWARD_CHIPS = 10_000_000;
-const COUNT_DURATION_MS = 2000;
+const REWARD_CHIPS = 10_000;
+const DURATION_MS = 2500;
+const FRAME_MS = 30;
+
+function formatNumber(num: number) {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function easeOutExpo(t: number) {
+  return t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
+}
 
 export default function WelcomeRewardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [displayChips, setDisplayChips] = useState(0);
-  const countAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const listenerId = countAnim.addListener(({ value }) => {
-      setDisplayChips(Math.floor(value));
-    });
+    const totalFrames = DURATION_MS / FRAME_MS;
+    let currentFrame = 0;
+    let timeoutId: ReturnType<typeof setTimeout>;
 
-    Animated.timing(countAnim, {
-      toValue: REWARD_CHIPS,
-      duration: COUNT_DURATION_MS,
-      useNativeDriver: false,
-    }).start();
+    const animate = () => {
+      currentFrame++;
+      const progress = currentFrame / totalFrames;
+      setDisplayChips(Math.round(REWARD_CHIPS * easeOutExpo(progress)));
+      if (currentFrame < totalFrames) {
+        timeoutId = setTimeout(animate, FRAME_MS);
+      } else {
+        setDisplayChips(REWARD_CHIPS);
+      }
+    };
 
-    return () => countAnim.removeListener(listenerId);
-  }, [countAnim]);
+    const startId = setTimeout(animate, 500);
+    return () => {
+      clearTimeout(startId);
+      clearTimeout(timeoutId);
+    };
+  }, []);
 
   function handleClaim() {
     console.log('Claimed reward', REWARD_CHIPS, 'chips');
@@ -36,120 +53,56 @@ export default function WelcomeRewardScreen() {
   }
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={styles.glowSpot} />
+    <View className="flex-1 items-center justify-center bg-bg-base" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
+      <LinearGradient pointerEvents="none" colors={[withOpacity(Colors.gold, 0.2), Colors.bgBase, Colors.bgBase]} style={{ position: 'absolute', inset: 0 }} />
+      <EmberParticles count={12} />
 
-      <View style={styles.content}>
-        <Text style={styles.congrats}>CONGRATULATIONS</Text>
-        <Text style={styles.subtitle}>Stage Clear Reward</Text>
+      <View className="items-center px-margin-mobile" style={{ width: '100%', maxWidth: 440 }}>
+        <Text
+          className="mb-xl text-center font-display-hero text-display-hero uppercase tracking-widest text-gold"
+          style={{ textShadowColor: Colors.gold, textShadowRadius: 18, textShadowOffset: { width: 0, height: 0 } }}
+        >
+          Welcome Bonus
+        </Text>
 
-        <View style={styles.chestWrap}>
-          <View style={styles.chestGlow} />
-          <MaterialCommunityIcons name="treasure-chest" size={140} color={Colors.gold} />
+        <View className="mb-lg items-center justify-center">
+          <LinearGradient
+            colors={[Colors.gold, '#ffca5e', '#b38200']}
+            style={{
+              width: 192,
+              height: 192,
+              borderRadius: 96,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 4,
+              borderColor: '#ffdea4',
+              boxShadow: `0px 10px 40px ${withOpacity(Colors.gold, 0.6)}`,
+            }}
+          >
+            <View style={{ position: 'absolute', inset: 16, borderRadius: 80, borderWidth: 2, borderStyle: 'dashed', borderColor: 'rgba(117,84,0,0.5)' }} />
+            <CurrencyIcon type="chips" size={80} color="#755400" />
+          </LinearGradient>
         </View>
 
-        <View style={styles.chipPill}>
-          <MaterialCommunityIcons name="poker-chip" size={26} color={Colors.gold} />
-          <Text style={styles.chipCount}>{displayChips.toLocaleString('en-US')}</Text>
-          <Text style={styles.chipLabel}>Chips</Text>
+        <View className="mb-xl items-center">
+          <View className="mb-sm flex-row items-center gap-2">
+            <Text className="font-display-hero text-display-hero text-gold">+</Text>
+            <Text className="font-display-hero text-display-hero text-text-primary" style={{ fontVariant: ['tabular-nums'] }}>
+              {formatNumber(displayChips)}
+            </Text>
+          </View>
+          <Text
+            className="rounded-full px-4 py-2 font-section-header text-section-header uppercase tracking-widest text-text-muted"
+            style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
+          >
+            Chips Added To Your Vault
+          </Text>
         </View>
 
-        <View style={styles.ctaWrap}>
-          <RockButton label="Claim & Play" variant="reward" onPress={handleClaim} />
+        <View style={{ width: '100%', maxWidth: 380 }}>
+          <RockButton label="Claim & Play" variant="gold" icon={<AppIcon name="arrow_forward_ios" size={18} color={Colors.bgBase} />} onPress={handleClaim} />
         </View>
-
-        <Text style={styles.footerNote}>Added to your total XP: 2400</Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  glowSpot: {
-    position: 'absolute',
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: withOpacity(Colors.ember, 0.12),
-    boxShadow: `0px 0px 160px ${withOpacity(Colors.ember, 0.35)}`,
-  },
-  content: {
-    width: '100%',
-    maxWidth: 440,
-    paddingHorizontal: Spacing.lg,
-    alignItems: 'center',
-  },
-  congrats: {
-    fontFamily: Fonts.display,
-    fontSize: 32,
-    color: Colors.gold,
-    textShadowColor: withOpacity(Colors.gold, 0.6),
-    textShadowRadius: 16,
-    textShadowOffset: { width: 0, height: 4 },
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  subtitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.emberLight,
-    textTransform: 'uppercase',
-    letterSpacing: 3,
-    marginTop: Spacing.xs,
-  },
-  chestWrap: {
-    width: 220,
-    height: 220,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: Spacing.xl,
-  },
-  chestGlow: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: withOpacity(Colors.gold, 0.08),
-    boxShadow: `0px 0px 80px ${withOpacity(Colors.gold, 0.5)}`,
-  },
-  chipPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    borderRadius: Radius.full,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.7),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  chipCount: {
-    fontFamily: Fonts.display,
-    fontSize: 22,
-    color: Colors.textPrimary,
-  },
-  chipLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.gold,
-    textTransform: 'uppercase',
-  },
-  ctaWrap: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: Spacing.xl,
-  },
-  footerNote: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: withOpacity(Colors.textMuted, 0.7),
-    marginTop: Spacing.md,
-  },
-});

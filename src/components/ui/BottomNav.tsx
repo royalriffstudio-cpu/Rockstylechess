@@ -1,131 +1,111 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { router, type Href } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
+import { AppIcon } from '@/components/ui/AppIcon';
+import type { ICONS } from '@/constants/icons';
+import { Colors, Gradients, withOpacity } from '@/constants/theme';
 
 export type NavTab = 'home' | 'ranks' | 'play' | 'shop' | 'profile';
 
 interface BottomNavProps {
   activeTab: NavTab;
-  onTabPress: (tab: NavTab) => void;
+  /** Optional side-effect hook; navigation itself is handled internally. */
+  onTabPress?: (tab: NavTab) => void;
 }
 
-const SIDE_TABS: { key: NavTab; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
+type TabDef = { key: NavTab; label: string; icon: keyof typeof ICONS; center?: boolean };
+
+// Icons + order mirror new_ui's BottomNav (Material Symbols ligatures via
+// AppIcon). 'play' is the raised center FAB.
+const TABS: TabDef[] = [
   { key: 'home', label: 'Home', icon: 'home' },
-  { key: 'ranks', label: 'Ranks', icon: 'trophy' },
-  { key: 'shop', label: 'Shop', icon: 'storefront' },
-  { key: 'profile', label: 'Profile', icon: 'account' },
+  { key: 'ranks', label: 'Ranks', icon: 'leaderboard' },
+  { key: 'play', label: 'Play', icon: 'play_arrow', center: true },
+  { key: 'shop', label: 'Shop', icon: 'shopping_cart' },
+  { key: 'profile', label: 'Profile', icon: 'person' },
 ];
 
+const TAB_ROUTE: Record<NavTab, Href> = {
+  home: '/home',
+  ranks: '/world-rankings',
+  play: '/play',
+  shop: '/shop',
+  profile: '/iron-id',
+};
+
+/**
+ * Fixed 5-tab bar with a raised center "Play" FAB. Styling migrated from
+ * new_ui's BottomNav; self-absolute (pinned to the screen bottom, callers
+ * don't wrap it) with a real safe-area bottom inset added on top of new_ui's
+ * fixed 80px height.
+ *
+ * Navigation is handled here via `router.dismissTo` (not `push`) so switching
+ * top-level sections doesn't stack history -- "back" from any tab walks up
+ * toward Home rather than retracing a trail of tab taps. See
+ * src/lib/navigation.ts.
+ */
 export function BottomNav({ activeTab, onTabPress }: BottomNavProps) {
   const insets = useSafeAreaInsets();
-  const leftTabs = SIDE_TABS.slice(0, 2);
-  const rightTabs = SIDE_TABS.slice(2);
+
+  const handleTab = (tab: NavTab) => {
+    if (tab !== activeTab) router.dismissTo(TAB_ROUTE[tab]);
+    onTabPress?.(tab);
+  };
 
   return (
-    <View style={styles.container}>
-      <View style={[styles.bar, { height: BAR_HEIGHT + insets.bottom, paddingBottom: insets.bottom }]}>
-        <View style={styles.sideGroup}>
-          {leftTabs.map((tab) => (
-            <NavItem key={tab.key} tab={tab} active={activeTab === tab.key} onPress={onTabPress} />
-          ))}
-        </View>
-        <View style={styles.centerSpacer} />
-        <View style={styles.sideGroup}>
-          {rightTabs.map((tab) => (
-            <NavItem key={tab.key} tab={tab} active={activeTab === tab.key} onPress={onTabPress} />
-          ))}
-        </View>
-      </View>
+    <View
+      className="absolute bottom-0 left-0 right-0 flex-row items-end justify-around rounded-t-lg bg-bg-panel px-sm"
+      style={{
+        height: 80 + insets.bottom,
+        paddingBottom: insets.bottom + 4,
+        borderTopWidth: 1,
+        borderTopColor: withOpacity(Colors.chromeDark, 0.5),
+        boxShadow: `0px -4px 20px ${withOpacity(Colors.bgBase, 0.8)}`,
+      }}
+    >
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.key;
 
-      <Pressable
-        onPress={() => onTabPress('play')}
-        style={({ pressed }) => [styles.playButton, { transform: [{ scale: pressed ? 0.94 : 1 }] }]}
-      >
-        <LinearGradient
-          colors={[Colors.emberLight, Colors.ember]}
-          style={[
-            styles.playGradient,
-            { boxShadow: `0px 0px 18px ${withOpacity(Colors.ember, 0.7)}` },
-          ]}
-        >
-          <MaterialCommunityIcons name="play" size={28} color={Colors.textPrimary} />
-        </LinearGradient>
-      </Pressable>
+        if (tab.center) {
+          return (
+            <Pressable
+              key={tab.key}
+              onPress={() => handleTab('play')}
+              className="items-center justify-center px-xs py-sm"
+              style={{ top: -16 }}
+              hitSlop={8}
+            >
+              <LinearGradient
+                colors={Gradients.primaryButton}
+                style={{ width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 4 }}
+              >
+                <AppIcon name={tab.icon} size={28} color={Colors.textPrimary} />
+              </LinearGradient>
+              <Text className="font-caption text-caption uppercase text-text-muted">{tab.label}</Text>
+            </Pressable>
+          );
+        }
+
+        return (
+          <Pressable
+            key={tab.key}
+            onPress={() => handleTab(tab.key)}
+            className="items-center justify-center rounded-lg px-md py-sm"
+            style={isActive ? { backgroundColor: withOpacity(Colors.cyan, 0.1) } : undefined}
+            hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+          >
+            <AppIcon name={tab.icon} size={24} color={isActive ? Colors.cyan : Colors.chromeMid} />
+            <Text
+              className="font-caption text-caption uppercase"
+              style={{ color: isActive ? Colors.cyan : Colors.chromeMid, marginTop: 4 }}
+            >
+              {tab.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
-
-function NavItem({
-  tab,
-  active,
-  onPress,
-}: {
-  tab: { key: NavTab; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap };
-  active: boolean;
-  onPress: (tab: NavTab) => void;
-}) {
-  const color = active ? Colors.cyan : Colors.chromeMid;
-  return (
-    <Pressable
-      style={styles.navItem}
-      onPress={() => onPress(tab.key)}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-    >
-      <MaterialCommunityIcons name={tab.icon} size={22} color={color} />
-      <Text style={[styles.navLabel, { color }]}>{tab.label}</Text>
-    </Pressable>
-  );
-}
-
-const BAR_HEIGHT = 64;
-const PLAY_SIZE = 64;
-
-const styles = StyleSheet.create({
-  container: {
-    alignItems: 'center',
-  },
-  bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    height: BAR_HEIGHT,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderColor: withOpacity(Colors.gold, 0.18),
-    backgroundColor: withOpacity(Colors.bgPanel, 0.92),
-    boxShadow: `0px -4px 16px ${withOpacity(Colors.bgBase, 0.6)}`,
-  },
-  sideGroup: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-  },
-  centerSpacer: {
-    width: PLAY_SIZE * 0.8,
-  },
-  navItem: {
-    alignItems: 'center',
-    gap: 2,
-  },
-  navLabel: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-  },
-  playButton: {
-    position: 'absolute',
-    top: -PLAY_SIZE * 0.4,
-  },
-  playGradient: {
-    width: PLAY_SIZE,
-    height: PLAY_SIZE,
-    borderRadius: PLAY_SIZE / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: withOpacity(Colors.chrome, 0.35),
-  },
-});

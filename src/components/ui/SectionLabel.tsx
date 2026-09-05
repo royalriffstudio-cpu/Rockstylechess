@@ -21,6 +21,7 @@ export function SectionLabel({ label }: SectionLabelProps) {
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -40,3 +41,4 @@ const styles = StyleSheet.create({
     borderRadius: 1,
   },
 });
+// #endregion

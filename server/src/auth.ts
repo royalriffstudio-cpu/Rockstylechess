@@ -6,13 +6,26 @@ import { requireAuth } from './authMiddleware.js';
 import { BOARD_THEMES } from './boardThemes.js';
 import { chargeForAnalysis } from './db/analysisCharge.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
+import { getMessages, listConversations, markRead } from './db/directMessages.js';
+import {
+  acceptRequest,
+  declineOrCancelRequest,
+  friendProfileOf,
+  listFriends,
+  listRequests,
+  lookupByCode,
+  removeFriend,
+  sendRequest,
+} from './db/friends.js';
 import { levelForXp } from './leveling.js';
+import { allMatches } from './match.js';
 import { PIECE_SETS } from './pieceSets.js';
 import { claimDailyBonus, getDailyBonusStatus } from './db/dailyBonus.js';
 import { db } from './db/client.js';
 import { claimQuest, getQuestsStatus, reportMatchForQuests, reportPuzzleSolvedForQuests } from './db/quests.js';
 import { matchParticipants, matches, playerProfiles, userCosmetics, users } from './db/schema/index.js';
 import { getSpinStatus, performSpin } from './db/spin.js';
+import { emitToUser, onlineAmong } from './realtime.js';
 import { MATCH_CHIP_REWARDS, MATCH_XP_REWARDS, type MatchOutcome } from './matchRewards.js';
 
 // Query-param limit shared by /me/matches and /leaderboard -- clamps to a
@@ -525,5 +538,222 @@ authRouter.get(
     const [{ totalPlayers }] = await db.select({ totalPlayers: count() }).from(playerProfiles);
 
     res.json({ rank: higherRated + 1, totalPlayers });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Friends + direct messages
+//
+// Friendship rows are stored canonically ordered in db/friends.ts; DM threads
+// live in db/directMessages.ts. Realtime deltas (a request arriving, a friend
+// coming online, a DM) are pushed via realtime.ts's emitToUser -- the socket
+// handlers for challenges and dm:send live in index.ts. Guests can't reach any
+// of this (requireAuth 401s; the client hides the screens).
+// ---------------------------------------------------------------------------
+
+// userIds currently seated in a live match -- drives the friends list's
+// "in-game" status. Cheap: at most a few dozen live matches in memory.
+function inGameUserIds(): Set<string> {
+  const ids = new Set<string>();
+  for (const match of allMatches()) {
+    for (const color of ['w', 'b'] as const) {
+      const uid = match.players[color].userId;
+      if (uid) ids.add(uid);
+    }
+  }
+  return ids;
+}
+
+authRouter.get(
+  '/me/friends',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const friends = await listFriends(userId);
+    const online = onlineAmong(friends.map((f) => f.userId));
+    const inGame = inGameUserIds();
+    res.json({
+      friends: friends.map((f) => ({
+        userId: f.userId,
+        displayName: f.displayName,
+        avatarId: f.avatarId,
+        rating: f.rating,
+        level: f.level,
+        online: online.has(f.userId),
+        inGame: inGame.has(f.userId),
+      })),
+    });
+  }),
+);
+
+authRouter.get(
+  '/me/friends/requests',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await listRequests(req.userId as string));
+  }),
+);
+
+// Preview a friend code before actually sending a request, so the "Add Friend"
+// UI can show who it's about to add. Never leaks the code back or anything not
+// already public on the leaderboard.
+authRouter.get(
+  '/me/friends/lookup',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    if (!code.trim()) {
+      res.status(400).json({ error: 'missing-code' });
+      return;
+    }
+    const user = await lookupByCode(code);
+    if (!user || user.userId === userId) {
+      res.json({ user: null });
+      return;
+    }
+    res.json({
+      user: { userId: user.userId, displayName: user.displayName, avatarId: user.avatarId, rating: user.rating },
+    });
+  }),
+);
+
+authRouter.post(
+  '/me/friends/request',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const friendCode = typeof req.body?.friendCode === 'string' ? req.body.friendCode : undefined;
+    const targetUserId = typeof req.body?.userId === 'string' ? req.body.userId : undefined;
+    if (!friendCode && !targetUserId) {
+      res.status(400).json({ error: 'missing-target' });
+      return;
+    }
+
+    const result = await sendRequest(userId, { code: friendCode, userId: targetUserId });
+    if (result.status === 'not-found') {
+      res.status(404).json({ error: 'user-not-found' });
+      return;
+    }
+    if (result.status === 'self') {
+      res.status(400).json({ error: 'cannot-friend-self' });
+      return;
+    }
+    if (result.status === 'already-friends') {
+      res.status(409).json({ error: 'already-friends' });
+      return;
+    }
+    if (result.status === 'already-pending') {
+      res.status(409).json({ error: 'already-pending' });
+      return;
+    }
+    if (result.status === 'blocked') {
+      res.status(403).json({ error: 'blocked' });
+      return;
+    }
+
+    const me = await friendProfileOf(userId);
+    if (me) {
+      // accepted === true means the target had already requested us -- tell
+      // them it's now a friendship, not a fresh incoming request.
+      emitToUser(result.friend.userId, result.accepted ? 'friend:request:accepted' : 'friend:request', { friend: me });
+    }
+    res.json({ ok: true, accepted: result.accepted, friend: result.friend });
+  }),
+);
+
+authRouter.post(
+  '/me/friends/:userId/accept',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const result = await acceptRequest(userId, req.params.userId);
+    if (result.status === 'no-request') {
+      res.status(404).json({ error: 'no-request' });
+      return;
+    }
+    const me = await friendProfileOf(userId);
+    if (me) emitToUser(req.params.userId, 'friend:request:accepted', { friend: me });
+    res.json({ ok: true, friend: result.friend });
+  }),
+);
+
+// Decline an incoming request OR cancel one you sent -- same effect, drop the
+// pending row. Idempotent.
+authRouter.post(
+  '/me/friends/:userId/decline',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    await declineOrCancelRequest(userId, req.params.userId);
+    emitToUser(req.params.userId, 'friend:request:withdrawn', { userId });
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.delete(
+  '/me/friends/:userId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    await removeFriend(userId, req.params.userId);
+    emitToUser(req.params.userId, 'friend:removed', { userId });
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.get(
+  '/me/conversations',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const summaries = await listConversations(userId);
+    const online = onlineAmong(summaries.map((s) => s.user.userId));
+    res.json({
+      conversations: summaries.map((s) => ({
+        userId: s.user.userId,
+        displayName: s.user.displayName,
+        avatarId: s.user.avatarId,
+        rating: s.user.rating,
+        online: online.has(s.user.userId),
+        lastMessage: s.lastMessage,
+        unreadCount: s.unreadCount,
+      })),
+    });
+  }),
+);
+
+authRouter.get(
+  '/me/conversations/:userId/messages',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const result = await getMessages(userId, req.params.userId, {
+      limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
+      before: typeof req.query.before === 'string' ? req.query.before : undefined,
+    });
+    if (result.status === 'not-friends') {
+      res.status(403).json({ error: 'not-friends' });
+      return;
+    }
+    res.json({
+      messages: result.messages.map((m) => ({
+        id: m.id,
+        senderUserId: m.senderUserId,
+        text: m.text,
+        sentAt: m.sentAt,
+        readAt: m.readAt,
+        mine: m.senderUserId === userId,
+      })),
+    });
+  }),
+);
+
+authRouter.post(
+  '/me/conversations/:userId/read',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await markRead(req.userId as string, req.params.userId);
+    res.json({ ok: true });
   }),
 );

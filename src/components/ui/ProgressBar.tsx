@@ -43,6 +43,7 @@ export function ProgressBar({ progress, height = 10, label }: ProgressBarProps) 
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
   track: {
     width: '100%',
@@ -59,3 +60,4 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
   },
 });
+// #endregion

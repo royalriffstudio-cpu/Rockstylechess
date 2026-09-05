@@ -1,16 +1,49 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { useRouter } from 'expo-router';
-import { memo } from 'react';
-import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BottomNav, RockCard, SectionLabel } from '@/components/ui';
-import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
-import { PUZZLES, type PuzzleEntry } from '@/lib/puzzleCatalog';
+import { SubPageHeader } from '@/components/layout';
+import {
+  AppIcon,
+  BottomNav,
+  CurrencyPill,
+  ProgressBar,
+  RockButton,
+  RockCard,
+  ScreenBackdrop,
+  SectionLabel,
+} from '@/components/ui';
+import { ScreenArt } from '@/constants/screenArt';
+import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { type PuzzleEntry } from '@/lib/puzzleCatalog';
+import {
+  DIFFICULTY_TIERS,
+  MOTIF_STYLE,
+  TACTIC_FILTERS,
+  TIER_IDS,
+  firstUnsolved,
+  puzzleMotif,
+  puzzleTags,
+  puzzleTitle,
+  selectPuzzles,
+  tacticLabelOf,
+  themeLabel,
+  tierAccent,
+  tierLabelOf,
+  tierOf,
+  type TacticFilterId,
+  type TierId,
+} from '@/lib/puzzleMeta';
+import { loadSolvedPuzzles, usePuzzleProgress } from '@/lib/puzzleProgress';
 
-// Same 200-point bands scripts/curate-puzzles.mjs curated by -- grouping the
-// list this way (rather than one flat scroll) keeps the ~250 entries
-// navigable without needing a search/filter UI for this first version.
+const TIER_STORAGE_KEY = 'rockstyle-chess:puzzle-tier';
+
+// The catalog is curated in 200-point bands (scripts/curate-puzzles.mjs); the
+// list groups a difficulty tier's puzzles back into those bands so a tier
+// still reads as a gentle ramp rather than one undifferentiated block.
 const BAND_SIZE = 200;
 const BAND_START = 800;
 
@@ -36,36 +69,85 @@ function groupByBand(puzzles: PuzzleEntry[]): PuzzleSection[] {
     .map(([title, data]) => ({ title, data }));
 }
 
-// Computed once at module scope (not per-render) -- 252 entries is a
-// trivial, sub-millisecond pass, not the source of any navigation delay.
-const SECTIONS = groupByBand(PUZZLES);
+// Dark accents (ember/crimson) need light label text on an active tab; bright
+// ones (cyan/gold/emberLight) need dark text -- mirrors RockButton's rule.
+function activeLabelColor(accent: string): string {
+  return accent === Colors.ember || accent === Colors.crimson ? Colors.textPrimary : Colors.bgBase;
+}
 
-// Memoized so scrolling (which mounts/unmounts rows as SectionList
-// virtualizes) never re-renders a row whose own puzzle/onPress didn't
-// change -- same pattern as ChessBoard.tsx's Square/MoveGhost.
+// Memoized so scrolling (SectionList mounts/unmounts rows as it virtualizes)
+// never re-renders a row whose puzzle/solved/onPress didn't change.
 const PuzzleRow = memo(function PuzzleRow({
   puzzle,
+  solved,
   onPress,
 }: {
   puzzle: PuzzleEntry;
+  solved: boolean;
   onPress: (puzzle: PuzzleEntry) => void;
 }) {
+  const motif = MOTIF_STYLE[puzzleMotif(puzzle)];
+  const accent = tierAccent(tierOf(puzzle.rating));
+  const tags = puzzleTags(puzzle, 2);
+
   return (
-    <Pressable onPress={() => onPress(puzzle)}>
-      <RockCard style={styles.puzzleRow}>
-        <View style={styles.puzzleRowInner}>
-          <View style={styles.ratingPill}>
-            <MaterialCommunityIcons name="puzzle" size={14} color={Colors.cyan} />
-            <Text style={styles.ratingPillText}>{puzzle.rating}</Text>
+    <Pressable onPress={() => onPress(puzzle)} style={{ marginTop: Spacing.sm }}>
+      <RockCard glowColor={Colors.chromeDark} innerGlow={solved ? Colors.cyan : undefined}>
+        <View className="flex-row items-center gap-md">
+          <View
+            className="h-14 w-14 items-center justify-center rounded-md"
+            style={{
+              backgroundColor: withOpacity(motif.color, 0.12),
+              borderWidth: 1,
+              borderColor: withOpacity(motif.color, 0.3),
+            }}
+          >
+            <AppIcon name={motif.icon} size={26} color={motif.color} />
           </View>
-          <View style={styles.themeRow}>
-            {puzzle.themes.slice(0, 2).map((theme) => (
-              <View key={theme} style={styles.themeTag}>
-                <Text style={styles.themeTagText}>{theme}</Text>
+
+          <View className="flex-1 gap-xs">
+            <Text
+              className="font-heading-md text-text-primary"
+              numberOfLines={1}
+              style={{ fontSize: 15 }}
+            >
+              {puzzleTitle(puzzle)}
+            </Text>
+
+            <View className="flex-row flex-wrap items-center gap-xs">
+              <View
+                className="rounded-full px-sm"
+                style={{
+                  paddingVertical: 3,
+                  backgroundColor: withOpacity(accent, 0.14),
+                  borderWidth: 1,
+                  borderColor: withOpacity(accent, 0.4),
+                }}
+              >
+                <Text className="font-heading-md" style={{ fontSize: 11, color: accent }}>
+                  {puzzle.rating} ELO
+                </Text>
               </View>
-            ))}
+
+              {tags.map((tag) => (
+                <View
+                  key={tag}
+                  className="rounded-full px-sm"
+                  style={{ paddingVertical: 3, backgroundColor: withOpacity(Colors.chrome, 0.1) }}
+                >
+                  <Text className="font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                    {themeLabel(tag)}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textMuted} />
+
+          {solved ? (
+            <AppIcon name="check_circle" size={20} color={withOpacity(Colors.cyan, 0.7)} />
+          ) : (
+            <AppIcon name="chevron_right" size={20} color={Colors.textMuted} />
+          )}
         </View>
       </RockCard>
     </Pressable>
@@ -75,145 +157,227 @@ const PuzzleRow = memo(function PuzzleRow({
 export default function PuzzlesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { gems } = usePlayerProfile();
+  const { solved, count, total } = usePuzzleProgress();
 
-  function handlePuzzlePress(puzzle: PuzzleEntry) {
-    router.push({ pathname: '/puzzle-match', params: { puzzleId: puzzle.id } });
-  }
+  const [tier, setTier] = useState<TierId>('easy');
+  const [tacticId, setTacticId] = useState<TacticFilterId>('all');
+
+  // Restore the last-used difficulty (the tactic filter is always transient).
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(TIER_STORAGE_KEY);
+        if (stored && TIER_IDS.has(stored)) setTier(stored as TierId);
+      } catch (error) {
+        console.log('Failed to read saved puzzle tier', error);
+      }
+    })();
+  }, []);
+
+  // Defensive: pick up solves recorded elsewhere. The in-memory store already
+  // notifies subscribers on solve, so this only ever matters across a cold
+  // remount; it's one cheap union-merging read.
+  useFocusEffect(
+    useCallback(() => {
+      void loadSolvedPuzzles();
+    }, []),
+  );
+
+  const selectTier = useCallback((next: TierId) => {
+    setTier(next);
+    AsyncStorage.setItem(TIER_STORAGE_KEY, next).catch(() => {});
+  }, []);
+
+  const handlePuzzlePress = useCallback(
+    (puzzle: PuzzleEntry) => {
+      router.push({ pathname: '/puzzle-match', params: { puzzleId: puzzle.id, tier, tacticId } });
+    },
+    [router, tier, tacticId],
+  );
+
+  const visible = useMemo(() => selectPuzzles({ tier, tacticId }), [tier, tacticId]);
+  const sections = useMemo(
+    () => groupByBand(visible).filter((section) => section.data.length > 0),
+    [visible],
+  );
+  // Recomputed each render (a solve re-renders via the progress subscription);
+  // the scan is trivial at <=252 entries.
+  const nextUnsolved = firstUnsolved({ tier });
+
+  const trainingLabel = count === 0 ? 'Start Training' : nextUnsolved ? 'Continue Training' : 'Tier Complete';
+
+  const renderItem = useCallback(
+    ({ item }: { item: PuzzleEntry }) => (
+      <PuzzleRow puzzle={item} solved={solved.has(item.id)} onPress={handlePuzzlePress} />
+    ),
+    [solved, handlePuzzlePress],
+  );
 
   return (
-    <View style={styles.root}>
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <MaterialCommunityIcons name="chevron-left" size={26} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Puzzles</Text>
-        <View style={styles.backButton} />
-      </View>
+    <View className="flex-1 bg-bg-base">
+      <ScreenBackdrop source={ScreenArt.puzzlesBoard} opacity={0.2} />
+      <SubPageHeader title="Puzzles" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      {/* SectionList (not ScrollView+map) -- ~250 puzzles as plain mapped
-          RockCards meant ~4,000 native views mounting synchronously on
-          every navigation to this screen, which is what made the tile feel
-          slow. Virtualization renders only the on-screen rows regardless of
-          total catalog size. */}
-      <SectionList
-        sections={SECTIONS}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <PuzzleRow puzzle={item} onPress={handlePuzzlePress} />}
-        renderSectionHeader={({ section }) => (
-          <View style={styles.sectionHeader}>
-            <SectionLabel label={section.title} />
-          </View>
-        )}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 110 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-        stickySectionHeadersEnabled={false}
-      />
-
-      <View style={styles.navWrap}>
-        <BottomNav
-          activeTab="play"
-          onTabPress={(tab) => {
-            if (tab === 'ranks') router.push('/world-rankings');
-            else if (tab === 'profile') router.push('/iron-id');
-            else if (tab === 'shop') router.push('/shop');
-            else console.log('tab pressed', tab);
+      {/* Progress strip */}
+      <View style={styles.progressStrip}>
+        <ProgressBar progress={total > 0 ? count / total : 0} label={`${count} / ${total} solved`} />
+        <RockButton
+          label={trainingLabel}
+          variant="primary"
+          disabled={!nextUnsolved}
+          onPress={() => {
+            if (nextUnsolved) {
+              router.push({
+                pathname: '/puzzle-match',
+                params: { puzzleId: nextUnsolved.id, tier, tacticId: 'all' },
+              });
+            }
           }}
         />
       </View>
+
+      {/* Difficulty segmented control */}
+      <View style={styles.tierBar}>
+        {DIFFICULTY_TIERS.map((difficulty) => {
+          const active = difficulty.id === tier;
+          return (
+            <Pressable
+              key={difficulty.id}
+              onPress={() => selectTier(difficulty.id)}
+              className="flex-1 items-center rounded"
+              style={{
+                paddingVertical: 7,
+                backgroundColor: active ? difficulty.accent : 'transparent',
+              }}
+            >
+              <Text
+                className="font-heading-md uppercase"
+                numberOfLines={1}
+                style={{
+                  fontSize: 11,
+                  lineHeight: 14,
+                  letterSpacing: 0.5,
+                  color: active ? activeLabelColor(difficulty.accent) : Colors.textMuted,
+                }}
+              >
+                {difficulty.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Tactic filter chips */}
+      <View style={styles.chipRowWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {TACTIC_FILTERS.map((filter) => {
+            const active = filter.id === tacticId;
+            return (
+              <Pressable
+                key={filter.id}
+                onPress={() => setTacticId(filter.id)}
+                className="rounded-full"
+                style={{
+                  paddingHorizontal: 14,
+                  height: 32,
+                  justifyContent: 'center',
+                  backgroundColor: active ? withOpacity(Colors.cyan, 0.18) : withOpacity(Colors.chrome, 0.08),
+                  borderWidth: 1,
+                  borderColor: active ? Colors.cyan : withOpacity(Colors.chromeDark, 0.3),
+                }}
+              >
+                <Text
+                  className="font-heading-md"
+                  style={{
+                    fontSize: 12,
+                    lineHeight: 14,
+                    color: active ? Colors.cyan : Colors.textMuted,
+                  }}
+                >
+                  {filter.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {sections.length === 0 ? (
+        <View className="flex-1 items-center justify-center px-xl">
+          <RockCard>
+            <View className="items-center gap-md">
+              <AppIcon name="extension" size={32} color={Colors.chromeDark} />
+              <Text className="text-center font-body-base text-body-base text-text-muted">
+                No {tacticLabelOf(tacticId)} puzzles in {tierLabelOf(tier)}.
+              </Text>
+              <RockButton label="Show All" variant="secondary" onPress={() => setTacticId('all')} />
+            </View>
+          </RockCard>
+        </View>
+      ) : (
+        <SectionList
+          style={styles.list}
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          renderSectionHeader={({ section }) => (
+            <View style={styles.sectionHeader}>
+              <SectionLabel label={section.title} />
+            </View>
+          )}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: 110 + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
+        />
+      )}
+
+      <BottomNav activeTab="play" />
     </View>
   );
 }
 
+// #region Styles
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  progressStrip: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
+    paddingTop: Spacing.md,
     gap: Spacing.sm,
   },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
+  tierBar: {
+    flexDirection: 'row',
+    gap: 4,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.md,
+    padding: 4,
+    borderRadius: 10,
+    backgroundColor: withOpacity(Colors.bgPanel, 0.7),
     borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
+    borderColor: withOpacity(Colors.chromeDark, 0.3),
   },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
+  chipRowWrap: {
+    height: 40,
+    marginTop: Spacing.sm,
+  },
+  chipRow: {
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.lg,
+  },
+  list: {
     flex: 1,
-    textAlign: 'center',
   },
   scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 110,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
-  // SectionList renders headers and rows as flat siblings (no per-section
-  // wrapper to put a `gap` on) -- this margin is what separates one rating
-  // band from the next; puzzleRow's own marginTop handles spacing between
-  // a header and its first row, and between consecutive rows.
   sectionHeader: {
     marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
   },
-  puzzleRow: {
-    marginTop: Spacing.sm,
-  },
-  puzzleRowInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  ratingPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: withOpacity(Colors.cyan, 0.14),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.cyan, 0.4),
-  },
-  ratingPillText: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.cyan,
-  },
-  themeRow: {
-    flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.xs,
-  },
-  themeTag: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: withOpacity(Colors.chrome, 0.1),
-  },
-  themeTagText: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'capitalize',
-  },
-  navWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
 });
+// #endregion

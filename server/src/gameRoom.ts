@@ -1,8 +1,6 @@
+import { randomCode } from './codeAlphabet.js';
 import type { QueuedPlayer } from './matchmaking.js';
 
-// Excludes visually ambiguous characters (0/O, 1/I/L) -- common practice
-// for human-typed codes, avoids "is that a zero or an O" support friction.
-const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const CODE_LENGTH = 6;
 // An abandoned "waiting for a friend" room shouldn't leak memory forever --
 // same forfeitTimers-style setTimeout cleanup pattern as match.ts.
@@ -20,9 +18,7 @@ const rooms = new Map<string, WaitingRoom>();
 function generateCode(): string {
   let code: string;
   do {
-    code = Array.from({ length: CODE_LENGTH }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join(
-      '',
-    );
+    code = randomCode(CODE_LENGTH);
   } while (rooms.has(code));
   return code;
 }

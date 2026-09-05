@@ -12,10 +12,21 @@ import { allowedWebOrigins } from './allowedOrigins.js';
 import { authRouter } from './auth.js';
 import { socketAuth } from './authMiddleware.js';
 import { auth } from './betterAuth.js';
+import { CHALLENGE_TTL_MS, cancelChallengesFromSocket, consumeChallenge, createChallenge } from './challenge.js';
 import { allowChatMessage, clearChatRateLimit, sanitizeChatText } from './chat.js';
 import { db } from './db/client.js';
+import { persistMessage } from './db/directMessages.js';
+import { areFriends, friendIdsOf } from './db/friends.js';
 import { persistMatchResult } from './db/persistMatchResult.js';
 import { playerProfiles } from './db/schema/index.js';
+import {
+  addUserSocket,
+  emitToUser,
+  isUserOnline,
+  removeUserSocket,
+  setIO,
+  socketIdsForUser,
+} from './realtime.js';
 import { cancelRoomBySocketId, createRoom, joinRoom } from './gameRoom.js';
 import {
   allMatches,
@@ -54,17 +65,22 @@ function resolveDuration(value: unknown): Duration {
   return isDuration(value) ? value : '5m';
 }
 
-// Guests (userId null) and signed-in players who haven't picked an avatar
-// yet both resolve to null here -- getAvatarEmoji() on the client already
-// treats null as "show the default avatar", so this doesn't need its own
-// fallback string server-side.
-async function getAvatarId(userId: string | null): Promise<string | null> {
-  if (!userId) return null;
+// Server-side profile lookup for a queued/challenging player. Guests (userId
+// null) and signed-in players who haven't finished onboarding resolve to
+// nulls; callers fall back to the client-supplied displayName and the
+// client's default-avatar handling. Looking the name up here rather than
+// trusting the socket payload is what makes a friend challenge show the
+// opponent's real stage name instead of the hardcoded 'AXL_CHESS' literal
+// every play emit currently sends.
+async function getPlayerIdentity(
+  userId: string | null,
+): Promise<{ displayName: string | null; avatarId: string | null }> {
+  if (!userId) return { displayName: null, avatarId: null };
   const [row] = await db
-    .select({ avatarId: playerProfiles.avatarId })
+    .select({ displayName: playerProfiles.displayName, avatarId: playerProfiles.avatarId })
     .from(playerProfiles)
     .where(eq(playerProfiles.userId, userId));
-  return row?.avatarId ?? null;
+  return { displayName: row?.displayName ?? null, avatarId: row?.avatarId ?? null };
 }
 
 const app = express();
@@ -88,10 +104,45 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: allowedWebOrigins } });
 io.use(socketAuth);
+// Hand the io instance to realtime.ts so REST route handlers (auth.ts) can
+// push per-user events (friend request accepted, ...) without the Express
+// router needing an io reference of its own.
+setIO(io);
 
 // socket.id -> guestId, so a disconnect/rejoin (which gets a fresh socket.id)
 // can still be matched back to whichever match its previous guestId was in.
 const guestIdBySocket = new Map<string, string>();
+
+// Tell a user's accepted friends they just came online / went offline. Fired
+// once per user (on their first socket connecting / last socket leaving), not
+// per socket. The initial snapshot a client needs on launch comes from the
+// REST GET /me/friends payload's `online` flag, not from this.
+async function broadcastPresence(userId: string, status: 'online' | 'offline'): Promise<void> {
+  const friendIds = await friendIdsOf(userId);
+  for (const friendId of friendIds) {
+    emitToUser(friendId, 'friend:presence', { userId, status });
+  }
+}
+
+// Build the QueuedPlayer for a signed-in player entering a friend challenge --
+// same shape queue:join/room:* assemble, with the server-side identity lookup.
+// `duration` is a placeholder; createMatch is always called with the
+// challenge's own resolved duration.
+async function buildChallengePlayer(
+  socketId: string,
+  guestId: string,
+  userId: string,
+): Promise<QueuedPlayer> {
+  const identity = await getPlayerIdentity(userId);
+  return {
+    socketId,
+    guestId,
+    userId,
+    displayName: identity.displayName || 'PLAYER',
+    avatarId: identity.avatarId,
+    duration: '5m',
+  };
+}
 
 // Fires when a side's clock deadline elapses without them moving -- mirrors
 // the disconnect/forfeit callback below exactly (broadcast match:ended,
@@ -126,7 +177,7 @@ function notifyMatched(match: MatchState): void {
     io.to(me.socketId).emit('queue:matched', {
       matchId: match.id,
       color,
-      opponent: { displayName: opp.displayName, avatarId: opp.avatarId },
+      opponent: { userId: opp.userId, displayName: opp.displayName, avatarId: opp.avatarId },
       fen: match.chess.fen(),
       clocks: match.clock.remainingMs,
       incrementMs: match.clock.incrementMs,
@@ -135,6 +186,119 @@ function notifyMatched(match: MatchState): void {
 }
 
 io.on('connection', (socket: Socket) => {
+  // Signed-in sockets join a per-user room so realtime.ts's emitToUser can
+  // reach every device this account has open, and register with the presence
+  // map. Guests skip all of this -- friends/DMs/challenges are account-only.
+  const authedUserId = (socket.data.userId as string | undefined) ?? undefined;
+  if (authedUserId) {
+    socket.join(`user:${authedUserId}`);
+    const { wasFirst } = addUserSocket(authedUserId, socket.id);
+    if (wasFirst) {
+      broadcastPresence(authedUserId, 'online').catch((err) =>
+        console.error('presence broadcast failed', err),
+      );
+    }
+  }
+
+  socket.on('friend:challenge', async (payload: { guestId?: string; toUserId?: string; duration?: string }) => {
+    const uid = socket.data.userId as string | undefined;
+    if (!uid || !payload?.guestId || !payload?.toUserId) return;
+    if (payload.toUserId === uid) return;
+
+    if (!(await areFriends(uid, payload.toUserId))) {
+      socket.emit('friend:challenge:error', { reason: 'not-friends' });
+      return;
+    }
+    if (!isUserOnline(payload.toUserId)) {
+      socket.emit('friend:challenge:error', { reason: 'offline' });
+      return;
+    }
+
+    guestIdBySocket.set(socket.id, payload.guestId);
+    const duration = resolveDuration(payload.duration);
+    const challenger = await buildChallengePlayer(socket.id, payload.guestId, uid);
+    const challengeId = createChallenge(challenger, payload.toUserId, duration, (expired) => {
+      emitToUser(uid, 'friend:challenge:expired', { challengeId: expired.id });
+      emitToUser(expired.toUserId, 'friend:challenge:cancelled', { challengeId: expired.id });
+    });
+
+    emitToUser(payload.toUserId, 'friend:challenge:incoming', {
+      challengeId,
+      from: { userId: uid, displayName: challenger.displayName, avatarId: challenger.avatarId },
+      duration,
+      expiresInMs: CHALLENGE_TTL_MS,
+    });
+    socket.emit('friend:challenge:sent', { challengeId, toUserId: payload.toUserId, duration });
+  });
+
+  socket.on(
+    'friend:challenge:respond',
+    async (payload: { guestId?: string; challengeId?: string; accept?: boolean }) => {
+      const uid = socket.data.userId as string | undefined;
+      if (!uid || !payload?.guestId || !payload?.challengeId) return;
+
+      const challenge = consumeChallenge(payload.challengeId);
+      if (!challenge || challenge.toUserId !== uid) {
+        socket.emit('friend:challenge:error', { reason: 'expired' });
+        return;
+      }
+
+      const challengerUserId = challenge.challenger.userId;
+      if (!challengerUserId) return;
+
+      if (!payload.accept) {
+        emitToUser(challengerUserId, 'friend:challenge:declined', { challengeId: challenge.id });
+        return;
+      }
+
+      // The challenger may have reconnected (new socket.id) between sending and
+      // now -- rebind to their current socket, or bail if they've gone.
+      const [liveSocketId] = socketIdsForUser(challengerUserId);
+      if (!liveSocketId) {
+        socket.emit('friend:challenge:error', { reason: 'challenger-left' });
+        return;
+      }
+      challenge.challenger.socketId = liveSocketId;
+      guestIdBySocket.set(liveSocketId, challenge.challenger.guestId);
+      guestIdBySocket.set(socket.id, payload.guestId);
+
+      const accepter = await buildChallengePlayer(socket.id, payload.guestId, uid);
+      notifyMatched(createMatch(challenge.challenger, accepter, DURATION_MS[challenge.duration]));
+    },
+  );
+
+  socket.on('friend:challenge:cancel', (payload: { challengeId?: string }) => {
+    const uid = socket.data.userId as string | undefined;
+    if (!uid || !payload?.challengeId) return;
+    const challenge = consumeChallenge(payload.challengeId);
+    if (!challenge || challenge.challenger.userId !== uid) return;
+    emitToUser(challenge.toUserId, 'friend:challenge:cancelled', { challengeId: challenge.id });
+  });
+
+  socket.on('dm:send', async (payload: { toUserId?: string; text?: string }) => {
+    const uid = socket.data.userId as string | undefined;
+    if (!uid || !payload?.toUserId || payload.toUserId === uid) return;
+
+    const text = sanitizeChatText(payload.text);
+    if (!text || !allowChatMessage(socket.id)) return;
+
+    const result = await persistMessage(uid, payload.toUserId, text);
+    if (result.status !== 'ok') return;
+
+    const dto = {
+      id: result.message.id,
+      conversationId: result.message.conversationId,
+      fromUserId: uid,
+      toUserId: payload.toUserId,
+      text: result.message.text,
+      sentAt: result.message.sentAt.getTime(),
+    };
+    // To the recipient's devices and back to the sender's own other devices --
+    // the sending screen inserts optimistically and de-dupes on `id`.
+    emitToUser(payload.toUserId, 'dm:message', dto);
+    emitToUser(uid, 'dm:message', dto);
+  });
+
   socket.on(
     'queue:join',
     async (payload: { guestId?: string; displayName?: string; venueTier?: string; duration?: string }) => {
@@ -142,12 +306,13 @@ io.on('connection', (socket: Socket) => {
       guestIdBySocket.set(socket.id, payload.guestId);
 
       const userId = (socket.data.userId as string | undefined) ?? null;
+      const identity = await getPlayerIdentity(userId);
       const player: QueuedPlayer = {
         socketId: socket.id,
         guestId: payload.guestId,
         userId,
-        displayName: payload.displayName || 'PLAYER',
-        avatarId: await getAvatarId(userId),
+        displayName: identity.displayName || payload.displayName || 'PLAYER',
+        avatarId: identity.avatarId,
         duration: resolveDuration(payload.duration),
       };
       const opponent = joinQueue(payload.venueTier, player);
@@ -167,12 +332,13 @@ io.on('connection', (socket: Socket) => {
     guestIdBySocket.set(socket.id, payload.guestId);
 
     const userId = (socket.data.userId as string | undefined) ?? null;
+    const identity = await getPlayerIdentity(userId);
     const player: QueuedPlayer = {
       socketId: socket.id,
       guestId: payload.guestId,
       userId,
-      displayName: payload.displayName || 'PLAYER',
-      avatarId: await getAvatarId(userId),
+      displayName: identity.displayName || payload.displayName || 'PLAYER',
+      avatarId: identity.avatarId,
       duration: resolveDuration(payload.duration),
     };
     socket.emit('room:created', { code: createRoom(player) });
@@ -183,12 +349,13 @@ io.on('connection', (socket: Socket) => {
     guestIdBySocket.set(socket.id, payload.guestId);
 
     const userId = (socket.data.userId as string | undefined) ?? null;
+    const identity = await getPlayerIdentity(userId);
     const player: QueuedPlayer = {
       socketId: socket.id,
       guestId: payload.guestId,
       userId,
-      displayName: payload.displayName || 'PLAYER',
-      avatarId: await getAvatarId(userId),
+      displayName: identity.displayName || payload.displayName || 'PLAYER',
+      avatarId: identity.avatarId,
       // The joiner's own duration is irrelevant -- the room creator's
       // (result.opponent below) is what createMatch actually uses, since
       // they're the one who set the room up in the first place.
@@ -230,6 +397,12 @@ io.on('connection', (socket: Socket) => {
     if (match.clock.deadlineTimer) clearTimeout(match.clock.deadlineTimer);
     const nextColor = chess.turn();
     match.clock.deadlineTimer = setTimeout(() => fireTimeout(match, nextColor), match.clock.remainingMs[nextColor]);
+
+    // A draw offer doesn't survive a change in the position.
+    if (match.drawOfferBy) {
+      match.drawOfferBy = undefined;
+      io.to(match.id).emit('draw:cleared', {});
+    }
 
     io.to(match.id).emit('move:applied', {
       from: payload.from,
@@ -275,6 +448,35 @@ io.on('connection', (socket: Socket) => {
     endMatch(match.id);
   });
 
+  socket.on('draw:offer', (payload: { matchId?: string }) => {
+    const guestId = guestIdBySocket.get(socket.id);
+    const match = payload?.matchId ? getMatch(payload.matchId) : undefined;
+    if (!match || !guestId) return;
+    const color = colorOf(match, guestId);
+    if (!color || match.drawOfferBy || match.chess.isGameOver()) return;
+
+    match.drawOfferBy = color;
+    io.to(match.id).emit('draw:offered', { color });
+  });
+
+  socket.on('draw:respond', (payload: { matchId?: string; accept?: boolean }) => {
+    const guestId = guestIdBySocket.get(socket.id);
+    const match = payload?.matchId ? getMatch(payload.matchId) : undefined;
+    if (!match || !guestId) return;
+    const color = colorOf(match, guestId);
+    // Only the player who DIDN'T offer can answer.
+    if (!color || !match.drawOfferBy || match.drawOfferBy === color) return;
+
+    if (payload.accept) {
+      io.to(match.id).emit('match:ended', { result: { type: 'draw', winner: null } });
+      persistMatchResult(match, 'draw', null).catch((err) => console.error('match persistence failed', err));
+      endMatch(match.id);
+      return;
+    }
+    match.drawOfferBy = undefined;
+    io.to(match.id).emit('draw:declined', {});
+  });
+
   socket.on('match:chat:send', (payload: { matchId?: string; text?: string }) => {
     const guestId = guestIdBySocket.get(socket.id);
     const match = payload?.matchId ? getMatch(payload.matchId) : undefined;
@@ -314,6 +516,7 @@ io.on('connection', (socket: Socket) => {
       matchId: match.id,
       color,
       opponent: {
+        userId: match.players[opponentColor(color)].userId,
         displayName: match.players[opponentColor(color)].displayName,
         avatarId: match.players[opponentColor(color)].avatarId,
       },
@@ -329,6 +532,21 @@ io.on('connection', (socket: Socket) => {
     leaveQueue(socket.id);
     cancelRoomBySocketId(socket.id);
     clearChatRateLimit(socket.id);
+
+    // Any friend challenges this socket had outstanding are now dead.
+    for (const challenge of cancelChallengesFromSocket(socket.id)) {
+      emitToUser(challenge.toUserId, 'friend:challenge:cancelled', { challengeId: challenge.id });
+    }
+
+    // Presence: only fire "offline" when this was the account's last socket.
+    const uid = (socket.data.userId as string | undefined) ?? undefined;
+    if (uid) {
+      const { wasLast } = removeUserSocket(uid, socket.id);
+      if (wasLast) {
+        broadcastPresence(uid, 'offline').catch((err) => console.error('presence broadcast failed', err));
+      }
+    }
+
     const guestId = guestIdBySocket.get(socket.id);
     guestIdBySocket.delete(socket.id);
     if (!guestId) return;

@@ -1,26 +1,20 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
+import { LinearGradient } from 'expo-linear-gradient'
+import { Pressable, ScrollView, Text, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-import { CurrencyPill, ProgressBar, RockCard } from '@/components/ui';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
-import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-
-// Real, currently-live Stitch preview asset (lh3.googleusercontent.com/aida-public/...),
-// verified resolvable. No documented permanence guarantee.
-const BACKSTAGE_LOUNGE_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuA8A7xjnP7lnpMEQHUkcpAMgYyoKFq4khkoHkNyfV7hdfpu333ZJUA23Mn0pvM7ztJUoETOtYGO8xPp6S-b4246-oru7EgVOjdWG2R7lcrLOCqDSulcZDGZ30dr6M3lwxFAxtYISfumAD5XSLA8TUI4sa8X_XFCA412pX0k8KYc19gbJdle6AddZg-z_w5q83DuVQvhSVb_IkvFZXHi5VcV0XdxpYHe1Ha1E9TepvZRd_cluMzqG0wnrFFoLyfdbGwED2O8XKPgzjE';
+import { SubPageHeader } from '@/components/layout'
+import { CurrencyPill, ProgressBar, RockCard } from '@/components/ui'
+import { Colors, withOpacity } from '@/constants/theme'
+import { usePlayerProfile } from '@/hooks/usePlayerProfile'
 
 interface Badge {
-  id: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  title: string;
-  reward: string;
-  unlocked: boolean;
-  variant?: 'chrome' | 'gold';
+  id: string
+  icon: keyof typeof MaterialCommunityIcons.glyphMap
+  title: string
+  reward: string
+  unlocked: boolean
+  variant?: 'chrome' | 'gold'
 }
 
 const BADGES: Badge[] = [
@@ -33,265 +27,117 @@ const BADGES: Badge[] = [
   { id: 'sharp-eye', icon: 'lock', title: 'Sharp Eye', reward: '+50 XP', unlocked: false },
   { id: 'vengeance', icon: 'lock', title: 'Vengeance', reward: '300 Gems', unlocked: false },
   { id: 'crowd-favorite', icon: 'lock', title: 'Crowd Favorite', reward: '+500 XP', unlocked: false },
-];
+]
 
 export default function AchievementsScreen() {
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { gems } = usePlayerProfile();
+  const insets = useSafeAreaInsets()
+  const { gems } = usePlayerProfile()
 
   return (
-    <View style={styles.root}>
-      <Image
-        source={{ uri: BACKSTAGE_LOUNGE_URI }}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        style={styles.backgroundImage}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[withOpacity(Colors.bgBase, 0.5), Colors.bgBase]}
-        style={styles.backgroundImage}
-      />
+    <View className="flex-1 bg-bg-base">
+      <SubPageHeader title="Hall of Fame" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <MaterialCommunityIcons name="chevron-left" size={26} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Hall of Fame</Text>
-        <CurrencyPill type="gems" value={gems} />
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.pageTitle}>Hall of Fame</Text>
-        <Text style={styles.pageSubtitle}>7 / 24 Badges Collected</Text>
-
-        <View style={styles.grid}>
-          {BADGES.map((badge) => (
-            <Pressable
-              key={badge.id}
-              style={styles.badgeSlot}
-              onPress={() =>
-                console.log(badge.unlocked ? `${badge.title} viewed` : `${badge.title} is locked`)
-              }
+      <ScrollView contentContainerClassName="gap-xl px-lg py-xl" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }} showsVerticalScrollIndicator={false}>
+        <RockCard glowColor={Colors.gold}>
+          <View className="flex-row flex-wrap items-center gap-lg">
+            <View
+              className="h-32 w-32 shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: Colors.bgBase, borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.3) }}
             >
-              <View
-                style={[
-                  styles.badgeTile,
-                  badge.unlocked
-                    ? badge.variant === 'gold'
-                      ? styles.badgeTileGold
-                      : styles.badgeTileChrome
-                    : styles.badgeTileLocked,
-                ]}
+              <LinearGradient
+                colors={[Colors.gold, Colors.ember, Colors.crimson]}
+                style={{ position: 'absolute', inset: 0, borderRadius: 64, padding: 2 }}
               >
-                {badge.unlocked ? (
-                  <LinearGradient
-                    pointerEvents="none"
-                    colors={
-                      badge.variant === 'gold'
-                        ? [Colors.gold, Colors.emberLight, Colors.ember]
-                        : [Colors.chrome, Colors.chromeMid, Colors.chromeDark]
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFillObject}
-                  />
-                ) : null}
-                <MaterialCommunityIcons
-                  name={badge.icon}
-                  size={badge.unlocked ? 36 : 32}
-                  color={badge.unlocked ? Colors.bgBase : Colors.chromeMid}
-                />
-                {badge.unlocked ? (
-                  <View style={styles.checkBadge}>
-                    <MaterialCommunityIcons name="check" size={12} color={Colors.bgBase} />
-                  </View>
-                ) : null}
-              </View>
-              <Text style={[styles.badgeTitle, !badge.unlocked && styles.badgeTitleLocked]}>{badge.title}</Text>
-              <Text style={[styles.badgeReward, !badge.unlocked && styles.badgeRewardLocked]}>{badge.reward}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <RockCard glowColor={Colors.gold} style={styles.featuredCard}>
-          <View style={styles.featuredRow}>
-            <View style={styles.featuredIconCircle}>
-              <MaterialCommunityIcons name="trophy" size={48} color={Colors.bgBase} />
+                <View className="flex-1 items-center justify-center overflow-hidden rounded-full" style={{ backgroundColor: Colors.bgPanel }}>
+                  <MaterialCommunityIcons name="trophy" size={56} color={Colors.gold} />
+                </View>
+              </LinearGradient>
             </View>
-            <View style={styles.featuredInfo}>
-              <Text style={styles.featuredTitle}>Legend of the Arena</Text>
-              <Text style={styles.featuredBody}>
-                Win 10 consecutive matches on the main stage to unlock the ultimate performer title
-                and 1,000 Diamonds.
-              </Text>
-              <ProgressBar progress={0.6} />
-              <Text style={styles.featuredProgress}>Progress: 6 / 10</Text>
+
+            <View className="flex-1 gap-md" style={{ minWidth: 220 }}>
+              <View>
+                <View
+                  className="mb-xs self-start rounded-full px-sm py-xs"
+                  style={{ backgroundColor: withOpacity(Colors.ember, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.ember, 0.3) }}
+                >
+                  <Text className="font-button-label uppercase tracking-widest text-ember" style={{ fontSize: 11 }}>
+                    Epic Quest
+                  </Text>
+                </View>
+                <Text className="font-heading-md text-heading-md uppercase tracking-wide text-text-primary">Legend of the Arena</Text>
+                <Text className="mt-xs font-body-sm text-body-sm text-text-muted">
+                  Win 10 consecutive matches on the main stage to unlock the ultimate performer title and 1,000 Diamonds.
+                </Text>
+              </View>
+
+              <View className="gap-xs">
+                <View className="flex-row justify-between">
+                  <Text className="font-button-label text-text-muted" style={{ fontSize: 11 }}>
+                    PROGRESS
+                  </Text>
+                  <Text className="font-headline-lg text-gold" style={{ fontSize: 16 }}>
+                    6/10
+                  </Text>
+                </View>
+                <ProgressBar progress={0.6} />
+              </View>
             </View>
           </View>
         </RockCard>
+
+        <View className="gap-lg">
+          <View className="flex-row items-center gap-md">
+            <Text className="font-section-header text-section-header uppercase tracking-widest text-chrome-dark">Collection</Text>
+            <View className="h-px flex-1" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.5) }} />
+          </View>
+
+          <View className="flex-row flex-wrap gap-y-lg" style={{ justifyContent: 'space-between' }}>
+            {BADGES.map((badge) => (
+              <Pressable
+                key={badge.id}
+                style={{ width: '31%' }}
+                className="items-center gap-xs"
+                onPress={() => console.log(badge.unlocked ? `${badge.title} viewed` : `${badge.title} is locked`)}
+              >
+                {badge.unlocked ? (
+                  <View
+                    className="aspect-square w-full items-center justify-center rounded-full"
+                    style={{
+                      borderWidth: 1,
+                      borderColor: withOpacity(badge.variant === 'gold' ? Colors.gold : Colors.chrome, 0.3),
+                      boxShadow: `0px 0px 18px ${withOpacity(badge.variant === 'gold' ? Colors.gold : Colors.chrome, 0.4)}`,
+                    }}
+                  >
+                    <LinearGradient
+                      colors={badge.variant === 'gold' ? [Colors.gold, Colors.emberLight, Colors.ember] : [Colors.chrome, Colors.chromeMid, Colors.chromeDark]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{ position: 'absolute', inset: 0, borderRadius: 999 }}
+                    />
+                    <MaterialCommunityIcons name={badge.icon} size={32} color={Colors.bgBase} />
+                  </View>
+                ) : (
+                  <View
+                    className="aspect-square w-full items-center justify-center rounded-full"
+                    style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.7), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
+                  >
+                    <MaterialCommunityIcons name="lock" size={30} color={Colors.chromeMid} />
+                  </View>
+                )}
+                <Text
+                  className="text-center font-button-label uppercase"
+                  style={{ fontSize: 11, color: badge.unlocked ? Colors.textPrimary : Colors.textMuted }}
+                >
+                  {badge.title}
+                </Text>
+                <Text className="font-body-sm" style={{ fontSize: 10, color: badge.unlocked ? Colors.gold : withOpacity(Colors.textMuted, 0.6) }}>
+                  {badge.reward}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </ScrollView>
     </View>
-  );
+  )
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.4,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    flex: 1,
-    textAlign: 'center',
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 60,
-  },
-  pageTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 28,
-    color: Colors.cyan,
-  },
-  pageSubtitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 4,
-    marginBottom: Spacing.lg,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: Spacing.lg,
-  },
-  badgeSlot: {
-    width: '31%',
-    alignItems: 'center',
-    gap: 6,
-  },
-  badgeTile: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  badgeTileChrome: {
-    boxShadow: `0px 4px 14px ${withOpacity(Colors.bgBase, 0.5)}`,
-  },
-  badgeTileGold: {
-    boxShadow: `0px 0px 16px ${withOpacity(Colors.gold, 0.4)}`,
-  },
-  badgeTileLocked: {
-    backgroundColor: withOpacity(Colors.bgPanel, 0.7),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.3),
-  },
-  checkBadge: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: Colors.cyan,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.bgBase,
-  },
-  badgeTitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  badgeTitleLocked: {
-    color: Colors.textMuted,
-  },
-  badgeReward: {
-    fontFamily: Fonts.body,
-    fontSize: 10,
-    color: Colors.gold,
-  },
-  badgeRewardLocked: {
-    color: Colors.textMuted,
-    opacity: 0.6,
-  },
-  featuredCard: {
-    marginTop: Spacing.xl,
-  },
-  featuredRow: {
-    flexDirection: 'row',
-    gap: Spacing.lg,
-    alignItems: 'center',
-  },
-  featuredIconCircle: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.gold,
-    boxShadow: `0px 0px 24px ${withOpacity(Colors.gold, 0.4)}`,
-  },
-  featuredInfo: {
-    flex: 1,
-    gap: Spacing.sm,
-  },
-  featuredTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 18,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  featuredBody: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  featuredProgress: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-});

@@ -1,12 +1,12 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CurrencyPill, PlayerAvatar, ProgressBar, RockButton, RockCard } from '@/components/ui';
-import { getAvatarEmoji } from '@/constants/avatars';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { AppIcon, ConfirmModal, CurrencyPill, PlayerAvatar } from '@/components/ui';
+import { SubPageHeader } from '@/components/layout';
+import { getAvatarImage } from '@/constants/avatars';
+import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { deleteAccount } from '@/lib/api';
 import { clearAuthToken, getAuthToken } from '@/lib/authStorage';
@@ -17,15 +17,15 @@ type LinkedStatus = 'connected' | 'not-linked';
 interface LinkedAccount {
   id: string;
   name: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: 'account_circle';
   detail: string;
   status: LinkedStatus;
 }
 
 const LINKED_ACCOUNTS: LinkedAccount[] = [
-  { id: 'google', name: 'Google', icon: 'google', detail: 'gm.player@gmail.com', status: 'connected' },
-  { id: 'facebook', name: 'Facebook', icon: 'facebook', detail: 'Not Linked', status: 'not-linked' },
-  { id: 'apple', name: 'Apple ID', icon: 'apple', detail: 'Not Linked', status: 'not-linked' },
+  { id: 'google', name: 'Google', icon: 'account_circle', detail: 'gm.player@gmail.com', status: 'connected' },
+  { id: 'facebook', name: 'Facebook', icon: 'account_circle', detail: 'Not Linked', status: 'not-linked' },
+  { id: 'apple', name: 'Apple ID', icon: 'account_circle', detail: 'Not Linked', status: 'not-linked' },
 ];
 
 export default function AccountSecurityScreen() {
@@ -33,19 +33,10 @@ export default function AccountSecurityScreen() {
   const insets = useSafeAreaInsets();
   const { profile, refresh: refreshPlayerProfile, gems } = usePlayerProfile();
   const [isDeleting, setIsDeleting] = useState(false);
-
-  function handleDeletePress() {
-    Alert.alert(
-      'Delete Account',
-      'This is permanent. All ranks, currency, and digital assets will be forfeited immediately.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete Account', style: 'destructive', onPress: confirmDelete },
-      ],
-    );
-  }
+  const [deleteVisible, setDeleteVisible] = useState(false);
 
   async function confirmDelete() {
+    setDeleteVisible(false);
     setIsDeleting(true);
     try {
       const token = await getAuthToken();
@@ -71,267 +62,85 @@ export default function AccountSecurityScreen() {
   }
 
   return (
-    <View style={styles.root}>
-      <View style={styles.ambientGlow} />
-
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton}>
-          <MaterialCommunityIcons name="chevron-left" size={26} color={Colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Linked Accounts</Text>
-        <CurrencyPill type="gems" value={gems} />
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.ironIdCard}>
-          <Rivet style={{ top: 8, left: 8 }} />
-          <Rivet style={{ top: 8, right: 8 }} />
-          <Rivet style={{ bottom: 8, left: 8 }} />
-          <Rivet style={{ bottom: 8, right: 8 }} />
-
-          <View style={styles.ironIdInner}>
-            <PlayerAvatar emoji={getAvatarEmoji(profile?.avatarId)} size="large" />
-            <Text style={styles.ironIdName}>IRON ID: GRANDMASTER_X</Text>
-            <Text style={styles.ironIdSubtitle}>Verified Contender • Level 88</Text>
-            <ProgressBar progress={0.75} height={6} />
+    <View className="flex-1 bg-bg-base">
+      <SubPageHeader title="Account Security" trailing={<CurrencyPill type="gems" value={gems} />} />
+      <ScrollView contentContainerClassName="mx-auto w-full max-w-md gap-xl px-margin-mobile py-xl" contentContainerStyle={{ paddingBottom: 48 + insets.bottom }}>
+        <View className="overflow-hidden rounded-lg p-md" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.5) }}>
+          <View className="mx-md my-md flex-row items-center gap-lg">
+            <PlayerAvatar source={getAvatarImage(profile?.avatarId)} size="medium" />
+            <View>
+              <Text className="font-heading-md text-heading-md tracking-wide text-text-primary">{profile?.displayName ?? 'Rockstar'}</Text>
+              <View className="mt-1 flex-row items-center gap-xs">
+                <AppIcon name="verified" size={14} color={Colors.cyan} />
+                <Text className="font-caption text-caption uppercase tracking-wider text-cyan">Status: Verified</Text>
+              </View>
+            </View>
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>External Services</Text>
-        <View style={styles.list}>
-          {LINKED_ACCOUNTS.map((account) => (
-            <RockCard key={account.id} style={styles.accountCard}>
-              <View style={styles.accountRow}>
-                <View style={styles.accountLeft}>
-                  <View style={styles.accountIconCircle}>
-                    <MaterialCommunityIcons name={account.icon} size={22} color={Colors.textMuted} />
+        <View className="gap-md">
+          <Text className="font-section-header text-section-header uppercase text-text-muted">External Services</Text>
+          <View className="gap-sm">
+            {LINKED_ACCOUNTS.map((account) => (
+              <View key={account.id} className="flex-row items-center justify-between rounded p-md" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                <View className="flex-row items-center gap-md">
+                  <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                    <AppIcon name={account.icon} size={20} color={Colors.textMuted} />
                   </View>
                   <View>
-                    <Text style={styles.accountName}>{account.name.toUpperCase()}</Text>
-                    <Text style={styles.accountDetail}>{account.detail}</Text>
+                    <Text className="font-body-base text-body-base text-text-primary">{account.name}</Text>
+                    <Text className="font-caption text-caption text-text-muted">{account.detail}</Text>
                   </View>
                 </View>
-
                 {account.status === 'connected' ? (
-                  <View style={styles.connectedPill}>
-                    <MaterialCommunityIcons name="check-circle" size={16} color={Colors.cyan} />
-                    <Text style={styles.connectedText}>Connected</Text>
-                  </View>
+                  <AppIcon name="check_circle" size={20} color={Colors.cyan} />
                 ) : (
                   <Pressable
-                    style={styles.linkButton}
+                    className="rounded px-md py-sm"
+                    style={{ backgroundColor: Colors.chrome }}
                     onPress={() => console.log('Link account pressed', account.name)}
                   >
-                    <Text style={styles.linkButtonText}>Link Now</Text>
+                    <Text className="font-display-hero" style={{ fontSize: 11, color: Colors.bgBase, textTransform: 'uppercase' }}>
+                      Link Now
+                    </Text>
                   </Pressable>
                 )}
               </View>
-            </RockCard>
-          ))}
+            ))}
+          </View>
         </View>
 
-        <View style={styles.dangerZone}>
-          <Text style={styles.dangerTitle}>Security &amp; Data</Text>
-          <Text style={styles.dangerBody}>
-            Deleting your account is permanent. All ranks, currency, and digital assets will be
-            forfeited immediately.
-          </Text>
-          <RockButton
-            label={isDeleting ? 'Deleting...' : 'Delete Account'}
-            variant="danger"
+        <View className="pt-xl" style={{ borderTopWidth: 1, borderTopColor: withOpacity(Colors.crimson, 0.2) }}>
+          <Pressable
+            onPress={() => setDeleteVisible(true)}
             disabled={isDeleting}
-            icon={<MaterialCommunityIcons name="delete-alert-outline" size={20} color={Colors.textPrimary} />}
-            onPress={handleDeletePress}
-          />
+            className="flex-row items-center justify-between rounded p-md"
+            style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.crimson, 0.5), opacity: isDeleting ? 0.6 : 1 }}
+          >
+            <View className="flex-row items-center gap-md">
+              <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.crimson, 0.1), borderWidth: 1, borderColor: withOpacity(Colors.crimson, 0.3) }}>
+                <AppIcon name="warning" size={20} color={Colors.crimson} />
+              </View>
+              <View>
+                <Text className="font-heading-md text-heading-md text-crimson">{isDeleting ? 'Deleting...' : 'Delete Account'}</Text>
+                <Text className="font-caption text-caption text-text-muted">This action is permanent.</Text>
+              </View>
+            </View>
+            <AppIcon name="chevron_right" size={22} color={Colors.chromeDark} />
+          </Pressable>
         </View>
-
-        <View style={styles.bottomSpacer} />
       </ScrollView>
+
+      <ConfirmModal
+        visible={deleteVisible}
+        variant="danger"
+        icon="warning"
+        title="Delete Account?"
+        message="This is permanent. All ranks, currency, and digital assets will be forfeited immediately."
+        confirmLabel="Delete"
+        onCancel={() => setDeleteVisible(false)}
+        onConfirm={confirmDelete}
+      />
     </View>
   );
 }
-
-function Rivet({ style }: { style: object }) {
-  return <View style={[styles.rivet, style]} />;
-}
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  ambientGlow: {
-    position: 'absolute',
-    top: -100,
-    left: '50%',
-    marginLeft: -200,
-    width: 400,
-    height: 300,
-    borderRadius: 200,
-    backgroundColor: withOpacity(Colors.cyan, 0.06),
-    boxShadow: `0px 0px 140px ${withOpacity(Colors.cyan, 0.2)}`,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.8),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 15,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    flex: 1,
-    textAlign: 'center',
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 60,
-    gap: Spacing.lg,
-  },
-  ironIdCard: {
-    position: 'relative',
-    padding: Spacing.xl,
-    borderRadius: Radius.lg,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.85),
-    borderWidth: 1,
-    borderTopColor: withOpacity(Colors.chrome, 0.3),
-    borderColor: withOpacity(Colors.chrome, 0.1),
-    boxShadow: `0px 15px 30px ${withOpacity(Colors.bgBase, 0.85)}`,
-  },
-  rivet: {
-    position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.chrome,
-    boxShadow: `1px 1px 2px ${withOpacity(Colors.bgBase, 0.5)}`,
-  },
-  ironIdInner: {
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  ironIdName: {
-    fontFamily: Fonts.heading,
-    fontSize: 16,
-    color: Colors.cyan,
-    letterSpacing: 1,
-    marginTop: Spacing.sm,
-  },
-  ironIdSubtitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 10,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 2,
-  },
-  sectionLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-  },
-  list: {
-    gap: Spacing.sm,
-  },
-  accountCard: {},
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: Spacing.sm,
-  },
-  accountLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    flexShrink: 1,
-  },
-  accountIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgBase, 0.5),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.3),
-  },
-  accountName: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  accountDetail: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  connectedPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  connectedText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-  },
-  linkButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.chrome,
-  },
-  linkButtonText: {
-    fontFamily: Fonts.display,
-    fontSize: 11,
-    color: Colors.bgBase,
-    textTransform: 'uppercase',
-  },
-  dangerZone: {
-    marginTop: Spacing.lg,
-    paddingTop: Spacing.xl,
-    borderTopWidth: 1,
-    borderTopColor: withOpacity(Colors.chromeDark, 0.2),
-    gap: Spacing.md,
-    alignItems: 'center',
-  },
-  dangerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 18,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-  },
-  dangerBody: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: Spacing.lg,
-  },
-  bottomSpacer: {
-    height: 20,
-  },
-});

@@ -1,12 +1,13 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CurrencyPill, EmberParticles, PlayerAvatar, RockButton, RockCard } from '@/components/ui';
-import { getAvatarEmoji } from '@/constants/avatars';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
+import { AppIcon, ConfirmModal, CurrencyPill, EmberParticles, PlayerAvatar, RockCard } from '@/components/ui';
+import { SubPageHeader } from '@/components/layout';
+import type { ICONS } from '@/constants/icons';
+import { getAvatarImage } from '@/constants/avatars';
+import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { loadMusicPreference, setMusicEnabled } from '@/lib/backgroundMusic';
 import { clearAuthToken } from '@/lib/authStorage';
@@ -15,10 +16,56 @@ import { loadSoundFxPreference, setSoundFxEnabled } from '@/lib/soundEffects';
 
 interface GameRow {
   id: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: keyof typeof ICONS;
   label: string;
+  subtitle: string;
   trailing?: string;
   action: () => void;
+}
+
+function SettingsRow({ icon, title, subtitle, trailing, last, onPress }: { icon: keyof typeof ICONS; title: string; subtitle: string; trailing?: string; last?: boolean; onPress?: () => void }) {
+  return (
+    <Pressable onPress={onPress} className="flex-row items-center justify-between p-md" style={!last ? { borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.2) } : undefined}>
+      <View className="flex-row items-center gap-md">
+        <View className="h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+          <AppIcon name={icon} size={20} color={Colors.cyan} />
+        </View>
+        <View>
+          <Text className="font-heading-md text-heading-md text-text-primary">{title}</Text>
+          <Text className="font-body-sm text-body-sm text-text-muted">{subtitle}</Text>
+        </View>
+      </View>
+      <View className="flex-row items-center gap-sm">
+        {trailing ? (
+          <Text className="font-body-sm text-body-sm text-cyan">{trailing}</Text>
+        ) : null}
+        <AppIcon name="chevron_right" size={22} color={Colors.textMuted} />
+      </View>
+    </Pressable>
+  );
+}
+
+function ToggleRow({ icon, title, subtitle, value, onValueChange, last }: { icon: keyof typeof ICONS; title: string; subtitle: string; value: boolean; onValueChange: (v: boolean) => void; last?: boolean }) {
+  return (
+    <View className="flex-row items-center justify-between p-md" style={!last ? { borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.2) } : undefined}>
+      <View className="flex-row items-center gap-md">
+        <View className="h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+          <AppIcon name={icon} size={20} color={Colors.ember} />
+        </View>
+        <View>
+          <Text className="font-heading-md text-heading-md text-text-primary">{title}</Text>
+          <Text className="font-body-sm text-body-sm text-text-muted">{subtitle}</Text>
+        </View>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: withOpacity(Colors.chromeDark, 0.4), true: withOpacity(Colors.ember, 0.6) }}
+        thumbColor={value ? Colors.ember : Colors.chrome}
+        ios_backgroundColor={withOpacity(Colors.chromeDark, 0.4)}
+      />
+    </View>
+  );
 }
 
 export default function ControlCoreScreen() {
@@ -26,6 +73,7 @@ export default function ControlCoreScreen() {
   const insets = useSafeAreaInsets();
   const [musicOn, setMusicOn] = useState(true);
   const [soundFxOn, setSoundFxOn] = useState(true);
+  const [logoutVisible, setLogoutVisible] = useState(false);
   const { profile, refresh: refreshPlayerProfile, gems } = usePlayerProfile();
 
   useEffect(() => {
@@ -44,6 +92,7 @@ export default function ControlCoreScreen() {
   }
 
   async function handleLogout() {
+    setLogoutVisible(false);
     await clearAuthToken();
     clearSocketAuth();
     // Resets the shared profile context back to its guest state (no token
@@ -54,332 +103,79 @@ export default function ControlCoreScreen() {
   }
 
   const gameRows: GameRow[] = [
-    {
-      id: 'notifications',
-      icon: 'bell-outline',
-      label: 'Notifications',
-      action: () => router.push('/backstage-alerts'),
-    },
-    {
-      id: 'language',
-      icon: 'translate',
-      label: 'Language',
-      trailing: 'English',
-      action: () => console.log('Language pressed'),
-    },
-    {
-      id: 'terms',
-      icon: 'gavel',
-      label: 'Terms of Service',
-      action: () => console.log('Terms of Service pressed'),
-    },
-    {
-      id: 'support',
-      icon: 'lifebuoy',
-      label: 'Help & Support',
-      action: () => router.push('/roadie-support'),
-    },
+    { id: 'notifications', icon: 'notifications', label: 'Notifications', subtitle: 'Match, reward, and social alerts', action: () => router.push('/backstage-alerts') },
+    { id: 'language', icon: 'menu_book', label: 'Language', subtitle: 'Display language', trailing: 'English', action: () => console.log('Language pressed') },
+    { id: 'terms', icon: 'style', label: 'Terms of Service', subtitle: 'Legal & privacy', action: () => console.log('Terms of Service pressed') },
+    { id: 'support', icon: 'support_agent', label: 'Help & Support', subtitle: 'Get help from the crew', action: () => router.push('/roadie-support') },
   ];
 
   return (
-    <View style={styles.root}>
+    <View className="flex-1 bg-bg-base">
       <EmberParticles count={10} />
+      <SubPageHeader title="Control Core" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <View style={styles.headerLeft}>
-          <PlayerAvatar emoji={getAvatarEmoji(profile?.avatarId)} size="small" />
-          <Text style={styles.headerTitle}>Control Core</Text>
-        </View>
-        <CurrencyPill type="gems" value={gems} />
-      </View>
-
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 60 + insets.bottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <SettingsSection icon="volume-high" title="Audio">
-          <RockCard style={styles.sectionCard}>
-            <ToggleRow
-              title="Music"
-              subtitle="Ambient stage themes"
-              value={musicOn}
-              onValueChange={handleMusicChange}
-            />
-            <View style={styles.rowDivider} />
-            <ToggleRow
-              title="Sound FX"
-              subtitle="Piece moves & alerts"
-              value={soundFxOn}
-              onValueChange={handleSoundFxChange}
-            />
-          </RockCard>
-        </SettingsSection>
-
-        <SettingsSection icon="controller-classic-outline" title="Game">
-          <RockCard style={styles.listCard}>
-            {gameRows.map((row, index) => (
-              <Pressable
-                key={row.id}
-                style={[styles.listRow, index < gameRows.length - 1 && styles.rowDivider]}
-                onPress={row.action}
-              >
-                <View style={styles.listRowLeft}>
-                  <MaterialCommunityIcons name={row.icon} size={20} color={Colors.textMuted} />
-                  <Text style={styles.listRowLabel}>{row.label}</Text>
+      <ScrollView contentContainerClassName="gap-xl px-margin-mobile py-xl" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}>
+        <View className="gap-sm">
+          <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Account Identity</Text>
+          <RockCard variant="surface" contentPadding={0}>
+            <View className="flex-row items-center justify-between p-md">
+              <View className="flex-row items-center gap-md">
+                <PlayerAvatar source={getAvatarImage(profile?.avatarId)} size="medium" />
+                <View>
+                  <Text className="font-heading-md text-heading-md text-text-primary">{profile?.displayName ?? 'Rockstar'}</Text>
+                  <Text className="font-body-sm text-body-sm text-gold">Level {profile?.level ?? 1}</Text>
                 </View>
-                <View style={styles.listRowRight}>
-                  {row.trailing ? <Text style={styles.listRowTrailing}>{row.trailing}</Text> : null}
-                  <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textMuted} />
-                </View>
-              </Pressable>
-            ))}
-          </RockCard>
-        </SettingsSection>
-
-        <SettingsSection icon="account-circle-outline" title="Account">
-          <RockCard style={styles.accountCard}>
-            <View style={styles.accountRow}>
-              <View style={styles.accountIconCircle}>
-                <MaterialCommunityIcons name="shield-account" size={28} color={Colors.chrome} />
               </View>
-              <View style={styles.accountInfo}>
-                <Text style={styles.accountLabel}>Grandmaster ID</Text>
-                <Text style={styles.accountValue}>GM_KASPAROV_88</Text>
-              </View>
-              <Pressable
-                style={styles.editButton}
-                onPress={() => router.push('/account-security')}
-              >
-                <Text style={styles.editButtonText}>Edit</Text>
+              <Pressable onPress={() => router.push('/account-security')} className="rounded-full px-md py-sm" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                <Text className="font-button-label text-button-label text-text-primary">Edit Profile</Text>
               </Pressable>
             </View>
           </RockCard>
-        </SettingsSection>
+        </View>
 
-        <View style={styles.dangerZone}>
-          <RockButton
-            label="Logout"
-            variant="danger"
-            icon={<MaterialCommunityIcons name="logout" size={20} color={Colors.textPrimary} />}
-            onPress={handleLogout}
-          />
-          <Text style={styles.versionText}>App Version 2.4.0-STAGE-CORE</Text>
+        <View className="gap-sm">
+          <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Audio Environment</Text>
+          <RockCard variant="surface" contentPadding={0}>
+            <ToggleRow icon="music_note" title="Mainstage Music" subtitle="Ambient stage themes" value={musicOn} onValueChange={handleMusicChange} />
+            <ToggleRow icon="volume_up" title="Sound FX" subtitle="Piece moves & alerts" value={soundFxOn} onValueChange={handleSoundFxChange} last />
+          </RockCard>
+        </View>
+
+        <View className="gap-sm">
+          <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Game</Text>
+          <RockCard variant="surface" contentPadding={0}>
+            {gameRows.map((row, index) => (
+              <SettingsRow key={row.id} icon={row.icon} title={row.label} subtitle={row.subtitle} trailing={row.trailing} last={index === gameRows.length - 1} onPress={row.action} />
+            ))}
+          </RockCard>
+        </View>
+
+        <View className="mt-md gap-sm">
+          <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-crimson">Danger Zone</Text>
+          <Pressable
+            onPress={() => setLogoutVisible(true)}
+            className="flex-row items-center justify-center gap-sm rounded-full py-md"
+            style={{ backgroundColor: withOpacity(Colors.crimson, 0.8), borderWidth: 1, borderColor: withOpacity(Colors.crimson, 0.5), boxShadow: `0px 0px 12px ${withOpacity(Colors.crimson, 0.25)}` }}
+          >
+            <AppIcon name="logout" size={18} color={Colors.textPrimary} />
+            <Text className="font-button-label text-button-label uppercase tracking-wide text-text-primary">Logout</Text>
+          </Pressable>
+          <Text className="text-center font-body-sm text-body-sm text-text-muted" style={{ opacity: 0.5 }}>
+            App Version 2.4.0-STAGE-CORE
+          </Text>
         </View>
       </ScrollView>
-    </View>
-  );
-}
 
-function SettingsSection({
-  icon,
-  title,
-  children,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeading}>
-        <MaterialCommunityIcons name={icon} size={20} color={Colors.cyan} />
-        <Text style={styles.sectionHeadingText}>{title}</Text>
-      </View>
-      {children}
-    </View>
-  );
-}
-
-function ToggleRow({
-  title,
-  subtitle,
-  value,
-  onValueChange,
-}: {
-  title: string;
-  subtitle: string;
-  value: boolean;
-  onValueChange: (value: boolean) => void;
-}) {
-  return (
-    <View style={styles.toggleRow}>
-      <View>
-        <Text style={styles.toggleTitle}>{title}</Text>
-        <Text style={styles.toggleSubtitle}>{subtitle}</Text>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onValueChange}
-        trackColor={{ false: withOpacity(Colors.chromeDark, 0.4), true: withOpacity(Colors.cyan, 0.5) }}
-        thumbColor={value ? Colors.cyan : Colors.chrome}
-        ios_backgroundColor={withOpacity(Colors.chromeDark, 0.4)}
+      <ConfirmModal
+        visible={logoutVisible}
+        variant="danger"
+        icon="logout"
+        title="Log Out?"
+        message="You'll need to sign back in to access your Rockstar profile, chips, and gems."
+        confirmLabel="Logout"
+        onCancel={() => setLogoutVisible(false)}
+        onConfirm={handleLogout}
       />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    flexShrink: 1,
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-    textShadowColor: withOpacity(Colors.cyan, 0.5),
-    textShadowRadius: 8,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingBottom: 60,
-    gap: Spacing.xl,
-  },
-  section: {
-    gap: Spacing.md,
-  },
-  sectionHeading: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  sectionHeadingText: {
-    fontFamily: Fonts.display,
-    fontSize: 18,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  sectionCard: {
-    gap: Spacing.md,
-  },
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.sm,
-  },
-  toggleTitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  toggleSubtitle: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  listCard: {
-    padding: 0,
-    overflow: 'hidden',
-  },
-  listRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-  },
-  rowDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: withOpacity(Colors.chromeDark, 0.2),
-  },
-  listRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  listRowLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  listRowRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  listRowTrailing: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.cyan,
-  },
-  accountCard: {},
-  accountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  accountIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgBase, 0.5),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  accountInfo: {
-    flex: 1,
-  },
-  accountLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  accountValue: {
-    fontFamily: Fonts.body,
-    fontSize: 12,
-    color: Colors.cyan,
-    marginTop: 2,
-  },
-  editButton: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.sm,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.9),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  editButtonText: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  dangerZone: {
-    gap: Spacing.md,
-    paddingTop: Spacing.md,
-  },
-  versionText: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    opacity: 0.5,
-  },
-});

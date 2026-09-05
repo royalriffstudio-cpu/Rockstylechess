@@ -1,53 +1,56 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-import { Image } from 'expo-image';
-import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BottomNav, CurrencyPill, PlayerAvatar, ProgressBar, RockButton, RockCard } from '@/components/ui';
-import { Colors, Fonts, Radius, Spacing, withOpacity } from '@/constants/theme';
-import { getAvatarEmoji } from '@/constants/avatars';
+import { AppIcon, BottomNav, CurrencyPill, PlayerAvatar, ProgressBar, RockButton, RockCard } from '@/components/ui';
+import { getAvatarImage } from '@/constants/avatars';
+import type { ICONS } from '@/constants/icons';
+import { Colors, withOpacity } from '@/constants/theme';
+import { useFriends } from '@/hooks/useFriends';
 import { getMyMatches, getMyProfile, type MatchHistoryEntry, type PlayerProfile } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
 import { getLevelProgress } from '@/lib/leveling';
 import { formatRelativeTime } from '@/lib/time';
 import { tierLabel } from '@/lib/tierLabel';
 
-// Real, currently-live Stitch preview asset (lh3.googleusercontent.com/aida-public/...),
-// verified resolvable. No documented permanence guarantee.
-const BACKSTAGE_LOUNGE_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuD439I-QFr8-qTT8-QPmNzZpNNmZLCcLEDDqFs2uLqslx2WSk7M4wrMO5KIzyX3LYwCPaQsbmUcPiZJRz2OwrhUJnj1Y0uoOLz1O25pHFNzWkmOjNqx6kY6qPRSW0oTU5XnzIUrtdDQarrNV6s9IiIyOBpLU-i2AuKdIdMPnl-PE8QLWXrDTi3IQK5OFcHF0LRK05KyXSD2RLuh3NLTA571f3XvaTayEglZIPe7BoqHPHZ5FGKrrzPdM1Ze2QATqwgSsMbtAKotbto';
-
 interface SocialLink {
   id: string;
   label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  icon: keyof typeof ICONS;
   accent: string;
   route: '/bands' | '/friends' | '/messages' | '/front-row';
 }
 
 const SOCIAL_LINKS: SocialLink[] = [
-  { id: 'bands', label: 'Bands', icon: 'guitar-electric', accent: Colors.emberLight, route: '/bands' },
-  { id: 'friends', label: 'Friends', icon: 'account-multiple', accent: Colors.cyan, route: '/friends' },
-  { id: 'messages', label: 'Messages', icon: 'chat-outline', accent: Colors.cyan, route: '/messages' },
-  { id: 'front-row', label: 'Spectate', icon: 'eye-outline', accent: Colors.crimson, route: '/front-row' },
+  { id: 'bands', label: 'Bands', icon: 'sports_esports', accent: Colors.emberLight, route: '/bands' },
+  { id: 'friends', label: 'Friends', icon: 'group', accent: Colors.cyan, route: '/friends' },
+  { id: 'messages', label: 'Messages', icon: 'chat', accent: Colors.cyan, route: '/messages' },
+  { id: 'front-row', label: 'Spectate', icon: 'visibility', accent: Colors.crimson, route: '/front-row' },
 ];
 
-interface TrophyItem {
+interface QuickLink {
   id: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  accent: string;
   label: string;
+  icon: keyof typeof ICONS;
+  accent: string;
+  route: '/achievements' | '/quests' | '/collections';
 }
+
+const QUICK_LINKS: QuickLink[] = [
+  { id: 'achievements', label: 'Achievements', icon: 'emoji_events', accent: Colors.gold, route: '/achievements' },
+  { id: 'quests', label: 'Quests', icon: 'military_tech', accent: Colors.cyan, route: '/quests' },
+  { id: 'collections', label: 'Collections', icon: 'style', accent: Colors.emberLight, route: '/collections' },
+];
 
 // No achievements backend exists yet (same deliberately-deferred pattern as
 // the rest of the app's social/rewards features) -- left as flavor.
-const TROPHIES: TrophyItem[] = [
-  { id: 'masters-open', icon: 'trophy', accent: Colors.cyan, label: "MASTERS OPEN '24" },
-  { id: 'iron-knight', icon: 'shield-sword', accent: Colors.emberLight, label: 'IRON KNIGHT' },
-  { id: 'stage-boss', icon: 'crown', accent: Colors.gold, label: 'THE STAGE BOSS' },
+const TROPHIES: { id: string; icon: keyof typeof ICONS; accent: string; label: string }[] = [
+  { id: 'masters-open', icon: 'emoji_events', accent: Colors.cyan, label: "MASTERS OPEN '24" },
+  { id: 'iron-knight', icon: 'military_tech', accent: Colors.emberLight, label: 'IRON KNIGHT' },
+  { id: 'stage-boss', icon: 'stars', accent: Colors.gold, label: 'THE STAGE BOSS' },
 ];
 
 const RESULT_LABEL: Record<MatchHistoryEntry['resultType'], string> = {
@@ -73,6 +76,15 @@ export default function IronIdScreen() {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [matches, setMatches] = useState<MatchHistoryEntry[]>([]);
   const [matchesExpanded, setMatchesExpanded] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const { pendingCount, unreadTotal } = useFriends();
+
+  async function handleCopyFriendCode() {
+    if (!profile?.friendCode) return;
+    await Clipboard.setStringAsync(profile.friendCode);
+    setCodeCopied(true);
+    setTimeout(() => setCodeCopied(false), 2000);
+  }
 
   const load = useCallback(async (matchLimit: number) => {
     const token = await getAuthToken();
@@ -82,10 +94,7 @@ export default function IronIdScreen() {
     }
     setStatus('loading');
     try {
-      const [{ profile: fetchedProfile }, { matches: fetchedMatches }] = await Promise.all([
-        getMyProfile(token),
-        getMyMatches(token, matchLimit),
-      ]);
+      const [{ profile: fetchedProfile }, { matches: fetchedMatches }] = await Promise.all([getMyProfile(token), getMyMatches(token, matchLimit)]);
       setProfile(fetchedProfile);
       setMatches(fetchedMatches);
       setStatus('ready');
@@ -116,535 +125,245 @@ export default function IronIdScreen() {
   const levelProgress = getLevelProgress(profile?.xp ?? 0);
 
   return (
-    <View style={styles.root}>
-      <Image
-        source={{ uri: BACKSTAGE_LOUNGE_URI }}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        style={styles.backgroundImage}
-      />
-      <LinearGradient
-        pointerEvents="none"
-        colors={[withOpacity(Colors.bgBase, 0.6), Colors.bgBase]}
-        style={styles.backgroundImage}
-      />
-
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm }]}>
-        <Text style={styles.headerTitle}>Iron ID</Text>
-        <View style={styles.headerRight}>
+    <View className="flex-1 bg-bg-base">
+      <View className="flex-row items-center justify-between px-lg pb-md" style={{ paddingTop: insets.top + 16 }}>
+        <Text className="font-display-hero text-cyan" style={{ fontSize: 16, textTransform: 'uppercase', textShadowColor: withOpacity(Colors.cyan, 0.5), textShadowRadius: 8, textShadowOffset: { width: 0, height: 0 } }}>
+          Iron ID
+        </Text>
+        <View className="flex-row items-center gap-sm">
           <CurrencyPill type="gems" value={profile?.gems ?? 0} />
-          <Pressable
-            style={styles.settingsButton}
-            onPress={() => {
-              console.log('Settings entry point pressed');
-              router.push('/control-core');
-            }}
-          >
+          <Pressable className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.85), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4) }} onPress={() => router.push('/control-core')}>
             <MaterialCommunityIcons name="cog-outline" size={20} color={Colors.textPrimary} />
           </Pressable>
         </View>
       </View>
 
       {status === 'guest' ? (
-        <View style={styles.guestWrap}>
-          <Text style={styles.guestText}>Sign in to see your stats.</Text>
+        <View className="flex-1 items-center justify-center gap-md px-xl">
+          <Text className="text-center font-body-base text-body-base text-text-muted">Sign in to see your stats.</Text>
           <RockButton label="Sign In" variant="primary" onPress={() => router.push('/sign-in')} />
         </View>
       ) : status === 'loading' && !profile ? (
-        <ActivityIndicator color={Colors.cyan} style={styles.loadingSpinner} />
+        <ActivityIndicator color={Colors.cyan} style={{ marginTop: 48 }} />
       ) : status === 'error' && !profile ? (
-        <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>Couldn't load your profile.</Text>
+        <View className="flex-1 items-center justify-center gap-md">
+          <Text className="font-body-base text-body-base text-text-muted">Couldn&apos;t load your profile.</Text>
           <RockButton label="Retry" variant="primary" onPress={() => load(matchesExpanded ? 50 : 10)} />
         </View>
       ) : profile ? (
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
+          contentContainerClassName="gap-xl px-lg"
+          contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={Colors.cyan} />}
         >
-          <View style={styles.profileHero}>
-            {/* The source's rotating conic-gradient ring isn't representable
-                with LinearGradient -- reusing PlayerAvatar's existing fire-ring
-                approximation (already our established solution to this exact
-                CSS trick) instead of building a second bespoke ring. */}
-            <PlayerAvatar emoji={getAvatarEmoji(profile.avatarId)} size="large" level={profile.level} />
-            <Text style={styles.profileName}>{profile.displayName ?? 'Player'}</Text>
-            <View style={styles.profileSubRow}>
-              <MaterialCommunityIcons name="medal" size={16} color={Colors.cyan} />
-              <Text style={styles.profileSubtitle}>{tierLabel(profile.rating)}</Text>
+          <RockCard variant="surface">
+            <View className="items-center gap-sm">
+              <PlayerAvatar source={getAvatarImage(profile.avatarId)} size="large" level={profile.level} />
+              <Text className="font-heading-md text-heading-md uppercase tracking-wide text-cyan">
+                {profile.displayName ?? 'Player'}
+              </Text>
+              <View className="flex-row items-center gap-xs">
+                <AppIcon name="workspace_premium" size={18} color={Colors.ember} />
+                <Text className="font-heading-md text-body-base uppercase text-ember">{tierLabel(profile.rating)}</Text>
+              </View>
+              <View style={{ width: '70%', marginTop: 4 }}>
+                <ProgressBar progress={levelProgress.progress} height={6} label={`${levelProgress.xpIntoLevel.toLocaleString()} / ${levelProgress.xpForNextLevel.toLocaleString()} XP`} />
+              </View>
             </View>
-            <View style={styles.xpBarWrap}>
-              <ProgressBar
-                progress={levelProgress.progress}
-                height={6}
-                label={`${levelProgress.xpIntoLevel.toLocaleString()} / ${levelProgress.xpForNextLevel.toLocaleString()} XP`}
-              />
+          </RockCard>
+
+          {profile.friendCode ? (
+            <RockCard variant="surface" contentPadding={12}>
+              <View className="flex-row items-center justify-between">
+                <View>
+                  <Text className="font-section-header uppercase" style={{ fontSize: 10, letterSpacing: 2, color: Colors.textMuted }}>
+                    Friend Code
+                  </Text>
+                  <Text className="mt-0.5 font-headline-lg text-cyan" style={{ fontSize: 20, letterSpacing: 3 }}>
+                    {profile.friendCode}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={handleCopyFriendCode}
+                  hitSlop={8}
+                  className="flex-row items-center gap-1 rounded-md px-2.5 py-1.5"
+                  style={{ backgroundColor: withOpacity(Colors.cyan, 0.12), borderWidth: 1, borderColor: withOpacity(Colors.cyan, 0.35) }}
+                >
+                  <AppIcon name={codeCopied ? 'check' : 'content_copy'} size={14} color={Colors.cyan} />
+                  <Text className="font-section-header uppercase" style={{ fontSize: 10, color: Colors.cyan }}>
+                    {codeCopied ? 'Copied' : 'Copy'}
+                  </Text>
+                </Pressable>
+              </View>
+            </RockCard>
+          ) : null}
+
+          <View className="flex-row gap-sm">
+            {SOCIAL_LINKS.map((link) => {
+              const badge = link.id === 'friends' ? pendingCount : link.id === 'messages' ? unreadTotal : 0;
+              return (
+                <Pressable key={link.id} style={{ flex: 1 }} onPress={() => router.push(link.route)}>
+                  <RockCard variant="surface" glowColor={link.accent} contentPadding={12}>
+                    <View className="items-center gap-1">
+                      <AppIcon name={link.icon} size={24} color={link.accent} />
+                      <Text className="font-section-header text-caption uppercase text-text-primary">{link.label}</Text>
+                    </View>
+                  </RockCard>
+                  {badge > 0 ? (
+                    <View
+                      className="absolute items-center justify-center rounded-full px-1"
+                      style={{ top: -4, right: -4, minWidth: 18, height: 18, backgroundColor: Colors.emberLight, borderWidth: 1.5, borderColor: Colors.bgBase }}
+                    >
+                      <Text className="font-section-header" style={{ fontSize: 9, color: Colors.bgBase }}>
+                        {badge > 9 ? '9+' : badge}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View className="flex-row flex-wrap gap-gutter">
+            <RockCard variant="surface" contentPadding={12} style={{ width: '47%' }}>
+              <View className="items-center justify-center">
+                <AppIcon name="trending_up" size={22} color={Colors.cyan} />
+                <Text className="mt-xs font-heading-md text-heading-md" style={{ color: Colors.emberLight }}>
+                  {winRate}
+                </Text>
+                <Text className="font-caption text-caption uppercase tracking-wide text-text-muted">Win Rate</Text>
+              </View>
+            </RockCard>
+            <RockCard variant="surface" contentPadding={12} style={{ width: '47%' }}>
+              <View className="items-center justify-center">
+                <AppIcon name="sports_esports" size={22} color={Colors.cyan} />
+                <Text className="mt-xs font-heading-md text-heading-md" style={{ color: Colors.emberLight }}>
+                  {profile.winStreak}
+                </Text>
+                <Text className="font-caption text-caption uppercase tracking-wide text-text-muted">Win Streak</Text>
+              </View>
+            </RockCard>
+            <RockCard variant="surface" style={{ width: '100%' }}>
+              <View className="flex-row items-center justify-between">
+                <View>
+                  <Text className="font-caption text-caption uppercase tracking-wide text-text-muted">Global Rating</Text>
+                  <View className="flex-row items-baseline gap-sm">
+                    <Text className="font-display-hero text-cyan" style={{ fontSize: 32 }}>
+                      {profile.rating}
+                    </Text>
+                    {latestDelta !== null ? (
+                      <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }}>
+                        {formatDelta(latestDelta)}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+                <MaterialCommunityIcons name="trending-up" size={72} color={withOpacity(Colors.cyan, 0.15)} />
+              </View>
+            </RockCard>
+          </View>
+
+          <View>
+            <Text
+              className="mb-md pb-xs font-section-header text-section-header uppercase text-text-muted"
+              style={{ borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.3) }}
+            >
+              Trophy Case
+            </Text>
+            <View className="flex-row gap-sm">
+              {TROPHIES.map((trophy) => (
+                <View key={trophy.id} className="flex-1 items-center gap-sm rounded-lg p-md" style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.2) }}>
+                  <View
+                    className="h-16 w-16 items-center justify-center rounded-full"
+                    style={{ backgroundColor: withOpacity(trophy.accent, 0.1), borderWidth: 0.5, borderColor: Colors.chromeDark, boxShadow: `0px 0px 18px ${withOpacity(trophy.accent, 0.3)}` }}
+                  >
+                    <AppIcon name={trophy.icon} size={28} color={trophy.accent} />
+                  </View>
+                  <Text className="text-center font-section-header text-caption text-text-primary">{trophy.label}</Text>
+                </View>
+              ))}
             </View>
           </View>
 
-          <View style={styles.socialRow}>
-            {SOCIAL_LINKS.map((link) => (
-              <Pressable
-                key={link.id}
-                style={styles.socialCard}
-                onPress={() => {
-                  console.log(`${link.label} entry point pressed`);
-                  router.push(link.route);
-                }}
-              >
-                <RockCard glowColor={link.accent}>
-                  <View style={styles.socialPressable}>
-                    <MaterialCommunityIcons name={link.icon} size={24} color={link.accent} />
-                    <Text style={styles.socialLabel}>{link.label}</Text>
-                  </View>
-                </RockCard>
+          <View className="flex-row gap-gutter">
+            {QUICK_LINKS.map((link) => (
+              <Pressable key={link.id} onPress={() => router.push(link.route)} style={{ width: '31%' }} className="items-center justify-center gap-xs rounded-lg bg-bg-panel p-md">
+                <AppIcon name={link.icon} size={22} color={link.accent} />
+                <Text className="text-center font-caption text-caption uppercase text-text-primary">{link.label}</Text>
               </Pressable>
             ))}
           </View>
 
-          <View style={styles.statsGrid}>
-            <RockCard style={styles.ratingCard}>
-              <View style={styles.ratingInner}>
-                <Text style={styles.statLabelMuted}>GLOBAL RATING</Text>
-                <View style={styles.ratingValueRow}>
-                  <Text style={styles.ratingValue}>{profile.rating}</Text>
-                  {latestDelta !== null ? <Text style={styles.ratingDelta}>{formatDelta(latestDelta)}</Text> : null}
-                </View>
-              </View>
-              <MaterialCommunityIcons
-                name="trending-up"
-                size={100}
-                color={withOpacity(Colors.cyan, 0.1)}
-                style={styles.ratingBgIcon}
-              />
-            </RockCard>
-
-            <View style={styles.statsRowSmall}>
-              <RockCard style={styles.statCardSmall}>
-                <Text style={styles.statLabelMuted}>WIN RATE</Text>
-                <Text style={[styles.statValueSmall, { color: Colors.emberLight }]}>{winRate}</Text>
-                <ProgressBar progress={games > 0 ? profile.wins / games : 0} height={4} />
-              </RockCard>
-              <RockCard style={styles.statCardSmall}>
-                <Text style={styles.statLabelMuted}>WIN STREAK</Text>
-                <Text style={[styles.statValueSmall, { color: Colors.emberLight }]}>{profile.winStreak}</Text>
-                <View style={styles.streakRow}>
-                  {Array.from({ length: Math.min(profile.winStreak, 3) }).map((_, i) => (
-                    <MaterialCommunityIcons key={i} name="fire" size={16} color={Colors.emberLight} />
-                  ))}
-                </View>
-              </RockCard>
-            </View>
-          </View>
-
-          <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>Trophy Case</Text>
-            <Text style={styles.viewAll} onPress={() => console.log('View all trophies pressed')}>
-              VIEW ALL
+          <View>
+            <Text
+              className="mb-md pb-xs font-section-header text-section-header uppercase text-text-muted"
+              style={{ borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.3) }}
+            >
+              Match History
             </Text>
-          </View>
-          <View style={styles.trophyGrid}>
-            {TROPHIES.map((trophy) => (
-              <View key={trophy.id} style={styles.trophySlot}>
-                <View style={[styles.trophyIconCircle, { boxShadow: `0px 0px 15px ${withOpacity(trophy.accent, 0.25)}` }]}>
-                  <MaterialCommunityIcons name={trophy.icon} size={32} color={trophy.accent} />
-                </View>
-                <Text style={styles.trophyLabel}>{trophy.label}</Text>
+            {matches.length === 0 ? (
+              <Text className="font-body-base text-body-base text-text-muted">No matches played yet.</Text>
+            ) : (
+              <View className="gap-sm">
+                {matches.map((match) => (
+                  <Pressable
+                    key={match.matchId}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/replay',
+                        params: { matchId: match.matchId, opponentDisplayName: match.opponentDisplayName, resultType: match.resultType, color: match.color, playedAt: match.playedAt },
+                      })
+                    }
+                  >
+                    <RockCard variant="surface" contentPadding={10}>
+                      <View className="flex-row items-center gap-md">
+                        <View
+                          className="h-9 w-9 items-center justify-center rounded-full"
+                          style={{
+                            backgroundColor: withOpacity(match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold, 0.2),
+                            borderWidth: 1,
+                            borderColor: withOpacity(match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold, 0.5),
+                          }}
+                        >
+                          <Text className="font-button-label text-button-label" style={{ color: match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold }}>
+                            {match.outcome === 'win' ? 'W' : match.outcome === 'loss' ? 'L' : 'D'}
+                          </Text>
+                        </View>
+                        <View className="flex-1">
+                          <Text className="font-body-base text-body-base" style={{ color: Colors.textPrimary }}>
+                            vs. {match.opponentDisplayName.toUpperCase()}
+                          </Text>
+                          <Text className="font-caption text-caption" style={{ color: Colors.textMuted, marginTop: 2 }}>
+                            {formatRelativeTime(match.playedAt)} • {RESULT_LABEL[match.resultType]}
+                          </Text>
+                        </View>
+                        <View className="items-end">
+                          <Text className="font-display-hero" style={{ fontSize: 16, color: match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold }}>
+                            {formatDelta(match.ratingDelta)}
+                          </Text>
+                          <Text className="font-body-sm" style={{ fontSize: 11, color: Colors.textMuted }}>
+                            {match.ratingAfter}
+                          </Text>
+                        </View>
+                        <AppIcon name="replay" size={20} color={Colors.textMuted} />
+                      </View>
+                    </RockCard>
+                  </Pressable>
+                ))}
               </View>
-            ))}
+            )}
+
+            {!matchesExpanded && matches.length >= 10 ? (
+              <View style={{ marginTop: 8 }}>
+                <RockButton label="Show All Matches" variant="primary" onPress={handleShowAllMatches} />
+              </View>
+            ) : null}
           </View>
-
-          <Text style={[styles.sectionTitle, styles.matchHistoryTitle]}>Match History</Text>
-          {matches.length === 0 ? (
-            <Text style={styles.emptyText}>No matches played yet.</Text>
-          ) : (
-            <View style={styles.matchList}>
-              {matches.map((match) => (
-                <Pressable
-                  key={match.matchId}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/replay',
-                      params: {
-                        matchId: match.matchId,
-                        opponentDisplayName: match.opponentDisplayName,
-                        resultType: match.resultType,
-                        color: match.color,
-                        playedAt: match.playedAt,
-                      },
-                    })
-                  }
-                >
-                  <RockCard style={styles.matchCard}>
-                    <View style={styles.matchRow}>
-                      <View
-                        style={[
-                          styles.matchOutcomeBox,
-                          match.outcome === 'win'
-                            ? styles.matchOutcomeWin
-                            : match.outcome === 'loss'
-                              ? styles.matchOutcomeLoss
-                              : styles.matchOutcomeDraw,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.matchOutcomeText,
-                            {
-                              color:
-                                match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold,
-                            },
-                          ]}
-                        >
-                          {match.outcome === 'win' ? 'W' : match.outcome === 'loss' ? 'L' : 'D'}
-                        </Text>
-                      </View>
-                      <View style={styles.matchInfo}>
-                        <Text style={styles.matchOpponent}>VS. {match.opponentDisplayName.toUpperCase()}</Text>
-                        <Text style={styles.matchMeta}>
-                          {formatRelativeTime(match.playedAt)} • {RESULT_LABEL[match.resultType]}
-                        </Text>
-                      </View>
-                      <View style={styles.matchDeltaCol}>
-                        <Text
-                          style={[
-                            styles.matchDelta,
-                            { color: match.outcome === 'win' ? Colors.cyan : match.outcome === 'loss' ? Colors.crimson : Colors.gold },
-                          ]}
-                        >
-                          {formatDelta(match.ratingDelta)}
-                        </Text>
-                        <Text style={styles.matchRatingAfter}>{match.ratingAfter}</Text>
-                      </View>
-                      <MaterialCommunityIcons name="replay" size={20} color={Colors.textMuted} />
-                    </View>
-                  </RockCard>
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          {!matchesExpanded && matches.length >= 10 ? (
-            <View style={styles.showAllButtonWrap}>
-              <RockButton label="Show All Matches" variant="primary" onPress={handleShowAllMatches} />
-            </View>
-          ) : null}
-
-          <View style={styles.bottomSpacer} />
         </ScrollView>
       ) : null}
 
-      <View style={styles.navWrap}>
-        <BottomNav
-          activeTab="profile"
-          onTabPress={(tab) => {
-            if (tab === 'home') router.push('/home');
-            else if (tab === 'ranks') router.push('/world-rankings');
-            else if (tab === 'shop') router.push('/shop');
-            else console.log('tab pressed', tab);
-          }}
-        />
-      </View>
+      <BottomNav activeTab="profile" />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: Colors.bgBase,
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.25,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
-    paddingBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  headerTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-    textShadowColor: withOpacity(Colors.cyan, 0.5),
-    textShadowRadius: 8,
-    textShadowOffset: { width: 0, height: 0 },
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  settingsButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgPanel, 0.85),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.4),
-  },
-  guestWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-  },
-  guestText: {
-    fontFamily: Fonts.body,
-    fontSize: 14,
-    color: Colors.textMuted,
-    textAlign: 'center',
-  },
-  loadingSpinner: {
-    marginTop: Spacing.xl * 2,
-  },
-  errorWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
-  },
-  errorText: {
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  emptyText: {
-    fontFamily: Fonts.body,
-    fontSize: 13,
-    color: Colors.textMuted,
-  },
-  scrollContent: {
-    padding: Spacing.lg,
-    paddingTop: 0,
-    paddingBottom: 120,
-    gap: Spacing.xl,
-  },
-  profileHero: {
-    alignItems: 'center',
-    gap: Spacing.xs,
-    marginTop: Spacing.sm,
-  },
-  profileName: {
-    fontFamily: Fonts.display,
-    fontSize: 26,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-    marginTop: Spacing.sm,
-  },
-  profileSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  profileSubtitle: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  xpBarWrap: {
-    width: '70%',
-    marginTop: Spacing.sm,
-  },
-  socialRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  socialCard: {
-    flex: 1,
-  },
-  socialPressable: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  socialLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 10,
-    color: Colors.textPrimary,
-    textTransform: 'uppercase',
-  },
-  statsGrid: {
-    gap: Spacing.md,
-  },
-  ratingCard: {
-    overflow: 'hidden',
-  },
-  ratingInner: {
-    gap: Spacing.sm,
-  },
-  ratingBgIcon: {
-    position: 'absolute',
-    right: -16,
-    top: -16,
-  },
-  statLabelMuted: {
-    fontFamily: Fonts.heading,
-    fontSize: 11,
-    color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  ratingValueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: Spacing.sm,
-  },
-  ratingValue: {
-    fontFamily: Fonts.display,
-    fontSize: 32,
-    color: Colors.cyan,
-  },
-  ratingDelta: {
-    fontFamily: Fonts.heading,
-    fontSize: 14,
-    color: Colors.cyan,
-  },
-  statsRowSmall: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-  },
-  statCardSmall: {
-    flex: 1,
-    alignItems: 'center',
-    gap: Spacing.sm,
-  },
-  statValueSmall: {
-    fontFamily: Fonts.display,
-    fontSize: 22,
-  },
-  streakRow: {
-    flexDirection: 'row',
-    gap: 2,
-  },
-  sectionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  sectionTitle: {
-    fontFamily: Fonts.display,
-    fontSize: 20,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-  },
-  matchHistoryTitle: {
-    marginTop: -Spacing.md,
-  },
-  viewAll: {
-    fontFamily: Fonts.heading,
-    fontSize: 12,
-    color: Colors.cyan,
-    textTransform: 'uppercase',
-  },
-  trophyGrid: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  trophySlot: {
-    flex: 1,
-    alignItems: 'center',
-    gap: Spacing.sm,
-    padding: Spacing.md,
-    borderRadius: Radius.lg,
-    backgroundColor: withOpacity(Colors.bgPanel, 0.5),
-    borderWidth: 1,
-    borderColor: withOpacity(Colors.chromeDark, 0.2),
-  },
-  trophyIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: withOpacity(Colors.bgBase, 0.4),
-  },
-  trophyLabel: {
-    fontFamily: Fonts.heading,
-    fontSize: 10,
-    color: Colors.textPrimary,
-    textAlign: 'center',
-  },
-  matchList: {
-    gap: Spacing.sm,
-  },
-  matchCard: {},
-  matchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  matchOutcomeBox: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  matchOutcomeWin: {
-    backgroundColor: withOpacity(Colors.cyan, 0.12),
-    borderColor: withOpacity(Colors.cyan, 0.3),
-  },
-  matchOutcomeLoss: {
-    backgroundColor: withOpacity(Colors.crimson, 0.12),
-    borderColor: withOpacity(Colors.crimson, 0.3),
-  },
-  matchOutcomeDraw: {
-    backgroundColor: withOpacity(Colors.gold, 0.12),
-    borderColor: withOpacity(Colors.gold, 0.3),
-  },
-  matchOutcomeText: {
-    fontFamily: Fonts.display,
-    fontSize: 18,
-  },
-  matchInfo: {
-    flex: 1,
-  },
-  matchOpponent: {
-    fontFamily: Fonts.heading,
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  matchMeta: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  matchDeltaCol: {
-    alignItems: 'flex-end',
-  },
-  matchDelta: {
-    fontFamily: Fonts.display,
-    fontSize: 16,
-  },
-  matchRatingAfter: {
-    fontFamily: Fonts.body,
-    fontSize: 11,
-    color: Colors.textMuted,
-  },
-  showAllButtonWrap: {
-    marginTop: -Spacing.sm,
-  },
-  bottomSpacer: {
-    height: 20,
-  },
-  navWrap: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-});
