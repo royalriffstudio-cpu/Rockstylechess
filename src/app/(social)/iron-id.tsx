@@ -10,7 +10,7 @@ import { getAvatarImage } from '@/constants/avatars';
 import type { ICONS } from '@/constants/icons';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useFriends } from '@/hooks/useFriends';
-import { getMyMatches, getMyProfile, type MatchHistoryEntry, type PlayerProfile } from '@/lib/api';
+import { getAchievementsStatus, getMyMatches, getMyProfile, type AchievementStatus, type MatchHistoryEntry, type PlayerProfile } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
 import { getLevelProgress } from '@/lib/leveling';
 import { formatRelativeTime } from '@/lib/time';
@@ -21,13 +21,12 @@ interface SocialLink {
   label: string;
   icon: keyof typeof ICONS;
   accent: string;
-  route: '/bands' | '/friends' | '/messages' | '/front-row';
+  route: '/friends' | '/messages' | '/front-row';
 }
 
 const SOCIAL_LINKS: SocialLink[] = [
-  { id: 'bands', label: 'Bands', icon: 'sports_esports', accent: Colors.emberLight, route: '/bands' },
   { id: 'friends', label: 'Friends', icon: 'group', accent: Colors.cyan, route: '/friends' },
-  { id: 'messages', label: 'Messages', icon: 'chat', accent: Colors.cyan, route: '/messages' },
+  { id: 'messages', label: 'Messages', icon: 'chat', accent: Colors.emberLight, route: '/messages' },
   { id: 'front-row', label: 'Spectate', icon: 'visibility', accent: Colors.crimson, route: '/front-row' },
 ];
 
@@ -45,13 +44,15 @@ const QUICK_LINKS: QuickLink[] = [
   { id: 'collections', label: 'Collections', icon: 'style', accent: Colors.emberLight, route: '/collections' },
 ];
 
-// No achievements backend exists yet (same deliberately-deferred pattern as
-// the rest of the app's social/rewards features) -- left as flavor.
-const TROPHIES: { id: string; icon: keyof typeof ICONS; accent: string; label: string }[] = [
-  { id: 'masters-open', icon: 'emoji_events', accent: Colors.cyan, label: "MASTERS OPEN '24" },
-  { id: 'iron-knight', icon: 'military_tech', accent: Colors.emberLight, label: 'IRON KNIGHT' },
-  { id: 'stage-boss', icon: 'stars', accent: Colors.gold, label: 'THE STAGE BOSS' },
-];
+// Server doesn't send UI-only accent colors (same reasoning quests.tsx's
+// ACCENT_BY_QUEST_ID has) -- keyed by the featured achievement ids in
+// server/src/achievementCatalog.ts.
+const TROPHY_ACCENT: Record<string, string> = {
+  'win-world-tour-legend': Colors.emberLight,
+  'streak-untouchable': Colors.ember,
+  'rating-grandmaster-stage': Colors.gold,
+  'puzzle-grandmaster': Colors.cyan,
+};
 
 const RESULT_LABEL: Record<MatchHistoryEntry['resultType'], string> = {
   checkmate: 'Checkmate',
@@ -75,6 +76,7 @@ export default function IronIdScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [matches, setMatches] = useState<MatchHistoryEntry[]>([]);
+  const [featuredAchievements, setFeaturedAchievements] = useState<AchievementStatus[]>([]);
   const [matchesExpanded, setMatchesExpanded] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const { pendingCount, unreadTotal } = useFriends();
@@ -94,9 +96,14 @@ export default function IronIdScreen() {
     }
     setStatus('loading');
     try {
-      const [{ profile: fetchedProfile }, { matches: fetchedMatches }] = await Promise.all([getMyProfile(token), getMyMatches(token, matchLimit)]);
+      const [{ profile: fetchedProfile }, { matches: fetchedMatches }, { achievements: fetchedAchievements }] = await Promise.all([
+        getMyProfile(token),
+        getMyMatches(token, matchLimit),
+        getAchievementsStatus(token),
+      ]);
       setProfile(fetchedProfile);
       setMatches(fetchedMatches);
+      setFeaturedAchievements(fetchedAchievements.filter((a) => a.featured));
       setStatus('ready');
     } catch (error) {
       console.log('Failed to load profile', error);
@@ -272,17 +279,35 @@ export default function IronIdScreen() {
               Trophy Case
             </Text>
             <View className="flex-row gap-sm">
-              {TROPHIES.map((trophy) => (
-                <View key={trophy.id} className="flex-1 items-center gap-sm rounded-lg p-md" style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.2) }}>
-                  <View
-                    className="h-16 w-16 items-center justify-center rounded-full"
-                    style={{ backgroundColor: withOpacity(trophy.accent, 0.1), borderWidth: 0.5, borderColor: Colors.chromeDark, boxShadow: `0px 0px 18px ${withOpacity(trophy.accent, 0.3)}` }}
+              {featuredAchievements.map((trophy) => {
+                const earned = trophy.claimed;
+                const accent = TROPHY_ACCENT[trophy.id] ?? Colors.cyan;
+                return (
+                  <Pressable
+                    key={trophy.id}
+                    className="flex-1 items-center gap-sm rounded-lg p-md"
+                    style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.2) }}
+                    onPress={() => router.push('/achievements')}
                   >
-                    <AppIcon name={trophy.icon} size={28} color={trophy.accent} />
-                  </View>
-                  <Text className="text-center font-section-header text-caption text-text-primary">{trophy.label}</Text>
-                </View>
-              ))}
+                    <View
+                      className="h-16 w-16 items-center justify-center rounded-full"
+                      style={
+                        earned
+                          ? { backgroundColor: withOpacity(accent, 0.1), borderWidth: 0.5, borderColor: Colors.chromeDark, boxShadow: `0px 0px 18px ${withOpacity(accent, 0.3)}` }
+                          : { backgroundColor: withOpacity(Colors.chromeDark, 0.1), borderWidth: 0.5, borderColor: withOpacity(Colors.chromeDark, 0.4) }
+                      }
+                    >
+                      <MaterialCommunityIcons name={earned ? (trophy.icon as keyof typeof MaterialCommunityIcons.glyphMap) : 'lock'} size={28} color={earned ? accent : Colors.chromeDark} />
+                    </View>
+                    <Text
+                      className="text-center font-section-header text-caption"
+                      style={{ color: earned ? Colors.textPrimary : Colors.chromeDark }}
+                    >
+                      {trophy.title.toUpperCase()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
 

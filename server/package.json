@@ -18,7 +18,9 @@
     "seed:cosmetics": "node node_modules/tsx/dist/cli.mjs src/db/seedCosmetics.ts",
     "seed:cosmetics:remote": "ENV_FILE=.env.production node node_modules/tsx/dist/cli.mjs src/db/seedCosmetics.ts",
     "seed:quests": "node node_modules/tsx/dist/cli.mjs src/db/seedQuests.ts",
-    "seed:quests:remote": "ENV_FILE=.env.production node node_modules/tsx/dist/cli.mjs src/db/seedQuests.ts"
+    "seed:quests:remote": "ENV_FILE=.env.production node node_modules/tsx/dist/cli.mjs src/db/seedQuests.ts",
+    "seed:achievements": "node node_modules/tsx/dist/cli.mjs src/db/seedAchievements.ts",
+    "seed:achievements:remote": "ENV_FILE=.env.production node node_modules/tsx/dist/cli.mjs src/db/seedAchievements.ts"
   },
   "dependencies": {
     "@better-auth/expo": "^1.6.29",

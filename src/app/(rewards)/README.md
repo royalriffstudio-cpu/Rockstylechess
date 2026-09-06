@@ -13,4 +13,10 @@ files without adding `/rewards` to the URL/deep-link path.
   Reanimated rotation), built from `spin_the_45_pro_stage_animated`.
 - `quests.tsx` — Daily/Weekly battle quests, built from `quests_pro_stage_animated`.
 - `achievements.tsx` — Hall of Fame badge grid, built from `achievements_pro_stage_animated`.
-- `collections.tsx` — collectible card sets, built from `collections_pro_stage_animated`.
+- `collections.tsx` — real inventory of owned boards/piece sets/avatars
+  (originally built from `collections_pro_stage_animated`'s collectible-card
+  concept, since replaced with the actual cosmetics system: `BOARD_THEMES`/
+  `PIECE_SETS`/`AVATARS` filtered by `usePlayerProfile()`'s
+  `ownedCosmeticIds`, tap-to-equip via `updateProfile`). Purchasing locked
+  items still lives on `(shop)/forge.tsx` — this screen only shows what's
+  already owned.

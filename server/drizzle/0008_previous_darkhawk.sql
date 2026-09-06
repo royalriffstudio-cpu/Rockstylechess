@@ -1,0 +1,4 @@
+CREATE TYPE "public"."achievement_metric" AS ENUM('wins', 'rating', 'win_streak', 'friends_added', 'cosmetics_owned', 'spins', 'quests_claimed', 'checkmates', 'captures', 'wins_as_white', 'wins_as_black', 'flawless_wins', 'marathon_wins', 'quickdraw_wins', 'puzzles_solved', 'bot_wins', 'daily_streak', 'messages_sent');--> statement-breakpoint
+ALTER TABLE "achievements" ADD COLUMN "description" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "achievements" ADD COLUMN "target" integer NOT NULL;--> statement-breakpoint
+ALTER TABLE "achievements" ADD COLUMN "metric" "achievement_metric" NOT NULL;

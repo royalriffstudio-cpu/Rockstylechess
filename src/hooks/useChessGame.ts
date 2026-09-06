@@ -59,6 +59,8 @@ interface GameSnapshot {
   isGameOver: boolean;
   capturedByWhite: string[];
   capturedByBlack: string[];
+  /** Full moves played so far (conventional "move 60" sense, not plies) -- used by match.tsx's achievement report (marathon/quickdraw wins). */
+  moveCount: number;
   lastMove: VerboseLastMove | null;
   // Which side made this snapshot's move -- ChessBoard uses this to only
   // play the slide-in travel animation for moves that weren't this device's
@@ -162,6 +164,7 @@ function buildSnapshot(chess: Chess, lastMoveSource: LastMoveSource, puzzleStatu
     isGameOver: chess.isGameOver(),
     capturedByWhite,
     capturedByBlack,
+    moveCount: Math.ceil(history.length / 2),
     lastMove,
     lastMoveSource,
     lastMoveSound,
@@ -557,6 +560,7 @@ export function useChessGame({
     isGameOver: snapshot.isGameOver,
     capturedByWhite: snapshot.capturedByWhite,
     capturedByBlack: snapshot.capturedByBlack,
+    moveCount: snapshot.moveCount,
     lastMove: snapshot.lastMove,
     lastMoveSource: snapshot.lastMoveSource,
     lastMoveSound: snapshot.lastMoveSound,

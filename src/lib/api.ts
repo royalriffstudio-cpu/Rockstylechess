@@ -182,19 +182,61 @@ export function claimQuest(token: string, questId: string): Promise<{ ok: true; 
 }
 
 // Bot/local matches only (see server/src/auth.ts's POST /me/quests/report-match
-// comment) -- never called for mode: 'online', which gets its quest progress
-// server-side from persistMatchResult.ts instead. capturedCount is the
-// player's OWN captures for that game (game.capturedByWhite/capturedByBlack
-// picked by playerColor), not the opponent's.
-export function reportMatchForQuests(
+// comment) -- never called for mode: 'online', which gets its quest AND
+// achievement progress server-side from persistMatchResult.ts instead. One
+// request now feeds both systems -- the route name stayed quest-specific
+// for backward compatibility, but the payload isn't anymore. capturedCount/
+// opponentCapturedCount are each side's OWN captures for that game
+// (game.capturedByWhite/capturedByBlack picked by playerColor / the other
+// color) -- quests only need capturedCount, achievements need both plus
+// color/moveCount/isBot for the color-mastery/flawless/marathon/quickdraw/
+// bot-sparring achievements.
+export function reportMatchOutcome(
   token: string,
-  report: { won: boolean; checkmate: boolean; capturedCount: number },
+  report: {
+    won: boolean;
+    checkmate: boolean;
+    capturedCount: number;
+    opponentCapturedCount: number;
+    color: 'w' | 'b';
+    moveCount: number;
+    isBot: boolean;
+  },
 ): Promise<{ ok: true }> {
   return request('/me/quests/report-match', { method: 'POST', body: report, token });
 }
 
 export function reportPuzzleSolvedForQuests(token: string): Promise<{ ok: true }> {
   return request('/me/quests/report-puzzle-solved', { method: 'POST', token });
+}
+
+export interface AchievementStatus {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  target: number;
+  rewardType: 'chips' | 'gems' | 'xp';
+  rewardAmount: number;
+  featured: boolean;
+  progress: number;
+  claimed: boolean;
+}
+
+// Full achievement objects come back from the server directly, same as
+// quests -- achievements.tsx / iron-id.tsx's Trophy Case (featured === true
+// rows) both render straight from this, no local catalog mirror needed.
+export function getAchievementsStatus(token: string): Promise<{ achievements: AchievementStatus[] }> {
+  return request('/me/achievements', { method: 'GET', token });
+}
+
+// Rejects with Error('achievement-not-complete') if progress hasn't reached
+// target, or Error('already-claimed') on a repeat call.
+export function claimAchievement(
+  token: string,
+  achievementId: string,
+): Promise<{ ok: true; rewardType: 'chips' | 'gems' | 'xp'; rewardAmount: number; chips: number; gems: number; xp: number }> {
+  return request(`/me/achievements/${achievementId}/claim`, { method: 'POST', token });
 }
 
 export interface MatchHistoryEntry {

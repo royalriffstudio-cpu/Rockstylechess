@@ -5,6 +5,12 @@ import { asyncHandler } from './asyncHandler.js';
 import { requireAuth } from './authMiddleware.js';
 import { BOARD_THEMES } from './boardThemes.js';
 import { chargeForAnalysis } from './db/analysisCharge.js';
+import {
+  claimAchievement,
+  getAchievementsStatus,
+  reportMatchForAchievements,
+  reportPuzzleSolvedForAchievements,
+} from './db/achievements.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
 import {
@@ -335,18 +341,33 @@ authRouter.post(
 // chess.js), same reason POST /me/match-reward exists -- see that route's
 // comment for the accepted trust tradeoff (client-reported, not validated
 // against a server-side match record). Never called for online matches:
-// those get their quest progress from persistMatchResult.ts instead, computed
-// server-side from the authoritative PGN.
+// those get their quest AND achievement progress from persistMatchResult.ts
+// instead, computed server-side from the authoritative PGN. The extra
+// fields (color/moveCount/opponentCapturedCount/isBot) feed achievements
+// only -- quests don't need them -- and are optional so an older client
+// build degrades to just the quest report instead of a hard 400.
 authRouter.post(
   '/me/quests/report-match',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { won, checkmate, capturedCount } = req.body ?? {};
+    const { won, checkmate, capturedCount, opponentCapturedCount, color, moveCount, isBot } = req.body ?? {};
     if (typeof won !== 'boolean' || typeof checkmate !== 'boolean' || typeof capturedCount !== 'number') {
       res.status(400).json({ error: 'invalid-report' });
       return;
     }
-    await reportMatchForQuests(req.userId as string, { won, checkmate, capturedCount: Math.max(0, Math.floor(capturedCount)) });
+    const safeCapturedCount = Math.max(0, Math.floor(capturedCount));
+    await Promise.all([
+      reportMatchForQuests(req.userId as string, { won, checkmate, capturedCount: safeCapturedCount }),
+      reportMatchForAchievements(req.userId as string, {
+        won,
+        checkmate,
+        capturedCount: safeCapturedCount,
+        opponentCapturedCount: typeof opponentCapturedCount === 'number' ? Math.max(0, Math.floor(opponentCapturedCount)) : undefined,
+        color: color === 'w' || color === 'b' ? color : undefined,
+        moveCount: typeof moveCount === 'number' ? Math.max(0, Math.floor(moveCount)) : undefined,
+        isBot: isBot === true,
+      }),
+    ]);
     res.json({ ok: true });
   }),
 );
@@ -355,8 +376,47 @@ authRouter.post(
   '/me/quests/report-puzzle-solved',
   requireAuth,
   asyncHandler(async (req, res) => {
-    await reportPuzzleSolvedForQuests(req.userId as string);
+    await Promise.all([
+      reportPuzzleSolvedForQuests(req.userId as string),
+      reportPuzzleSolvedForAchievements(req.userId as string),
+    ]);
     res.json({ ok: true });
+  }),
+);
+
+authRouter.get(
+  '/me/achievements',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json({ achievements: await getAchievementsStatus(req.userId as string) });
+  }),
+);
+
+authRouter.post(
+  '/me/achievements/:achievementId/claim',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await claimAchievement(req.userId as string, req.params.achievementId);
+    if (result.status === 'not-found') {
+      res.status(404).json({ error: 'achievement-not-found' });
+      return;
+    }
+    if (result.status === 'not-complete') {
+      res.status(400).json({ error: 'achievement-not-complete' });
+      return;
+    }
+    if (result.status === 'already-claimed') {
+      res.status(409).json({ error: 'already-claimed' });
+      return;
+    }
+    res.json({
+      ok: true,
+      rewardType: result.rewardType,
+      rewardAmount: result.rewardAmount,
+      chips: result.chips,
+      gems: result.gems,
+      xp: result.xp,
+    });
   }),
 );
 

@@ -3,6 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { applyXpGain } from '../leveling.js';
 import type { MatchState, PieceColor } from '../match.js';
 import { MATCH_CHIP_REWARDS, MATCH_XP_REWARDS } from '../matchRewards.js';
+import { reportMatchForAchievements } from './achievements.js';
 import { db } from './client.js';
 import { expectedScore, updatedRating } from './elo.js';
 import { reportMatchForQuests } from './quests.js';
@@ -44,6 +45,10 @@ export async function persistMatchResult(
   const history = match.chess.history({ verbose: true });
   const whiteCaptures = history.filter((move) => move.color === 'w' && move.captured).length;
   const blackCaptures = history.filter((move) => move.color === 'b' && move.captured).length;
+  // history.length counts plies (each side's move is one entry); the
+  // marathon/quickdraw achievements are phrased in full moves (the
+  // conventional "move 60" chess notation sense), so convert here once.
+  const moveCount = Math.ceil(history.length / 2);
   const whiteExpected = expectedScore(whiteProfile.rating, blackProfile.rating);
   const blackExpected = 1 - whiteExpected;
   const whiteRatingAfter = updatedRating(whiteProfile.rating, whiteExpected, whiteScore);
@@ -84,9 +89,12 @@ export async function persistMatchResult(
     },
   ]);
 
-  await Promise.all([
+  const [whiteStats, blackStats] = await Promise.all([
     updateProfileStats(white.userId, whiteRatingAfter, whiteScore, whiteProfile.xp),
     updateProfileStats(black.userId, blackRatingAfter, blackScore, blackProfile.xp),
+  ]);
+
+  await Promise.all([
     reportMatchForQuests(white.userId, {
       won: whiteScore === 1,
       checkmate: whiteScore === 1 && resultType === 'checkmate',
@@ -96,6 +104,24 @@ export async function persistMatchResult(
       won: blackScore === 1,
       checkmate: blackScore === 1 && resultType === 'checkmate',
       capturedCount: blackCaptures,
+    }),
+    reportMatchForAchievements(white.userId, {
+      won: whiteScore === 1,
+      checkmate: whiteScore === 1 && resultType === 'checkmate',
+      capturedCount: whiteCaptures,
+      opponentCapturedCount: blackCaptures,
+      color: 'w',
+      moveCount,
+      winStreak: whiteStats.winStreak,
+    }),
+    reportMatchForAchievements(black.userId, {
+      won: blackScore === 1,
+      checkmate: blackScore === 1 && resultType === 'checkmate',
+      capturedCount: blackCaptures,
+      opponentCapturedCount: whiteCaptures,
+      color: 'b',
+      moveCount,
+      winStreak: blackStats.winStreak,
     }),
   ]);
 }
@@ -111,11 +137,11 @@ async function updateProfileStats(
   ratingAfter: number,
   score: number,
   currentXp: number,
-): Promise<void> {
+): Promise<{ winStreak: number }> {
   const outcome = outcomeFor(score);
   const chipsGranted = MATCH_CHIP_REWARDS[outcome];
   const { xp, level } = applyXpGain(currentXp, MATCH_XP_REWARDS[outcome]);
-  await db
+  const [row] = await db
     .update(playerProfiles)
     .set({
       rating: ratingAfter,
@@ -128,5 +154,7 @@ async function updateProfileStats(
       level,
       updatedAt: new Date(),
     })
-    .where(eq(playerProfiles.userId, userId));
+    .where(eq(playerProfiles.userId, userId))
+    .returning({ winStreak: playerProfiles.winStreak });
+  return { winStreak: row.winStreak };
 }

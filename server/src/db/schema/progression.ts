@@ -9,6 +9,33 @@ export const rewardTypeEnum = pgEnum('reward_type', ['chips', 'gems', 'xp']);
 // instead of hardcoding quest ids into game-event code. See db/quests.ts.
 export const questMetricEnum = pgEnum('quest_metric', ['wins', 'captures', 'puzzles_solved', 'checkmates']);
 
+// Achievements are permanent, one-time unlocks (unlike quests' daily/weekly
+// reset), so their metric set is wider -- it covers lifetime/watermark
+// stats quests never needed. See db/achievements.ts for which metrics are
+// read-time-reconciled from existing columns/counts (wins, rating,
+// friends_added, cosmetics_owned, spins, quests_claimed) vs. genuinely
+// event-driven with no other historical record (everything else here).
+export const achievementMetricEnum = pgEnum('achievement_metric', [
+  'wins',
+  'rating',
+  'win_streak',
+  'friends_added',
+  'cosmetics_owned',
+  'spins',
+  'quests_claimed',
+  'checkmates',
+  'captures',
+  'wins_as_white',
+  'wins_as_black',
+  'flawless_wins',
+  'marathon_wins',
+  'quickdraw_wins',
+  'puzzles_solved',
+  'bot_wins',
+  'daily_streak',
+  'messages_sent',
+]);
+
 // Backs both achievements.tsx's badge grid AND iron-id.tsx's "trophies" --
 // those are the same underlying concept (a catalog of unlockable badges
 // with a reward) under two different screen names in the mock UI, so
@@ -17,7 +44,9 @@ export const questMetricEnum = pgEnum('quest_metric', ['wins', 'captures', 'puzz
 export const achievements = pgTable('achievements', {
   id: varchar('id', { length: 40 }).primaryKey(),
   title: text('title').notNull(),
+  description: text('description').notNull(),
   icon: text('icon').notNull(),
+  target: integer('target').notNull(),
   // achievements.tsx's featured "Legend of the Arena" achievement pays out
   // "1,000 Diamonds" -- the only place in the app a third currency name
   // appears (everywhere else is chips/gems). Modeled as a gems reward here;
@@ -26,6 +55,7 @@ export const achievements = pgTable('achievements', {
   rewardType: rewardTypeEnum('reward_type').notNull(),
   rewardAmount: integer('reward_amount').notNull(),
   featured: boolean('featured').notNull().default(false),
+  metric: achievementMetricEnum('metric').notNull(),
 });
 
 export const userAchievements = pgTable(

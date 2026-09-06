@@ -1,143 +1,209 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Pressable, ScrollView, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { SubPageHeader } from '@/components/layout'
-import { CurrencyPill, ProgressBar, RockCard } from '@/components/ui'
-import { Colors, withOpacity } from '@/constants/theme'
-import { usePlayerProfile } from '@/hooks/usePlayerProfile'
+import { SubPageHeader } from '@/components/layout';
+import { AppIcon, CurrencyIcon, CurrencyPill, RockButton, SectionLabel } from '@/components/ui';
+import { Colors, withOpacity } from '@/constants/theme';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { claimAchievement, getAchievementsStatus, type AchievementStatus } from '@/lib/api';
+import { getAuthToken } from '@/lib/authStorage';
 
-interface Badge {
-  id: string
-  icon: keyof typeof MaterialCommunityIcons.glyphMap
-  title: string
-  reward: string
-  unlocked: boolean
-  variant?: 'chrome' | 'gold'
+// The server sends the catalog data (title/description/icon/target/reward),
+// not UI-only presentation -- same reasoning quests.tsx's ACCENT_BY_QUEST_ID
+// has. Every id in achievementCatalog.ts is `<category>-<slug>`, so the
+// prefix alone is enough to group + accent rows without a schema column.
+const CATEGORY_META: Record<string, { label: string; accent: string }> = {
+  win: { label: 'Career Wins', accent: Colors.emberLight },
+  streak: { label: 'Win Streak', accent: Colors.ember },
+  rating: { label: 'Rating', accent: Colors.gold },
+  puzzle: { label: 'Puzzle Mastery', accent: Colors.cyan },
+  special: { label: 'Special', accent: Colors.crimson },
+  color: { label: 'Color Mastery', accent: Colors.chrome },
+  bot: { label: 'Bot Sparring', accent: Colors.chromeMid },
+  social: { label: 'Social', accent: Colors.cyan },
+  collector: { label: 'Collector', accent: Colors.gold },
+  engagement: { label: 'Engagement', accent: Colors.emberLight },
+  loyalty: { label: 'Loyalty', accent: Colors.ember },
+};
+const CATEGORY_ORDER = ['win', 'streak', 'rating', 'puzzle', 'special', 'color', 'bot', 'social', 'collector', 'engagement', 'loyalty'];
+
+function categoryOf(achievementId: string): string {
+  return achievementId.split('-')[0];
 }
 
-const BADGES: Badge[] = [
-  { id: 'blitz-king', icon: 'speedometer', title: 'Blitz King', reward: '+50 XP', unlocked: true, variant: 'chrome' },
-  { id: 'first-blood', icon: 'medal', title: 'First Blood', reward: '100 Gems', unlocked: true, variant: 'gold' },
-  { id: 'checkmate', icon: 'flag-checkered', title: 'Checkmate', reward: '+25 XP', unlocked: true, variant: 'chrome' },
-  { id: 'grandmaster', icon: 'lock', title: 'Grandmaster', reward: '500 Gems', unlocked: false },
-  { id: 'iron-wall', icon: 'lock', title: 'Iron Wall', reward: '+150 XP', unlocked: false },
-  { id: 'tactician', icon: 'lock', title: 'Tactician', reward: '200 Gems', unlocked: false },
-  { id: 'sharp-eye', icon: 'lock', title: 'Sharp Eye', reward: '+50 XP', unlocked: false },
-  { id: 'vengeance', icon: 'lock', title: 'Vengeance', reward: '300 Gems', unlocked: false },
-  { id: 'crowd-favorite', icon: 'lock', title: 'Crowd Favorite', reward: '+500 XP', unlocked: false },
-]
-
 export default function AchievementsScreen() {
-  const insets = useSafeAreaInsets()
-  const { gems } = usePlayerProfile()
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { status: profileStatus, gems, refresh } = usePlayerProfile();
+  const [achievements, setAchievements] = useState<AchievementStatus[] | null>(null);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (profileStatus !== 'ready') return;
+    let cancelled = false;
+    (async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+      try {
+        const { achievements: fetched } = await getAchievementsStatus(token);
+        if (!cancelled) setAchievements(fetched);
+      } catch (error) {
+        console.log('Failed to load achievements', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profileStatus]);
+
+  async function handleClaim(achievementId: string) {
+    if (claimingId) return;
+    setClaimingId(achievementId);
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      await claimAchievement(token, achievementId);
+      setAchievements((prev) => prev?.map((a) => (a.id === achievementId ? { ...a, claimed: true } : a)) ?? prev);
+      refresh();
+    } catch (error) {
+      console.log('Failed to claim achievement', error);
+    } finally {
+      setClaimingId(null);
+    }
+  }
 
   return (
     <View className="flex-1 bg-bg-base">
-      <SubPageHeader title="Hall of Fame" trailing={<CurrencyPill type="gems" value={gems} />} />
+      <SubPageHeader title="Achievements" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <ScrollView contentContainerClassName="gap-xl px-lg py-xl" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }} showsVerticalScrollIndicator={false}>
-        <RockCard glowColor={Colors.gold}>
-          <View className="flex-row flex-wrap items-center gap-lg">
-            <View
-              className="h-32 w-32 shrink-0 items-center justify-center rounded-full"
-              style={{ backgroundColor: Colors.bgBase, borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.3) }}
-            >
-              <LinearGradient
-                colors={[Colors.gold, Colors.ember, Colors.crimson]}
-                style={{ position: 'absolute', inset: 0, borderRadius: 64, padding: 2 }}
-              >
-                <View className="flex-1 items-center justify-center overflow-hidden rounded-full" style={{ backgroundColor: Colors.bgPanel }}>
-                  <MaterialCommunityIcons name="trophy" size={56} color={Colors.gold} />
-                </View>
-              </LinearGradient>
-            </View>
-
-            <View className="flex-1 gap-md" style={{ minWidth: 220 }}>
-              <View>
-                <View
-                  className="mb-xs self-start rounded-full px-sm py-xs"
-                  style={{ backgroundColor: withOpacity(Colors.ember, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.ember, 0.3) }}
-                >
-                  <Text className="font-button-label uppercase tracking-widest text-ember" style={{ fontSize: 11 }}>
-                    Epic Quest
-                  </Text>
-                </View>
-                <Text className="font-heading-md text-heading-md uppercase tracking-wide text-text-primary">Legend of the Arena</Text>
-                <Text className="mt-xs font-body-sm text-body-sm text-text-muted">
-                  Win 10 consecutive matches on the main stage to unlock the ultimate performer title and 1,000 Diamonds.
-                </Text>
-              </View>
-
-              <View className="gap-xs">
-                <View className="flex-row justify-between">
-                  <Text className="font-button-label text-text-muted" style={{ fontSize: 11 }}>
-                    PROGRESS
-                  </Text>
-                  <Text className="font-headline-lg text-gold" style={{ fontSize: 16 }}>
-                    6/10
-                  </Text>
-                </View>
-                <ProgressBar progress={0.6} />
-              </View>
-            </View>
-          </View>
-        </RockCard>
-
-        <View className="gap-lg">
-          <View className="flex-row items-center gap-md">
-            <Text className="font-section-header text-section-header uppercase tracking-widest text-chrome-dark">Collection</Text>
-            <View className="h-px flex-1" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.5) }} />
-          </View>
-
-          <View className="flex-row flex-wrap gap-y-lg" style={{ justifyContent: 'space-between' }}>
-            {BADGES.map((badge) => (
-              <Pressable
-                key={badge.id}
-                style={{ width: '31%' }}
-                className="items-center gap-xs"
-                onPress={() => console.log(badge.unlocked ? `${badge.title} viewed` : `${badge.title} is locked`)}
-              >
-                {badge.unlocked ? (
-                  <View
-                    className="aspect-square w-full items-center justify-center rounded-full"
-                    style={{
-                      borderWidth: 1,
-                      borderColor: withOpacity(badge.variant === 'gold' ? Colors.gold : Colors.chrome, 0.3),
-                      boxShadow: `0px 0px 18px ${withOpacity(badge.variant === 'gold' ? Colors.gold : Colors.chrome, 0.4)}`,
-                    }}
-                  >
-                    <LinearGradient
-                      colors={badge.variant === 'gold' ? [Colors.gold, Colors.emberLight, Colors.ember] : [Colors.chrome, Colors.chromeMid, Colors.chromeDark]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={{ position: 'absolute', inset: 0, borderRadius: 999 }}
-                    />
-                    <MaterialCommunityIcons name={badge.icon} size={32} color={Colors.bgBase} />
-                  </View>
-                ) : (
-                  <View
-                    className="aspect-square w-full items-center justify-center rounded-full"
-                    style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.7), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
-                  >
-                    <MaterialCommunityIcons name="lock" size={30} color={Colors.chromeMid} />
-                  </View>
-                )}
-                <Text
-                  className="text-center font-button-label uppercase"
-                  style={{ fontSize: 11, color: badge.unlocked ? Colors.textPrimary : Colors.textMuted }}
-                >
-                  {badge.title}
-                </Text>
-                <Text className="font-body-sm" style={{ fontSize: 10, color: badge.unlocked ? Colors.gold : withOpacity(Colors.textMuted, 0.6) }}>
-                  {badge.reward}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+      {profileStatus === 'guest' ? (
+        <View className="flex-1 items-center justify-center gap-md px-xl">
+          <Text className="text-center font-body-base text-body-base text-text-muted">Sign in to track your achievements.</Text>
+          <RockButton label="Sign In" variant="primary" onPress={() => router.push('/sign-in')} />
         </View>
-      </ScrollView>
+      ) : !achievements ? (
+        <ActivityIndicator color={Colors.cyan} style={{ marginTop: 48 }} />
+      ) : (
+        <ScrollView contentContainerClassName="gap-lg px-margin-mobile" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}>
+          {CATEGORY_ORDER.map((category) => {
+            const rows = achievements.filter((a) => categoryOf(a.id) === category);
+            if (rows.length === 0) return null;
+            const meta = CATEGORY_META[category];
+            return (
+              <View key={category} className="gap-sm">
+                <SectionLabel label={meta.label} />
+                <View className="gap-sm">
+                  {rows.map((achievement) => (
+                    <AchievementRow
+                      key={achievement.id}
+                      achievement={achievement}
+                      accent={meta.accent}
+                      claiming={claimingId === achievement.id}
+                      onClaim={() => handleClaim(achievement.id)}
+                    />
+                  ))}
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
     </View>
-  )
+  );
+}
+
+function AchievementRow({
+  achievement,
+  accent,
+  claiming,
+  onClaim,
+}: {
+  achievement: AchievementStatus;
+  accent: string;
+  claiming: boolean;
+  onClaim: () => void;
+}) {
+  const isComplete = achievement.progress >= achievement.target;
+  const canClaim = isComplete && !achievement.claimed;
+  const pct = Math.min(100, Math.round((achievement.progress / achievement.target) * 100));
+
+  if (achievement.claimed) {
+    return (
+      <View
+        className="flex-row items-center gap-md rounded-lg p-sm"
+        style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.2), opacity: 0.7 }}
+      >
+        <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(accent, 0.12), borderWidth: 1, borderColor: withOpacity(accent, 0.3) }}>
+          <MaterialCommunityIcons name={achievement.icon as keyof typeof MaterialCommunityIcons.glyphMap} size={22} color={accent} />
+        </View>
+        <View className="flex-1 gap-1">
+          <Text className="font-heading-md text-heading-md text-cyan" style={{ textDecorationLine: 'line-through' }}>
+            {achievement.title}
+          </Text>
+          <Text className="font-body-sm text-body-sm text-chrome-dark" style={{ textDecorationLine: 'line-through' }}>
+            {achievement.description}
+          </Text>
+        </View>
+        <View className="h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.15), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+          <AppIcon name="check" size={18} color={Colors.cyan} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      className="gap-2 rounded-lg p-sm"
+      style={{
+        backgroundColor: Colors.bgPanel,
+        borderWidth: 1,
+        borderColor: withOpacity(canClaim ? Colors.cyan : accent, 0.4),
+        boxShadow: canClaim ? `0px 0px 15px ${withOpacity(Colors.cyan, 0.15)}` : undefined,
+      }}
+    >
+      <View className="flex-row items-center gap-md">
+        <View className="h-11 w-11 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(accent, 0.4) }}>
+          <MaterialCommunityIcons name={achievement.icon as keyof typeof MaterialCommunityIcons.glyphMap} size={22} color={accent} />
+        </View>
+        <View className="w-2/3 flex-1 gap-1">
+          <Text className="font-heading-md text-heading-md" style={{ color: canClaim ? Colors.cyan : Colors.textPrimary }}>
+            {achievement.title}
+          </Text>
+          <Text className="font-body-sm text-body-sm text-text-muted">{achievement.description}</Text>
+        </View>
+        {canClaim ? (
+          <Pressable onPress={onClaim} disabled={claiming}>
+            <LinearGradient colors={[Colors.cyan, '#00B4CC', '#008A9E']} style={{ borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8, opacity: claiming ? 0.6 : 1, boxShadow: `0px 4px 15px ${withOpacity(Colors.cyan, 0.4)}` }}>
+              <Text className="font-button-label text-button-label tracking-wider" style={{ color: Colors.bgBase }}>
+                {claiming ? '...' : 'CLAIM'}
+              </Text>
+            </LinearGradient>
+          </Pressable>
+        ) : (
+          <View className="items-end gap-0.5">
+            <View className="flex-row items-center gap-1">
+              <CurrencyIcon type={achievement.rewardType === 'gems' ? 'gems' : 'chips'} size={12} />
+              <Text className="font-heading-md" style={{ fontSize: 14, color: Colors.emberLight }}>
+                {achievement.rewardType === 'xp' ? `${achievement.rewardAmount.toLocaleString('en-US')} XP` : achievement.rewardAmount.toLocaleString('en-US')}
+              </Text>
+            </View>
+            <Text className="font-body-sm text-caption uppercase text-text-muted">Reward</Text>
+          </View>
+        )}
+      </View>
+
+      <View className="mt-2 flex-row items-center gap-3">
+        <View className="h-3 flex-1 overflow-hidden rounded-full" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+          <LinearGradient colors={canClaim ? [Colors.cyan, '#9CF0FF'] : [Colors.gold, '#FFD570']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={{ width: `${pct}%`, height: '100%' }} />
+        </View>
+        <Text className="font-section-header text-caption" style={{ color: canClaim ? Colors.cyan : Colors.textMuted }}>
+          {achievement.progress.toLocaleString('en-US')} / {achievement.target.toLocaleString('en-US')}
+        </Text>
+      </View>
+    </View>
+  );
 }

@@ -24,7 +24,7 @@ import { useChessClock, type ClockTimes } from '@/hooks/useChessClock';
 import { useChessGame, type BotDifficulty, type ChessGameResult, type GameMode } from '@/hooks/useChessGame';
 import { useMatchChat } from '@/hooks/useMatchChat';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-import { claimMatchReward, reportMatchForQuests } from '@/lib/api';
+import { claimMatchReward, reportMatchOutcome } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
 import { getSocket } from '@/lib/socket';
 import type { EngineMove, StockfishConfig } from '@/lib/botEngine';
@@ -213,13 +213,19 @@ export default function MatchScreen() {
         try {
           const capturedCount =
             playerColor === 'w' ? game.capturedByWhite.length : game.capturedByBlack.length;
-          await reportMatchForQuests(token, {
+          const opponentCapturedCount =
+            playerColor === 'w' ? game.capturedByBlack.length : game.capturedByWhite.length;
+          await reportMatchOutcome(token, {
             won: outcome === 'win',
             checkmate: outcome === 'win' && reason === 'checkmate',
             capturedCount,
+            opponentCapturedCount,
+            color: playerColor,
+            moveCount: game.moveCount,
+            isBot: mode === 'bot',
           });
         } catch (error) {
-          console.log('Failed to report match for quests', error);
+          console.log('Failed to report match outcome', error);
         }
       }
     }

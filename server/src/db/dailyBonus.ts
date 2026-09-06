@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 
 import { DAILY_BONUS_REWARDS } from '../dailyBonusRewards.js';
+import { reportDailyStreakForAchievements } from './achievements.js';
 import { db } from './client.js';
 import { dailyRewardClaims, playerProfiles } from './schema/index.js';
 import { utcDayDiff } from './utcDay.js';
@@ -40,7 +41,7 @@ export async function getDailyBonusStatus(userId: string) {
 // redeemable for anything real anywhere in the app). The client disables its
 // claim button for the in-flight request as the practical mitigation.
 export async function claimDailyBonus(userId: string) {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select()
       .from(dailyRewardClaims)
@@ -86,4 +87,13 @@ export async function claimDailyBonus(userId: string) {
       gems: profile.gems,
     };
   });
+
+  // Outside the claim transaction, same pattern persistMatchResult.ts uses
+  // for its own achievement reports -- a separate, best-effort statement
+  // rather than nested inside the claim itself.
+  if (!result.alreadyClaimed) {
+    await reportDailyStreakForAchievements(userId, result.streak);
+  }
+
+  return result;
 }
