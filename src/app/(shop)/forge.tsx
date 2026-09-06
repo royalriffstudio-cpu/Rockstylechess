@@ -1,10 +1,9 @@
-import { Image } from 'expo-image';
 import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { AppIcon, ChessBoard, CurrencyIcon, PlayerAvatar, RockButton } from '@/components/ui';
+import { AppIcon, BoardSwatch, ChessBoard, CurrencyIcon, PieceSwatch, PlayerAvatar, RockButton } from '@/components/ui';
 import { getPieceSprites } from '@/components/ui/pieceSprites';
 import { SubPageHeader } from '@/components/layout';
 import { AVATARS } from '@/constants/avatars';
@@ -436,19 +435,4 @@ function ForgeTile({
       </View>
     </Pressable>
   );
-}
-
-function BoardSwatch({ light, dark }: { light: string; dark: string }) {
-  return (
-    <View className="flex-1 flex-row flex-wrap">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <View key={i} style={{ width: '50%', height: '50%', backgroundColor: (Math.floor(i / 2) + i) % 2 === 0 ? light : dark }} />
-      ))}
-    </View>
-  );
-}
-
-function PieceSwatch({ setId }: { setId: string }) {
-  const sprite = getPieceSprites(setId).wk;
-  return <View className="flex-1 items-center justify-center" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5) }}>{sprite ? <Image source={sprite} contentFit="contain" style={{ width: '70%', height: '70%' }} /> : null}</View>;
 }

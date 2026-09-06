@@ -20,11 +20,15 @@ export type { NavTab } from './BottomNav';
 
 export { EmberParticles } from './EmberParticles';
 
+export { KeyboardAwareScrollView } from './KeyboardAwareScrollView';
+
 export { ScreenBackdrop } from './ScreenBackdrop';
 
 export { VenueBackdrop } from './VenueBackdrop';
 
 export { ChessBoard } from './ChessBoard';
+
+export { BoardSwatch, PieceSwatch } from './CosmeticSwatches';
 
 export { ChatPanel } from './ChatPanel';
 

@@ -1,175 +1,189 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
-import { Image, type ImageSource } from 'expo-image'
-import { LinearGradient } from 'expo-linear-gradient'
-import { Pressable, ScrollView, Text, View } from 'react-native'
-import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useState, type ReactNode } from 'react';
 
-import { SubPageHeader } from '@/components/layout'
-import { AppIcon, CurrencyPill, ProgressBar, RockCard } from '@/components/ui'
-import { ScreenArt } from '@/constants/screenArt'
-import { Colors, withOpacity } from '@/constants/theme'
-import { usePlayerProfile } from '@/hooks/usePlayerProfile'
+import { SubPageHeader } from '@/components/layout';
+import { AppIcon, BoardSwatch, ChessBoard, CurrencyPill, PieceSwatch, PlayerAvatar } from '@/components/ui';
+import { getPieceSprites } from '@/components/ui/pieceSprites';
+import { AVATARS } from '@/constants/avatars';
+import { BOARD_THEMES, getBoardTheme } from '@/constants/boardThemes';
+import { PIECE_SETS, getPieceSet } from '@/constants/pieceSets';
+import { Colors, withOpacity } from '@/constants/theme';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { updateProfile } from '@/lib/api';
+import { getAuthToken } from '@/lib/authStorage';
 
-interface CollectibleCard {
-  id: string
-  name: string
-  rarity: string
-  isNew?: boolean
-  locked?: boolean
-  /** Collectible portrait art; falls back to a generic icon when absent. */
-  image?: ImageSource | number
-}
+type InventoryCategory = 'boards' | 'pieces' | 'avatars';
 
-interface CardSet {
-  id: string
-  name: string
-  tagline: string
-  accent: string
-  owned: number
-  total: number
-  cards: CollectibleCard[]
-}
-
-const CARD_SETS: CardSet[] = [
-  {
-    id: 'metal-legends',
-    name: 'Metal Legends',
-    tagline: 'The heaviest pieces in the game',
-    accent: Colors.crimson,
-    owned: 12,
-    total: 30,
-    cards: [
-      { id: 'thrasher-max', name: 'Thrasher Max', rarity: 'Legendary Pawn', isNew: true, image: ScreenArt.collectibleThrasherMax },
-      { id: 'valkyrie-riff', name: 'Valkyrie Riff', rarity: 'Elite Queen', image: ScreenArt.collectibleValkyrieRiff },
-      { id: 'locked-1', name: '', rarity: '', locked: true },
-      { id: 'iron-steed', name: 'Iron Steed', rarity: 'Rare Knight', image: ScreenArt.collectibleIronSteed },
-      { id: 'the-blast-beat', name: 'The Blast Beat', rarity: 'Elite Rook' },
-    ],
-  },
-  {
-    id: 'punk-rockers',
-    name: 'Punk Rockers',
-    tagline: 'Fast, loud, and unstoppable',
-    accent: Colors.emberLight,
-    owned: 8,
-    total: 15,
-    cards: [
-      { id: 'spike-junior', name: 'Spike Junior', rarity: 'Common Pawn', image: ScreenArt.collectibleSpikeJunior },
-      { id: 'anarchy-bish', name: 'Anarchy Bish', rarity: 'Rare Bishop', isNew: true },
-      { id: 'old-school-roy', name: 'Old School Roy', rarity: 'Elite King' },
-      { id: 'locked-2', name: '', rarity: '', locked: true },
-    ],
-  },
-]
+const TABS: { key: InventoryCategory; label: string }[] = [
+  { key: 'boards', label: 'Boards' },
+  { key: 'pieces', label: 'Pieces' },
+  { key: 'avatars', label: 'Avatars' },
+];
 
 export default function CollectionsScreen() {
-  const insets = useSafeAreaInsets()
-  const { gems } = usePlayerProfile()
+  const insets = useSafeAreaInsets();
+  const { profile, gems, refresh: refreshProfile } = usePlayerProfile();
+  const [activeTab, setActiveTab] = useState<InventoryCategory>('boards');
+  const [isMutating, setIsMutating] = useState(false);
+
+  const ownedCosmeticIds = profile?.ownedCosmeticIds ?? [];
+  const ownedBoards = BOARD_THEMES.filter((t) => !t.locked || ownedCosmeticIds.includes(t.id));
+  const ownedPieces = PIECE_SETS.filter((s) => !s.locked || ownedCosmeticIds.includes(s.id));
+  const ownedAvatars = AVATARS.filter((a) => !a.locked);
+
+  const equippedBoardId = getBoardTheme(profile?.equippedBoardId).id;
+  const equippedPieceId = getPieceSet(profile?.equippedPieceId).id;
+  const equippedAvatarId = profile?.avatarId;
+
+  async function handleEquip(category: InventoryCategory, id: string) {
+    if (isMutating) return;
+    const token = await getAuthToken();
+    if (!token) return;
+    setIsMutating(true);
+    try {
+      if (category === 'boards') {
+        await updateProfile(token, { equippedBoardId: id });
+      } else if (category === 'pieces') {
+        await updateProfile(token, { equippedPieceId: id });
+      } else {
+        await updateProfile(token, { avatarId: id });
+      }
+      await refreshProfile();
+    } catch (error) {
+      console.log('Failed to equip', category, error);
+    } finally {
+      setIsMutating(false);
+    }
+  }
 
   return (
     <View className="flex-1 bg-bg-base">
       <SubPageHeader title="Collections" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <ScrollView contentContainerClassName="gap-xl px-lg py-xl" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }} showsVerticalScrollIndicator={false}>
-        <RockCard glowColor={Colors.cyan}>
-          <View className="gap-md">
-            <View className="flex-row items-end justify-between">
-              <View>
-                <Text className="font-display-hero text-display-hero uppercase text-cyan" style={{ fontSize: 18 }}>
-                  Tour Collection
-                </Text>
-                <Text className="mt-xs font-section-header text-section-header uppercase text-text-muted">Total Completion</Text>
-              </View>
-              <Text className="font-display-hero text-display-hero text-text-primary" style={{ fontSize: 32 }}>
-                42<Text style={{ fontSize: 18, color: Colors.textMuted }}>/120</Text>
+      <ScrollView contentContainerClassName="mx-auto w-full max-w-2xl gap-lg px-margin-mobile py-md" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}>
+        <View className="w-full flex-row rounded-lg p-1" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4) }}>
+          {TABS.map((tab) => (
+            <Pressable
+              key={tab.key}
+              onPress={() => setActiveTab(tab.key)}
+              className="flex-1 items-center rounded-md py-2"
+              style={activeTab === tab.key ? { backgroundColor: Colors.cyan } : undefined}
+            >
+              <Text className="font-button-label text-button-label uppercase" style={{ color: activeTab === tab.key ? Colors.bgPanel : Colors.textMuted }}>
+                {tab.label}
               </Text>
-            </View>
-            <ProgressBar progress={42 / 120} />
-            <View className="flex-row justify-between">
-              <Text className="font-section-header text-section-header uppercase text-text-muted" style={{ fontSize: 10 }}>
-                Level 8 Vibe
-              </Text>
-              <Text className="font-section-header text-section-header uppercase text-text-muted" style={{ fontSize: 10 }}>
-                Next: Legendary Pack
-              </Text>
-            </View>
-          </View>
-        </RockCard>
+            </Pressable>
+          ))}
+        </View>
 
-        {CARD_SETS.map((set) => (
-          <View key={set.id} className="gap-md">
-            <View className="flex-row items-center justify-between pl-md" style={{ borderLeftWidth: 4, borderLeftColor: set.accent }}>
-              <View>
-                <Text className="font-display-hero text-display-hero uppercase text-text-primary" style={{ fontSize: 18 }}>
-                  {set.name}
-                </Text>
-                <Text className="mt-xs font-body-sm" style={{ fontSize: 10, color: Colors.textMuted, letterSpacing: 0.5 }}>
-                  {set.tagline.toUpperCase()}
-                </Text>
-              </View>
-              <Text className="font-section-header" style={{ fontSize: 15, color: set.accent }}>
-                {set.owned}/{set.total}
-              </Text>
-            </View>
-
-            <View className="flex-row flex-wrap gap-y-md" style={{ justifyContent: 'space-between' }}>
-              {set.cards.map((card) =>
-                card.locked ? (
-                  <View key={card.id} style={{ width: '48%', aspectRatio: 3 / 4 }}>
-                    <View
-                      className="flex-1 items-center justify-center gap-xs rounded-lg"
-                      style={{ backgroundColor: withOpacity(Colors.bgBase, 0.6), borderWidth: 1, borderColor: withOpacity(Colors.chrome, 0.06) }}
-                    >
-                      <AppIcon name="lock" size={32} color={Colors.chromeMid} />
-                      <Text className="font-section-header uppercase" style={{ fontSize: 11, color: Colors.chromeMid, letterSpacing: 1 }}>
-                        Locked
-                      </Text>
-                    </View>
-                  </View>
+        <View className="overflow-hidden rounded-xl" style={{ minHeight: 220, backgroundColor: withOpacity(Colors.bgPanel, 0.6), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.5) }}>
+          <View className="flex-1 items-center justify-center px-4 py-6">
+            {activeTab === 'avatars' ? (
+              <PlayerAvatar source={AVATARS.find((a) => a.id === equippedAvatarId)?.image} size="large" selected />
+            ) : (
+              <View style={{ width: '100%', maxWidth: 220 }}>
+                {activeTab === 'boards' ? (
+                  <ChessBoard theme={getBoardTheme(equippedBoardId)} />
                 ) : (
-                  <Pressable key={card.id} style={{ width: '48%', aspectRatio: 3 / 4 }} onPress={() => console.log('Collectible viewed', card.name)}>
-                    <View className="flex-1 overflow-hidden rounded-lg" style={{ borderWidth: 1, borderColor: withOpacity(Colors.chrome, 0.12), backgroundColor: Colors.bgPanel }}>
-                      {card.image ? (
-                        <Image source={card.image} contentFit="cover" cachePolicy="memory-disk" transition={300} style={{ position: 'absolute', inset: 0 }} />
-                      ) : null}
-                      <LinearGradient
-                        colors={
-                          card.image
-                            ? [withOpacity(Colors.bgBase, 0), withOpacity(Colors.bgBase, 0.15), Colors.bgPanel]
-                            : [withOpacity(set.accent, 0.35), Colors.bgPanel]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={card.image ? { x: 0, y: 1 } : { x: 1, y: 1 }}
-                        style={{ position: 'absolute', inset: 0 }}
-                      />
-                      {card.image ? null : (
-                        <View className="flex-1 items-center justify-center">
-                          <MaterialCommunityIcons name="guitar-electric" size={40} color={withOpacity(Colors.textPrimary, 0.5)} />
-                        </View>
-                      )}
-                      {card.isNew ? (
-                        <View className="absolute right-sm top-sm rounded-full px-sm py-xs" style={{ backgroundColor: Colors.cyan }}>
-                          <Text className="font-body-sm uppercase" style={{ fontSize: 9, color: Colors.bgBase }}>
-                            New
-                          </Text>
-                        </View>
-                      ) : null}
-                      <View className="absolute bottom-0 left-0 right-0 p-sm">
-                        <Text className="font-body-sm uppercase" style={{ fontSize: 9, color: withOpacity(Colors.textPrimary, 0.7), letterSpacing: 0.5 }}>
-                          {card.rarity}
-                        </Text>
-                        <Text className="font-section-header" style={{ fontSize: 13, color: Colors.textPrimary }}>
-                          {card.name}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                ),
-              )}
-            </View>
+                  <ChessBoard pieceSprites={getPieceSprites(equippedPieceId)} />
+                )}
+              </View>
+            )}
           </View>
-        ))}
+        </View>
+
+        <View className="gap-sm">
+          <Text className="font-section-header text-section-header uppercase text-text-muted">
+            Your {activeTab} ({activeTab === 'boards' ? ownedBoards.length : activeTab === 'pieces' ? ownedPieces.length : ownedAvatars.length})
+          </Text>
+          <View className="flex-row flex-wrap gap-3">
+            {activeTab === 'boards'
+              ? ownedBoards.map((option) => (
+                  <InventoryTile
+                    key={option.id}
+                    name={option.name}
+                    equipped={equippedBoardId === option.id}
+                    onPress={() => handleEquip('boards', option.id)}
+                  >
+                    <BoardSwatch light={option.squares.light[3]} dark={option.squares.dark[3]} />
+                  </InventoryTile>
+                ))
+              : null}
+
+            {activeTab === 'pieces'
+              ? ownedPieces.map((option) => (
+                  <InventoryTile
+                    key={option.id}
+                    name={option.name}
+                    equipped={equippedPieceId === option.id}
+                    onPress={() => handleEquip('pieces', option.id)}
+                  >
+                    <PieceSwatch setId={option.id} />
+                  </InventoryTile>
+                ))
+              : null}
+
+            {activeTab === 'avatars'
+              ? ownedAvatars.map((option) => (
+                  <InventoryTile
+                    key={option.id}
+                    name={option.name}
+                    equipped={equippedAvatarId === option.id}
+                    onPress={() => handleEquip('avatars', option.id)}
+                  >
+                    <View className="flex-1 items-center justify-center" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5) }}>
+                      <PlayerAvatar source={option.image} size="small" />
+                    </View>
+                  </InventoryTile>
+                ))
+              : null}
+          </View>
+        </View>
       </ScrollView>
     </View>
-  )
+  );
+}
+
+// Simpler sibling of Forge's ForgeTile -- Collections only ever shows owned
+// items, so there's no locked/price state to render, just the
+// currently-equipped highlight.
+function InventoryTile({
+  name,
+  equipped,
+  onPress,
+  children,
+}: {
+  name: string;
+  equipped: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Pressable onPress={onPress} style={{ width: '30%', aspectRatio: 1 }} className="overflow-hidden rounded-lg">
+      <View style={{ width: '100%', height: '100%', opacity: equipped ? 1 : 0.75 }}>{children}</View>
+      <View
+        style={{
+          position: 'absolute',
+          inset: 0,
+          borderWidth: equipped ? 2 : 1,
+          borderColor: equipped ? Colors.cyan : withOpacity(Colors.chromeDark, 0.5),
+          borderRadius: 8,
+        }}
+      />
+      {equipped ? (
+        <View className="absolute right-1 top-1 items-center justify-center rounded-full" style={{ width: 18, height: 18, backgroundColor: Colors.cyan }}>
+          <AppIcon name="check" size={12} color={Colors.bgPanel} />
+        </View>
+      ) : null}
+      <View
+        className="absolute bottom-0 w-full items-center py-1"
+        style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.9), borderTopWidth: equipped ? 1 : 0, borderTopColor: withOpacity(Colors.cyan, 0.5) }}
+      >
+        <Text className="font-caption text-caption" style={{ color: equipped ? Colors.cyan : Colors.textMuted }}>
+          {name}
+        </Text>
+      </View>
+    </Pressable>
+  );
 }
