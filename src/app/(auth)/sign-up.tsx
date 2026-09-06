@@ -3,10 +3,10 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppIcon, CurrencyIcon, EmberParticles, RockButton } from '@/components/ui';
+import { AppIcon, CurrencyIcon, EmberParticles, KeyboardAwareScrollView, RockButton } from '@/components/ui';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -54,22 +54,21 @@ export default function SignUpScreen() {
       <LinearGradient pointerEvents="none" colors={[withOpacity(Colors.bgBase, 0.4), withOpacity(Colors.bgBase, 0.95)]} style={{ position: 'absolute', inset: 0 }} />
       <EmberParticles count={12} />
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          className="z-10"
-          contentContainerClassName="mx-auto w-full max-w-md grow justify-center px-margin-mobile py-xl"
-          contentContainerStyle={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}
-          keyboardShouldPersistTaps="handled"
-        >
+      <KeyboardAwareScrollView
+        className="z-10"
+        contentContainerClassName="mx-auto w-full max-w-md grow justify-center px-margin-mobile py-xl"
+        contentContainerStyle={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}
+        keyboardShouldPersistTaps="handled"
+      >
           <View className="mb-xl items-center pt-margin-desktop">
             <Text className="mb-sm text-center font-display-hero text-display-hero uppercase tracking-widest text-chrome">Join The Stage</Text>
             <Text className="text-center font-body-sm text-body-sm text-text-muted">Claim your spot in the ultimate high-roller arena.</Text>
           </View>
 
           <View className="mb-md gap-md rounded-lg p-lg" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.6), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
-            <FormField label="Email Address" icon="mail" placeholder="you@rockstar.com" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-            <FormField label="Secret Key" icon="lock" placeholder="••••••••" value={password} onChangeText={setPassword} secure />
-            <FormField label="Confirm Secret Key" icon="lock" placeholder="••••••••" value={confirmPassword} onChangeText={setConfirmPassword} secure />
+            <FormField label="Email Address" icon="mail" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+            <FormField label="Secret Key" icon="lock" value={password} onChangeText={setPassword} secure />
+            <FormField label="Confirm Secret Key" icon="lock" value={confirmPassword} onChangeText={setConfirmPassword} secure />
 
             {errorMessage ? <Text className="text-center font-body-sm text-body-sm text-crimson">{errorMessage}</Text> : null}
 
@@ -126,8 +125,7 @@ export default function SignUpScreen() {
               </Text>
             </Pressable>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -135,7 +133,6 @@ export default function SignUpScreen() {
 function FormField({
   label,
   icon,
-  placeholder,
   value,
   onChangeText,
   secure,
@@ -144,7 +141,6 @@ function FormField({
 }: {
   label: string;
   icon: 'mail' | 'lock';
-  placeholder: string;
   value: string;
   onChangeText: (text: string) => void;
   secure?: boolean;
@@ -159,8 +155,6 @@ function FormField({
           <AppIcon name={icon} size={20} color={Colors.chromeDark} />
         </View>
         <TextInput
-          placeholder={placeholder}
-          placeholderTextColor={Colors.chromeDark}
           value={value}
           onChangeText={onChangeText}
           secureTextEntry={secure}

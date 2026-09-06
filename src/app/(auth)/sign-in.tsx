@@ -3,10 +3,10 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { EmberParticles, RockButton, RockCard } from '@/components/ui';
+import { EmberParticles, KeyboardAwareScrollView, RockButton, RockCard } from '@/components/ui';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -43,23 +43,22 @@ export default function SignInScreen() {
 
   return (
     <View className="flex-1 bg-bg-base">
-      <Image source={ScreenArt.signInArena} style={{ position: 'absolute', inset: 0, opacity: 0.4 }} contentFit="cover" cachePolicy="memory-disk" transition={300} />
-      {/* Darkens toward the bottom so the form sits on solid black while the
-          arena still reads at the top -- matches new_ui + sign-up.tsx. */}
+      <Image source={ScreenArt.signInArena} style={{ position: 'absolute', inset: 0, opacity: 0.65 }} contentFit="cover" cachePolicy="memory-disk" transition={300} />
+      {/* Light at the top so the arena actually reads there, darkening to
+          solid black by the time the form card starts -- matches sign-up.tsx. */}
       <LinearGradient
         pointerEvents="none"
-        colors={[withOpacity(Colors.bgBase, 0.8), withOpacity(Colors.bgBase, 0.6), Colors.bgBase]}
+        colors={[withOpacity(Colors.bgBase, 0.2), withOpacity(Colors.bgBase, 0.55), Colors.bgBase]}
         style={{ position: 'absolute', inset: 0 }}
       />
       <EmberParticles count={12} />
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          className="z-10"
-          contentContainerClassName="mx-auto w-full max-w-md grow justify-center gap-xl p-margin-mobile"
-          contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }}
-          keyboardShouldPersistTaps="handled"
-        >
+      <KeyboardAwareScrollView
+        className="z-10"
+        contentContainerClassName="mx-auto w-full max-w-md grow justify-center gap-xl p-margin-mobile"
+        contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }}
+        keyboardShouldPersistTaps="handled"
+      >
           <View className="items-center gap-sm">
             <Text
               className="text-center font-display-hero text-display-hero uppercase tracking-widest text-cyan"
@@ -73,10 +72,9 @@ export default function SignInScreen() {
           <RockCard variant="surface">
             <View className="gap-lg">
               <View className="gap-md">
-                <AuthInput label="Email" placeholder="you@rockstyle.chess" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                <AuthInput label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
                 <AuthInput
                   label="Password"
-                  placeholder="••••••••"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
@@ -112,15 +110,13 @@ export default function SignInScreen() {
               New here? <Text className="font-semibold text-cyan">Join the Stage</Text>
             </Text>
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
 
 interface AuthInputProps {
   label: string;
-  placeholder: string;
   value: string;
   onChangeText: (text: string) => void;
   secureTextEntry?: boolean;
@@ -129,7 +125,7 @@ interface AuthInputProps {
   trailing?: ReactNode;
 }
 
-function AuthInput({ label, placeholder, value, onChangeText, secureTextEntry, keyboardType, autoCapitalize, trailing }: AuthInputProps) {
+function AuthInput({ label, value, onChangeText, secureTextEntry, keyboardType, autoCapitalize, trailing }: AuthInputProps) {
   return (
     <View className="gap-xs">
       <View className="flex-row items-center justify-between">
@@ -137,8 +133,6 @@ function AuthInput({ label, placeholder, value, onChangeText, secureTextEntry, k
         {trailing}
       </View>
       <TextInput
-        placeholder={placeholder}
-        placeholderTextColor={Colors.chromeDark}
         value={value}
         onChangeText={onChangeText}
         secureTextEntry={secureTextEntry}

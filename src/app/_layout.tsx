@@ -6,14 +6,16 @@ import { Oswald_600SemiBold } from '@expo-google-fonts/oswald';
 import { useFonts } from 'expo-font';
 import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { BackHandler } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableFreeze } from 'react-native-screens';
 
 import { ChallengeModals } from '@/components/friends/ChallengeModals';
+import { SplashReveal } from '@/components/ui/SplashReveal';
 import { Colors } from '@/constants/theme';
 import { ChallengesProvider } from '@/hooks/useChallenges';
 import { FriendsProvider } from '@/hooks/useFriends';
@@ -47,6 +49,7 @@ export default function RootLayout() {
     Oswald_600SemiBold,
     Inter_400Regular,
   });
+  const [showSplashReveal, setShowSplashReveal] = useState(true);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -107,26 +110,29 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <PlayerProfileProvider>
-          <FriendsProvider>
-            <ChallengesProvider>
-              <StatusBar style="light" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: Colors.bgBase },
-                  // The iOS left-edge swipe-back is a plain history pop, which
-                  // contradicts the hierarchical "back = up" model (and would
-                  // let a player swipe out of a live match). All back
-                  // navigation goes through the header button or the hardware
-                  // back handler instead.
-                  gestureEnabled: false,
-                }}
-              />
-              <ChallengeModals />
-            </ChallengesProvider>
-          </FriendsProvider>
-        </PlayerProfileProvider>
+        <KeyboardProvider>
+          <PlayerProfileProvider>
+            <FriendsProvider>
+              <ChallengesProvider>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: Colors.bgBase },
+                    // The iOS left-edge swipe-back is a plain history pop, which
+                    // contradicts the hierarchical "back = up" model (and would
+                    // let a player swipe out of a live match). All back
+                    // navigation goes through the header button or the hardware
+                    // back handler instead.
+                    gestureEnabled: false,
+                  }}
+                />
+                <ChallengeModals />
+              </ChallengesProvider>
+            </FriendsProvider>
+          </PlayerProfileProvider>
+        </KeyboardProvider>
+        {showSplashReveal && <SplashReveal onDone={() => setShowSplashReveal(false)} />}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
