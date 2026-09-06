@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SubPageHeader } from '@/components/layout';
@@ -210,30 +211,32 @@ export default function MessagesScreen() {
           </ScrollView>
         )}
 
-        <View
-          className="flex-row items-center gap-sm p-md"
-          style={{ paddingBottom: 12 + insets.bottom, borderTopWidth: 1, borderTopColor: withOpacity(Colors.chromeDark, 0.3), backgroundColor: withOpacity(Colors.bgPanel, 0.9) }}
-        >
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Message…"
-            placeholderTextColor={Colors.textMuted}
-            className="flex-1 rounded-md px-md font-body-base text-text-primary"
-            style={{ height: 44, backgroundColor: withOpacity(Colors.bgBase, 0.6), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4), fontSize: 13 }}
-            onSubmitEditing={handleSend}
-            returnKeyType="send"
-            maxLength={200}
-          />
-          <Pressable
-            className="h-11 w-11 items-center justify-center rounded-md"
-            style={{ backgroundColor: Colors.cyan, opacity: draft.trim() ? 1 : 0.5 }}
-            onPress={handleSend}
-            disabled={!draft.trim()}
+        <KeyboardStickyView offset={{ closed: 0, opened: 0 }}>
+          <View
+            className="flex-row items-center gap-sm p-md"
+            style={{ paddingBottom: 12 + insets.bottom, borderTopWidth: 1, borderTopColor: withOpacity(Colors.chromeDark, 0.3), backgroundColor: withOpacity(Colors.bgPanel, 0.9) }}
           >
-            <AppIcon name="send" size={18} color={Colors.bgBase} />
-          </Pressable>
-        </View>
+            <TextInput
+              value={draft}
+              onChangeText={setDraft}
+              placeholder="Message…"
+              placeholderTextColor={Colors.textMuted}
+              className="flex-1 rounded-md px-md font-body-base text-text-primary"
+              style={{ height: 44, backgroundColor: withOpacity(Colors.bgBase, 0.6), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4), fontSize: 13 }}
+              onSubmitEditing={handleSend}
+              returnKeyType="send"
+              maxLength={200}
+            />
+            <Pressable
+              className="h-11 w-11 items-center justify-center rounded-md"
+              style={{ backgroundColor: Colors.cyan, opacity: draft.trim() ? 1 : 0.5 }}
+              onPress={handleSend}
+              disabled={!draft.trim()}
+            >
+              <AppIcon name="send" size={18} color={Colors.bgBase} />
+            </Pressable>
+          </View>
+        </KeyboardStickyView>
       </View>
     );
   }

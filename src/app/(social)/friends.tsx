@@ -1,12 +1,12 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FriendRow, RowAction } from '@/components/friends/FriendRow';
 import { SubPageHeader } from '@/components/layout';
-import { AppIcon, ConfirmModal, CurrencyPill, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
+import { AppIcon, ConfirmModal, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
 import { useChallenges } from '@/hooks/useChallenges';
@@ -113,7 +113,7 @@ export default function FriendsScreen() {
     <View className="flex-1 bg-bg-base">
       <SubPageHeader title="Friends" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerClassName="gap-lg px-lg py-xl"
         contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}
         showsVerticalScrollIndicator={false}
@@ -306,7 +306,7 @@ export default function FriendsScreen() {
             })
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <Modal
         visible={challengeTarget !== null}

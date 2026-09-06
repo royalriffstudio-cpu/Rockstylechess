@@ -2,8 +2,6 @@ import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
@@ -76,10 +75,7 @@ export function ChatPanel({ visible, onClose, messages, myColor, onSend, canSend
 
       <Animated.View style={[styles.sheetWrap, sheetStyle]}>
         <RockCard glowColor={Colors.cyan}>
-          <KeyboardAvoidingView
-            style={styles.sheetInner}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          >
+          <KeyboardAvoidingView style={styles.sheetInner} behavior="padding">
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Match Chat</Text>
               <Pressable onPress={onClose} style={styles.closeButton}>

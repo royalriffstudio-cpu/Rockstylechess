@@ -1,11 +1,11 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 
-import { AppIcon, CurrencyPill, EmberParticles, GlowBox, PlayerAvatar, RockButton, ScreenBackdrop } from '@/components/ui';
+import { AppIcon, CurrencyPill, EmberParticles, GlowBox, KeyboardAwareScrollView, PlayerAvatar, RockButton, ScreenBackdrop } from '@/components/ui';
 import { SubPageHeader } from '@/components/layout';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
@@ -133,7 +133,7 @@ export default function GameRoomScreen() {
       <EmberParticles count={8} />
       <SubPageHeader title="Game Room" trailing={<CurrencyPill type="gems" value={gems} />} />
 
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerClassName="mx-auto w-full max-w-lg items-center gap-xl px-margin-mobile pt-xl"
         contentContainerStyle={{ paddingBottom: 120 + insets.bottom }}
         showsVerticalScrollIndicator={false}
@@ -246,7 +246,7 @@ export default function GameRoomScreen() {
             {joinError ? <Text className="mt-xs text-center font-body-sm text-body-sm text-crimson">{joinError}</Text> : null}
           </View>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <View
         className="absolute bottom-0 left-0 w-full items-center p-margin-mobile"
