@@ -15,11 +15,9 @@ files without adding `/social` to the URL/deep-link path.
   rows carry an inline "Add Friend" button.
 - `iron-id.tsx` — the player's own profile: rating, stats, trophy case, match history,
   built from `iron_id_pro_stage_animated`. Real `BottomNav` destination for the
-  "Profile" tab. Hosts the entry points into Bands/Friends/Messages/Front Row (Friends/
+  "Profile" tab. Hosts the entry points into Friends/Messages/Front Row (Friends/
   Messages cards badge the pending-request / unread counts) and shows the player's own
   **friend code**.
-- `bands.tsx` — clubs hub (my band, browse/join, global top 5), built from
-  `bands_pro_stage_animated`. Still mock (no bands backend).
 - `friends.tsx` — **real** friends feature. Friend list with live presence
   (online/in-game/offline via the socket), incoming/outgoing requests, add-by-friend-
   code, per-row Challenge (→ realtime `friend:challenge`, 3/5/10m picker) / Message /

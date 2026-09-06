@@ -10,7 +10,10 @@
 
 export const ScreenArt = {
   // Auth
-  signInArena: require('../../assets/icons/images/sign-in-0.jpg'),
+  // sign-in-0.jpg is one of the "full mockup screenshot with baked-in UI
+  // text" exports mentioned above (a jumbotron literally rendering a fake
+  // sign-in form) -- index-0.jpg is a clean arena shot with no UI baked in.
+  signInArena: require('../../assets/icons/images/index-0.jpg'),
   signUpArena: require('../../assets/icons/images/sign-up-0.jpg'),
 
   // Home / rewards
@@ -30,7 +33,6 @@ export const ScreenArt = {
   frontRowCrowd: require('../../assets/icons/images/front-row-1.jpg'),
   puzzlesBoard: require('../../assets/icons/images/puzzles-0.jpg'),
   messagesLounge: require('../../assets/icons/images/messages-0.jpg'),
-  rehearsalGarage: require('../../assets/icons/images/collections-1.jpg'),
 
   // Collectible card art (collections.tsx) — keyed to card ids
   collectibleThrasherMax: require('../../assets/icons/images/collections-0.jpg'),

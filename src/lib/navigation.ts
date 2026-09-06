@@ -32,7 +32,6 @@ const PARENT: Record<string, Href> = {
   '/world-rankings': '/home',
   '/friends': '/iron-id',
   '/messages': '/iron-id',
-  '/bands': '/iron-id',
   '/front-row': '/iron-id',
   '/shop': '/home',
   '/forge': '/shop',
