@@ -17,6 +17,7 @@ import { allowChatMessage, clearChatRateLimit, sanitizeChatText } from './chat.j
 import { db } from './db/client.js';
 import { persistMessage } from './db/directMessages.js';
 import { areFriends, friendIdsOf } from './db/friends.js';
+import { insertNotification } from './db/notifications.js';
 import { persistMatchResult } from './db/persistMatchResult.js';
 import { playerProfiles } from './db/schema/index.js';
 import {
@@ -113,6 +114,23 @@ setIO(io);
 // can still be matched back to whichever match its previous guestId was in.
 const guestIdBySocket = new Map<string, string>();
 
+// matchId -> set of spectating (non-seated) socket ids. Deliberately separate
+// from guestIdBySocket -- a spectator socket must never resolve via colorOf,
+// or it would be treated as a seated player by move:make/forfeit logic.
+const spectatorsByMatch = new Map<string, Set<string>>();
+
+function broadcastSpectateCount(matchId: string): void {
+  io.to(matchId).emit('spectate:count', { matchId, count: spectatorsByMatch.get(matchId)?.size ?? 0 });
+}
+
+// Every endMatch(matchId) call site must also drop its spectator set --
+// otherwise spectatorsByMatch would keep growing for matches that no longer
+// exist in match.ts's own registry.
+function endMatchClean(matchId: string): void {
+  spectatorsByMatch.delete(matchId);
+  endMatch(matchId);
+}
+
 // Tell a user's accepted friends they just came online / went offline. Fired
 // once per user (on their first socket connecting / last socket leaving), not
 // per socket. The initial snapshot a client needs on launch comes from the
@@ -153,9 +171,9 @@ async function buildChallengePlayer(
 // move:make's handler further down).
 function fireTimeout(match: MatchState, flaggedColor: PieceColor): void {
   const winner = opponentColor(flaggedColor);
-  io.to(match.id).emit('match:ended', { result: { type: 'timeout', winner } });
+  io.to(match.id).emit('match:ended', { matchId: match.id, result: { type: 'timeout', winner } });
   persistMatchResult(match, 'timeout', winner).catch((err) => console.error('match persistence failed', err));
-  endMatch(match.id);
+  endMatchClean(match.id);
 }
 
 // Joins both sockets to the match's Socket.IO room and tells each color's
@@ -228,6 +246,13 @@ io.on('connection', (socket: Socket) => {
       duration,
       expiresInMs: CHALLENGE_TTL_MS,
     });
+    await insertNotification(
+      payload.toUserId,
+      'friend_challenge_received',
+      'Challenge received',
+      `${challenger.displayName} challenged you to a ${duration} match.`,
+      { challengeId, fromUserId: uid },
+    );
     socket.emit('friend:challenge:sent', { challengeId, toUserId: payload.toUserId, duration });
   });
 
@@ -401,10 +426,11 @@ io.on('connection', (socket: Socket) => {
     // A draw offer doesn't survive a change in the position.
     if (match.drawOfferBy) {
       match.drawOfferBy = undefined;
-      io.to(match.id).emit('draw:cleared', {});
+      io.to(match.id).emit('draw:cleared', { matchId: match.id });
     }
 
     io.to(match.id).emit('move:applied', {
+      matchId: match.id,
       from: payload.from,
       to: payload.to,
       promotion: payload.promotion ?? 'q',
@@ -430,7 +456,7 @@ io.on('connection', (socket: Socket) => {
       persistMatchResult(match, resultType, winnerColor).catch((err) =>
         console.error('match persistence failed', err),
       );
-      endMatch(match.id);
+      endMatchClean(match.id);
     }
   });
 
@@ -441,11 +467,11 @@ io.on('connection', (socket: Socket) => {
     const color = colorOf(match, guestId);
     if (!color) return;
 
-    io.to(match.id).emit('match:ended', { result: { type: 'resignation', winner: opponentColor(color) } });
+    io.to(match.id).emit('match:ended', { matchId: match.id, result: { type: 'resignation', winner: opponentColor(color) } });
     persistMatchResult(match, 'resignation', opponentColor(color)).catch((err) =>
       console.error('match persistence failed', err),
     );
-    endMatch(match.id);
+    endMatchClean(match.id);
   });
 
   socket.on('draw:offer', (payload: { matchId?: string }) => {
@@ -456,7 +482,7 @@ io.on('connection', (socket: Socket) => {
     if (!color || match.drawOfferBy || match.chess.isGameOver()) return;
 
     match.drawOfferBy = color;
-    io.to(match.id).emit('draw:offered', { color });
+    io.to(match.id).emit('draw:offered', { matchId: match.id, color });
   });
 
   socket.on('draw:respond', (payload: { matchId?: string; accept?: boolean }) => {
@@ -468,13 +494,44 @@ io.on('connection', (socket: Socket) => {
     if (!color || !match.drawOfferBy || match.drawOfferBy === color) return;
 
     if (payload.accept) {
-      io.to(match.id).emit('match:ended', { result: { type: 'draw', winner: null } });
+      io.to(match.id).emit('match:ended', { matchId: match.id, result: { type: 'draw', winner: null } });
       persistMatchResult(match, 'draw', null).catch((err) => console.error('match persistence failed', err));
-      endMatch(match.id);
+      endMatchClean(match.id);
       return;
     }
     match.drawOfferBy = undefined;
-    io.to(match.id).emit('draw:declined', {});
+    io.to(match.id).emit('draw:declined', { matchId: match.id });
+  });
+
+  socket.on('spectate:join', (payload: { matchId?: string }) => {
+    const match = payload?.matchId ? getMatch(payload.matchId) : undefined;
+    if (!match) {
+      socket.emit('spectate:error', { matchId: payload?.matchId ?? null, reason: 'not-found' });
+      return;
+    }
+
+    socket.join(match.id);
+    if (!spectatorsByMatch.has(match.id)) spectatorsByMatch.set(match.id, new Set());
+    spectatorsByMatch.get(match.id)!.add(socket.id);
+
+    socket.emit('spectate:joined', {
+      matchId: match.id,
+      fen: match.chess.fen(),
+      turn: match.chess.turn(),
+      clocks: liveClockRemaining(match),
+      players: {
+        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId },
+        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId },
+      },
+    });
+    broadcastSpectateCount(match.id);
+  });
+
+  socket.on('spectate:leave', (payload: { matchId?: string }) => {
+    if (!payload?.matchId) return;
+    socket.leave(payload.matchId);
+    const spectators = spectatorsByMatch.get(payload.matchId);
+    if (spectators?.delete(socket.id)) broadcastSpectateCount(payload.matchId);
   });
 
   socket.on('match:chat:send', (payload: { matchId?: string; text?: string }) => {
@@ -547,6 +604,11 @@ io.on('connection', (socket: Socket) => {
       }
     }
 
+    // Drop this socket from every match it was spectating.
+    for (const [matchId, spectators] of spectatorsByMatch) {
+      if (spectators.delete(socket.id)) broadcastSpectateCount(matchId);
+    }
+
     const guestId = guestIdBySocket.get(socket.id);
     guestIdBySocket.delete(socket.id);
     if (!guestId) return;
@@ -560,11 +622,11 @@ io.on('connection', (socket: Socket) => {
 
       io.to(match.id).emit('match:opponentDisconnected', { color });
       match.forfeitTimers[color] = setTimeout(() => {
-        io.to(match.id).emit('match:ended', { result: { type: 'forfeit', winner: opponentColor(color) } });
+        io.to(match.id).emit('match:ended', { matchId: match.id, result: { type: 'forfeit', winner: opponentColor(color) } });
         persistMatchResult(match, 'forfeit', opponentColor(color)).catch((err) =>
           console.error('match persistence failed', err),
         );
-        endMatch(match.id);
+        endMatchClean(match.id);
       }, RECONNECT_GRACE_MS);
     }
   });

@@ -8,6 +8,7 @@ import { SubPageHeader } from '@/components/layout';
 import type { ICONS } from '@/constants/icons';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, withOpacity } from '@/constants/theme';
+import { useNotifications } from '@/hooks/useNotifications';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { loadMusicPreference, setMusicEnabled } from '@/lib/backgroundMusic';
 import { clearAuthToken } from '@/lib/authStorage';
@@ -20,10 +21,11 @@ interface GameRow {
   label: string;
   subtitle: string;
   trailing?: string;
+  badge?: number;
   action: () => void;
 }
 
-function SettingsRow({ icon, title, subtitle, trailing, last, onPress }: { icon: keyof typeof ICONS; title: string; subtitle: string; trailing?: string; last?: boolean; onPress?: () => void }) {
+function SettingsRow({ icon, title, subtitle, trailing, badge, last, onPress }: { icon: keyof typeof ICONS; title: string; subtitle: string; trailing?: string; badge?: number; last?: boolean; onPress?: () => void }) {
   return (
     <Pressable onPress={onPress} className="flex-row items-center justify-between p-md" style={!last ? { borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.2) } : undefined}>
       <View className="flex-row items-center gap-md">
@@ -38,6 +40,13 @@ function SettingsRow({ icon, title, subtitle, trailing, last, onPress }: { icon:
       <View className="flex-row items-center gap-sm">
         {trailing ? (
           <Text className="font-body-sm text-body-sm text-cyan">{trailing}</Text>
+        ) : null}
+        {badge ? (
+          <View className="items-center justify-center rounded-full px-1.5" style={{ minWidth: 18, height: 18, backgroundColor: Colors.emberLight }}>
+            <Text className="font-section-header" style={{ fontSize: 10, color: Colors.bgBase }}>
+              {badge > 9 ? '9+' : badge}
+            </Text>
+          </View>
         ) : null}
         <AppIcon name="chevron_right" size={22} color={Colors.textMuted} />
       </View>
@@ -102,8 +111,10 @@ export default function ControlCoreScreen() {
     router.replace('/sign-up');
   }
 
+  const { unreadCount: unreadNotifications } = useNotifications({ countOnly: true });
+
   const gameRows: GameRow[] = [
-    { id: 'notifications', icon: 'notifications', label: 'Notifications', subtitle: 'Match, reward, and social alerts', action: () => router.push('/backstage-alerts') },
+    { id: 'notifications', icon: 'notifications', label: 'Notifications', subtitle: 'Match, reward, and social alerts', badge: unreadNotifications, action: () => router.push('/backstage-alerts') },
     { id: 'language', icon: 'menu_book', label: 'Language', subtitle: 'Display language', trailing: 'English', action: () => console.log('Language pressed') },
     { id: 'terms', icon: 'style', label: 'Terms of Service', subtitle: 'Legal & privacy', action: () => console.log('Terms of Service pressed') },
     { id: 'support', icon: 'support_agent', label: 'Help & Support', subtitle: 'Get help from the crew', action: () => router.push('/roadie-support') },
@@ -145,7 +156,7 @@ export default function ControlCoreScreen() {
           <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Game</Text>
           <RockCard variant="surface" contentPadding={0}>
             {gameRows.map((row, index) => (
-              <SettingsRow key={row.id} icon={row.icon} title={row.label} subtitle={row.subtitle} trailing={row.trailing} last={index === gameRows.length - 1} onPress={row.action} />
+              <SettingsRow key={row.id} icon={row.icon} title={row.label} subtitle={row.subtitle} trailing={row.trailing} badge={row.badge} last={index === gameRows.length - 1} onPress={row.action} />
             ))}
           </RockCard>
         </View>

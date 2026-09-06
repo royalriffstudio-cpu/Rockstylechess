@@ -14,6 +14,13 @@ import {
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
 import {
+  getNotifications,
+  getUnreadNotificationCount,
+  insertNotification,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from './db/notifications.js';
+import {
   acceptRequest,
   declineOrCancelRequest,
   friendProfileOf,
@@ -24,7 +31,7 @@ import {
   sendRequest,
 } from './db/friends.js';
 import { levelForXp } from './leveling.js';
-import { allMatches } from './match.js';
+import { allMatches, liveClockRemaining } from './match.js';
 import { PIECE_SETS } from './pieceSets.js';
 import { claimDailyBonus, getDailyBonusStatus } from './db/dailyBonus.js';
 import { db } from './db/client.js';
@@ -601,6 +608,29 @@ authRouter.get(
   }),
 );
 
+// Public -- no requireAuth, same posture as /leaderboard above. Front Row's
+// spectate browsing needs this reachable by guests, same as guest play
+// itself never requires an account. Snapshot only -- live updates (moves,
+// clocks ticking, match ending) come from the spectate:* socket protocol in
+// index.ts once a client joins a specific match's room.
+authRouter.get(
+  '/me/live-matches',
+  asyncHandler(async (_req, res) => {
+    const liveMatches = [...allMatches()].map((match) => ({
+      matchId: match.id,
+      players: {
+        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId },
+        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId },
+      },
+      fen: match.chess.fen(),
+      turn: match.chess.turn(),
+      clocks: liveClockRemaining(match),
+      createdAt: match.createdAt.toISOString(),
+    }));
+    res.json({ liveMatches });
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Friends + direct messages
 //
@@ -717,6 +747,12 @@ authRouter.post(
       // accepted === true means the target had already requested us -- tell
       // them it's now a friendship, not a fresh incoming request.
       emitToUser(result.friend.userId, result.accepted ? 'friend:request:accepted' : 'friend:request', { friend: me });
+      const name = me.displayName ?? 'A player';
+      if (result.accepted) {
+        await insertNotification(result.friend.userId, 'friend_request_accepted', 'Friend request accepted', `${name} accepted your friend request.`, { fromUserId: userId });
+      } else {
+        await insertNotification(result.friend.userId, 'friend_request_received', 'New friend request', `${name} sent you a friend request.`, { fromUserId: userId });
+      }
     }
     res.json({ ok: true, accepted: result.accepted, friend: result.friend });
   }),
@@ -733,7 +769,10 @@ authRouter.post(
       return;
     }
     const me = await friendProfileOf(userId);
-    if (me) emitToUser(req.params.userId, 'friend:request:accepted', { friend: me });
+    if (me) {
+      emitToUser(req.params.userId, 'friend:request:accepted', { friend: me });
+      await insertNotification(req.params.userId, 'friend_request_accepted', 'Friend request accepted', `${me.displayName ?? 'A player'} accepted your friend request.`, { fromUserId: userId });
+    }
     res.json({ ok: true, friend: result.friend });
   }),
 );
@@ -814,6 +853,51 @@ authRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     await markRead(req.userId as string, req.params.userId);
+    res.json({ ok: true });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Notifications ("Backstage Alerts") -- real events (friend requests/
+// challenges, match results) persisted in the notifications table, merged
+// with quest/achievement/daily-bonus "ready to claim" items synthesized live
+// at read time (see db/notifications.ts's syntheticNotifications).
+// ---------------------------------------------------------------------------
+
+authRouter.get(
+  '/me/notifications',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await getNotifications(req.userId as string, {
+      limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
+      before: typeof req.query.before === 'string' ? req.query.before : undefined,
+    });
+    res.json(result);
+  }),
+);
+
+authRouter.get(
+  '/me/notifications/unread-count',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json({ unreadCount: await getUnreadNotificationCount(req.userId as string) });
+  }),
+);
+
+authRouter.post(
+  '/me/notifications/:id/read',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await markNotificationRead(req.userId as string, req.params.id);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.post(
+  '/me/notifications/read-all',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    await markAllNotificationsRead(req.userId as string);
     res.json({ ok: true });
   }),
 );

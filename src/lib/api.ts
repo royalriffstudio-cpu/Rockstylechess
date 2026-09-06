@@ -291,6 +291,25 @@ export function getMyRank(token: string): Promise<{ rank: number; totalPlayers: 
   return request('/leaderboard/me', { method: 'GET', token });
 }
 
+export interface LiveMatchSummary {
+  matchId: string;
+  players: {
+    w: { displayName: string; avatarId: string | null };
+    b: { displayName: string; avatarId: string | null };
+  };
+  fen: string;
+  turn: 'w' | 'b';
+  clocks: Record<'w' | 'b', number>;
+  createdAt: string;
+}
+
+// Public endpoint -- no token needed, mirrors getLeaderboard. Snapshot only;
+// Front Row follows up with the spectate:* socket protocol (spectateSocket.ts)
+// for live updates once it picks a match to watch.
+export function getLiveMatches(): Promise<{ liveMatches: LiveMatchSummary[] }> {
+  return request('/me/live-matches', { method: 'GET' });
+}
+
 // --- Friends + direct messages -------------------------------------------
 // All require a real signed-in account (server 401s a guest). The realtime
 // side (presence deltas, incoming challenges, live DMs) rides the socket --
@@ -401,4 +420,54 @@ export function getConversationMessages(
 
 export function markConversationRead(token: string, userId: string): Promise<{ ok: true }> {
   return request(`/me/conversations/${encodeURIComponent(userId)}/read`, { method: 'POST', token });
+}
+
+// --- Notifications ("Backstage Alerts") -----------------------------------
+// Real events (friend requests/challenges, match results) come back with a
+// real `id` and can be marked read; `synthetic: true` items (quest/
+// achievement/daily-bonus "ready to claim") are recomputed fresh on every
+// fetch and simply stop appearing once the real claim happens elsewhere --
+// see server/src/db/notifications.ts.
+
+export type NotificationKind =
+  | 'friend_request_received'
+  | 'friend_request_accepted'
+  | 'friend_challenge_received'
+  | 'match_ended'
+  | 'quest_claimable'
+  | 'achievement_claimable'
+  | 'daily_bonus_claimable';
+
+export interface NotificationDTO {
+  id: string;
+  type: NotificationKind;
+  title: string;
+  body: string;
+  payload: unknown;
+  createdAt: string;
+  readAt: string | null;
+  synthetic: boolean;
+}
+
+export function getNotifications(
+  token: string,
+  opts?: { limit?: number; before?: string },
+): Promise<{ notifications: NotificationDTO[]; unreadCount: number }> {
+  const params = new URLSearchParams();
+  if (opts?.limit) params.set('limit', String(opts.limit));
+  if (opts?.before) params.set('before', opts.before);
+  const query = params.toString();
+  return request(`/me/notifications${query ? `?${query}` : ''}`, { method: 'GET', token });
+}
+
+export function getUnreadNotificationCount(token: string): Promise<{ unreadCount: number }> {
+  return request('/me/notifications/unread-count', { method: 'GET', token });
+}
+
+export function markNotificationRead(token: string, notificationId: string): Promise<{ ok: true }> {
+  return request(`/me/notifications/${encodeURIComponent(notificationId)}/read`, { method: 'POST', token });
+}
+
+export function markAllNotificationsRead(token: string): Promise<{ ok: true }> {
+  return request('/me/notifications/read-all', { method: 'POST', token });
 }

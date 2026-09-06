@@ -64,6 +64,13 @@
       "when": 1788704938518,
       "tag": "0008_previous_darkhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788719060321,
+      "tag": "0009_famous_stranger",
+      "breakpoints": true
     }
   ]
 }

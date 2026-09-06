@@ -6,6 +6,7 @@ import { MATCH_CHIP_REWARDS, MATCH_XP_REWARDS } from '../matchRewards.js';
 import { reportMatchForAchievements } from './achievements.js';
 import { db } from './client.js';
 import { expectedScore, updatedRating } from './elo.js';
+import { insertNotification } from './notifications.js';
 import { reportMatchForQuests } from './quests.js';
 import { matchParticipants, matches, playerProfiles } from './schema/index.js';
 
@@ -123,7 +124,36 @@ export async function persistMatchResult(
       moveCount,
       winStreak: blackStats.winStreak,
     }),
+    insertNotification(white.userId, 'match_ended', ...matchNotificationText(whiteScore, resultType, black.displayName), {
+      matchId: insertedMatch.id,
+      opponentUserId: black.userId,
+      opponentDisplayName: black.displayName,
+      resultType,
+      color: 'w',
+      playedAt: new Date().toISOString(),
+    }),
+    insertNotification(black.userId, 'match_ended', ...matchNotificationText(blackScore, resultType, white.displayName), {
+      matchId: insertedMatch.id,
+      opponentUserId: white.userId,
+      opponentDisplayName: white.displayName,
+      resultType,
+      color: 'b',
+      playedAt: new Date().toISOString(),
+    }),
   ]);
+}
+
+// [title, body] tuple so the two insertNotification calls above can spread
+// it straight into their (type, title, body, payload) positional args.
+function matchNotificationText(score: number, resultType: ResultType, opponentName: string): [string, string] {
+  if (score === 0.5) return ['Match drawn', `Your match vs ${opponentName} ended in a draw.`];
+  const won = score === 1;
+  const reason =
+    resultType === 'checkmate' ? 'by checkmate' :
+    resultType === 'resignation' ? 'by resignation' :
+    resultType === 'timeout' ? 'on time' :
+    resultType === 'forfeit' ? 'by forfeit' : '';
+  return [won ? 'Victory!' : 'Defeat', `You ${won ? 'won' : 'lost'} vs ${opponentName}${reason ? ` ${reason}` : ''}.`];
 }
 
 function outcomeFor(score: number): 'win' | 'loss' | 'draw' {
