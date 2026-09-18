@@ -7,7 +7,17 @@ import { pickRandomMove } from './randomBot';
  * Six bots (bots.tsx), five engines. 'stockfish-basic' (Metal Head),
  * 'stockfish-lite' (The Reaper), and 'stockfish-strong' (King Axl) all run
  * through the same StockfishEngine WebView -- see STOCKFISH_PRESETS --
- * just at different UCI_Elo/movetime.
+ * just at different depth/movetime.
+ *
+ * Difficulty is tuned by capping search depth/time, NOT by
+ * UCI_LimitStrength/UCI_Elo. Stockfish's own Elo-limiting mode forces
+ * internal MultiPV >= 4 and then randomly overrides its own best move via
+ * Skill::pick_best with a "weakness" factor that stays close to its maximum
+ * even at Elo 2800 -- that made every tier, including the hardest, look like
+ * it was missing free captures/tactics it had actually already found. A
+ * depth/time cap instead always plays the engine's genuine best move for
+ * whatever it had time to search -- a shallower search misses deep tactics
+ * for a real reason, not a coin flip on an already-solved position.
  */
 export type BotDifficulty = 'easy' | 'medium' | 'stockfish-basic' | 'stockfish-lite' | 'stockfish-strong';
 
@@ -18,14 +28,14 @@ export interface EngineMove {
 }
 
 export interface StockfishConfig {
-  elo: number;
+  depth: number;
   movetimeMs: number;
 }
 
 export const STOCKFISH_PRESETS: Record<'stockfish-basic' | 'stockfish-lite' | 'stockfish-strong', StockfishConfig> = {
-  'stockfish-basic': { elo: 1600, movetimeMs: 1000 },
-  'stockfish-lite': { elo: 2000, movetimeMs: 1200 },
-  'stockfish-strong': { elo: 2800, movetimeMs: 2000 },
+  'stockfish-basic': { depth: 4, movetimeMs: 800 },
+  'stockfish-lite': { depth: 8, movetimeMs: 1200 },
+  'stockfish-strong': { depth: 20, movetimeMs: 3000 },
 };
 
 export type RequestEngineMove = (fen: string, config: StockfishConfig) => Promise<EngineMove | null>;

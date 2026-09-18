@@ -76,17 +76,14 @@ ${STOCKFISH_JS_SOURCE}
 </html>`;
 }
 
-/** UCI `setoption` command strings for a given strength/pacing config. */
-export function buildDifficultyOptions(config: StockfishConfig): string[] {
-  return [
-    'setoption name UCI_LimitStrength value true',
-    `setoption name UCI_Elo value ${config.elo}`,
-  ];
+/** The `go` command for a bot move request -- depth AND movetime together, so Stockfish stops at whichever limit hits first. */
+export function buildGoCommand(config: StockfishConfig): string {
+  return `go depth ${config.depth} movetime ${config.movetimeMs}`;
 }
 
-// For evaluatePosition (game analysis) -- unlike buildDifficultyOptions,
-// deliberately does NOT weaken the engine. Analysis wants Stockfish's
-// honest best assessment of a position, not a deliberately-dumbed-down one.
+// For evaluatePosition (game analysis) -- deliberately no depth cap, only
+// movetime. Analysis wants Stockfish's honest best assessment of a
+// position, not one deliberately shallowed for difficulty pacing.
 export function buildAnalysisOptions(): string[] {
   return ['setoption name UCI_LimitStrength value false'];
 }

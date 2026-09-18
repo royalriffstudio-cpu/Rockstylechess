@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import WebView, { type WebViewMessageEvent } from 'react-native-webview';
 
 import type { EngineMove, StockfishConfig } from '@/lib/botEngine';
-import { buildAnalysisOptions, buildDifficultyOptions, buildStockfishHtml, parseEngineLine } from '@/lib/stockfishProtocol';
+import { buildAnalysisOptions, buildGoCommand, buildStockfishHtml, parseEngineLine } from '@/lib/stockfishProtocol';
 
 export interface EvalResult {
   cp: number | null;
@@ -14,7 +14,7 @@ export interface EvalResult {
 
 export interface StockfishEngineHandle {
   requestBestMove(fen: string, config: StockfishConfig): Promise<EngineMove | null>;
-  /** For game analysis -- full engine strength, no elo weakening. */
+  /** For game analysis -- full engine strength, no depth cap. */
   evaluatePosition(fen: string, movetimeMs: number): Promise<EvalResult>;
 }
 
@@ -101,9 +101,8 @@ export const StockfishEngine = memo(
       return new Promise((resolve) => {
         pendingRef.current = { kind: 'move', resolve };
         send('ucinewgame');
-        for (const option of buildDifficultyOptions(config)) send(option);
         send(`position fen ${fen}`);
-        send(`go movetime ${config.movetimeMs}`);
+        send(buildGoCommand(config));
       });
     },
     async evaluatePosition(fen, movetimeMs) {
