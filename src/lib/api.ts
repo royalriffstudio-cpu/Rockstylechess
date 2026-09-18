@@ -30,7 +30,7 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
 
 export function updateProfile(
   token: string,
-  updates: { displayName?: string; avatarId?: string; equippedBoardId?: string; equippedPieceId?: string },
+  updates: { displayName?: string; avatarId?: string; equippedBoardId?: string; equippedPieceId?: string; country?: string },
 ): Promise<{ ok: true }> {
   return request('/me/profile', { method: 'PATCH', body: updates, token });
 }
@@ -250,6 +250,7 @@ export interface MatchHistoryEntry {
   ratingAfter: number;
   ratingDelta: number;
   opponentDisplayName: string;
+  opponentCountry: string | null;
 }
 
 export function getMyMatches(token: string, limit?: number): Promise<{ matches: MatchHistoryEntry[] }> {
@@ -272,6 +273,7 @@ export interface LeaderboardEntry {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
   wins: number;
   losses: number;
@@ -294,8 +296,8 @@ export function getMyRank(token: string): Promise<{ rank: number; totalPlayers: 
 export interface LiveMatchSummary {
   matchId: string;
   players: {
-    w: { displayName: string; avatarId: string | null };
-    b: { displayName: string; avatarId: string | null };
+    w: { displayName: string; avatarId: string | null; country: string | null };
+    b: { displayName: string; avatarId: string | null; country: string | null };
   };
   fen: string;
   turn: 'w' | 'b';
@@ -319,6 +321,7 @@ export interface Friend {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
   level: number;
   online: boolean;
@@ -329,6 +332,7 @@ export interface FriendRequestUser {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
   level: number;
   requestedAt: string;
@@ -348,6 +352,7 @@ export interface FriendCodeLookup {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
 }
 
@@ -384,6 +389,7 @@ export interface ConversationSummary {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
   online: boolean;
   lastMessage: { text: string; sentAt: string; mine: boolean };

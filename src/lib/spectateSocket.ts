@@ -17,8 +17,8 @@ export interface SpectateJoinedPayload {
   turn: 'w' | 'b';
   clocks: Record<'w' | 'b', number>;
   players: {
-    w: { displayName: string; avatarId: string | null };
-    b: { displayName: string; avatarId: string | null };
+    w: { displayName: string; avatarId: string | null; country: string | null };
+    b: { displayName: string; avatarId: string | null; country: string | null };
   };
 }
 

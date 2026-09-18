@@ -76,13 +76,17 @@ function resolveDuration(value: unknown): Duration {
 // every play emit currently sends.
 async function getPlayerIdentity(
   userId: string | null,
-): Promise<{ displayName: string | null; avatarId: string | null }> {
-  if (!userId) return { displayName: null, avatarId: null };
+): Promise<{ displayName: string | null; avatarId: string | null; country: string | null }> {
+  if (!userId) return { displayName: null, avatarId: null, country: null };
   const [row] = await db
-    .select({ displayName: playerProfiles.displayName, avatarId: playerProfiles.avatarId })
+    .select({
+      displayName: playerProfiles.displayName,
+      avatarId: playerProfiles.avatarId,
+      country: playerProfiles.country,
+    })
     .from(playerProfiles)
     .where(eq(playerProfiles.userId, userId));
-  return { displayName: row?.displayName ?? null, avatarId: row?.avatarId ?? null };
+  return { displayName: row?.displayName ?? null, avatarId: row?.avatarId ?? null, country: row?.country ?? null };
 }
 
 const app = express();
@@ -159,6 +163,7 @@ async function buildChallengePlayer(
     userId,
     displayName: identity.displayName || 'PLAYER',
     avatarId: identity.avatarId,
+    country: identity.country,
     duration: '5m',
   };
 }
@@ -207,7 +212,7 @@ function notifyMatched(match: MatchState): void {
     io.to(me.socketId).emit('queue:matched', {
       matchId: match.id,
       color,
-      opponent: { userId: opp.userId, displayName: opp.displayName, avatarId: opp.avatarId },
+      opponent: { userId: opp.userId, displayName: opp.displayName, avatarId: opp.avatarId, country: opp.country },
       fen: match.chess.fen(),
       clocks: match.clock.remainingMs,
       incrementMs: match.clock.incrementMs,
@@ -254,7 +259,7 @@ io.on('connection', (socket: Socket) => {
 
     emitToUser(payload.toUserId, 'friend:challenge:incoming', {
       challengeId,
-      from: { userId: uid, displayName: challenger.displayName, avatarId: challenger.avatarId },
+      from: { userId: uid, displayName: challenger.displayName, avatarId: challenger.avatarId, country: challenger.country },
       duration,
       expiresInMs: CHALLENGE_TTL_MS,
     });
@@ -350,6 +355,7 @@ io.on('connection', (socket: Socket) => {
         userId,
         displayName: identity.displayName || payload.displayName || 'PLAYER',
         avatarId: identity.avatarId,
+        country: identity.country,
         duration: resolveDuration(payload.duration),
       };
       const opponent = joinQueue(payload.venueTier, player);
@@ -376,6 +382,7 @@ io.on('connection', (socket: Socket) => {
       userId,
       displayName: identity.displayName || payload.displayName || 'PLAYER',
       avatarId: identity.avatarId,
+      country: identity.country,
       duration: resolveDuration(payload.duration),
     };
     socket.emit('room:created', { code: createRoom(player) });
@@ -393,6 +400,7 @@ io.on('connection', (socket: Socket) => {
       userId,
       displayName: identity.displayName || payload.displayName || 'PLAYER',
       avatarId: identity.avatarId,
+      country: identity.country,
       // The joiner's own duration is irrelevant -- the room creator's
       // (result.opponent below) is what createMatch actually uses, since
       // they're the one who set the room up in the first place.
@@ -538,8 +546,8 @@ io.on('connection', (socket: Socket) => {
       turn: match.chess.turn(),
       clocks: liveClockRemaining(match),
       players: {
-        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId },
-        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId },
+        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId, country: match.players.w.country },
+        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId, country: match.players.b.country },
       },
     });
     broadcastSpectateCount(match.id);
@@ -594,6 +602,7 @@ io.on('connection', (socket: Socket) => {
         userId: match.players[opponentColor(color)].userId,
         displayName: match.players[opponentColor(color)].displayName,
         avatarId: match.players[opponentColor(color)].avatarId,
+        country: match.players[opponentColor(color)].country,
       },
       fen: match.chess.fen(),
       // A live snapshot, not the possibly-stale anchor -- the clock kept

@@ -55,6 +55,7 @@ export default function GameRoomScreen() {
           fen: payload.fen,
           opponentName: payload.opponent.displayName,
           opponentAvatarId: payload.opponent.avatarId ?? undefined,
+          opponentCountry: payload.opponent.country ?? undefined,
           opponentUserId: payload.opponent.userId ?? undefined,
           clockW: String(payload.clocks.w),
           clockB: String(payload.clocks.b),

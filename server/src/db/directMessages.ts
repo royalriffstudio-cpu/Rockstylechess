@@ -176,6 +176,7 @@ export async function listConversations(me: string): Promise<ConversationSummary
           userId: playerProfiles.userId,
           displayName: playerProfiles.displayName,
           avatarId: playerProfiles.avatarId,
+          country: playerProfiles.country,
           rating: playerProfiles.rating,
           level: playerProfiles.level,
         })

@@ -12,7 +12,17 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { ChatPanel, ChatToast, ChessBoard, ConfirmModal, PlayerAvatar, PromotionPicker, VenueBackdrop } from '@/components/ui';
+import {
+  ChatPanel,
+  ChatToast,
+  ChessBoard,
+  ConfirmModal,
+  CountryFlag,
+  MoveHistoryPanel,
+  PlayerAvatar,
+  PromotionPicker,
+  VenueBackdrop,
+} from '@/components/ui';
 import { StockfishEngine, type StockfishEngineHandle } from '@/components/StockfishEngine';
 import { getPieceSprites } from '@/components/ui/pieceSprites';
 import { getAvatarImage } from '@/constants/avatars';
@@ -68,6 +78,7 @@ export default function MatchScreen() {
     fen: fenParam,
     opponentName,
     opponentAvatarId,
+    opponentCountry,
     opponentUserId,
     botName,
     botEmoji,
@@ -84,6 +95,7 @@ export default function MatchScreen() {
     fen?: string;
     opponentName?: string;
     opponentAvatarId?: string;
+    opponentCountry?: string;
     opponentUserId?: string;
     botName?: string;
     botEmoji?: string;
@@ -139,6 +151,8 @@ export default function MatchScreen() {
   const stockfishRef = useRef<StockfishEngineHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [resignVisible, setResignVisible] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historySnapshot, setHistorySnapshot] = useState<{ pgn: string; moveElapsedMs: number[] } | null>(null);
   // chess.js only reports isGameOver for mate/stalemate/draw-by-rule; a resign,
   // timeout, forfeit or agreed draw leaves the position non-terminal, so the
   // clock would keep ticking on the result screen during handleGameOver's
@@ -388,6 +402,11 @@ export default function MatchScreen() {
   );
   const openChat = useCallback(() => setChatOpen(true), []);
   const closeChat = useCallback(() => setChatOpen(false), []);
+  const openHistory = useCallback(() => {
+    setHistorySnapshot(game.getReplayData());
+    setHistoryVisible(true);
+  }, [game.getReplayData]);
+  const closeHistory = useCallback(() => setHistoryVisible(false), []);
   const openResign = useCallback(() => setResignVisible(true), []);
   const cancelResign = useCallback(() => setResignVisible(false), []);
   const confirmResign = useCallback(() => {
@@ -451,6 +470,7 @@ export default function MatchScreen() {
           name={opponentDisplayName}
           avatarSource={opponentAvatarSource}
           avatarEmoji={opponentAvatarEmoji}
+          countryCode={mode === 'online' ? (opponentCountry ?? null) : null}
           rank="GRANDMASTER (2150)"
           getRemaining={clock.getRemaining}
           color={opponentColor}
@@ -478,6 +498,7 @@ export default function MatchScreen() {
         <PlayerRow
           name={profile?.displayName ?? 'AXL_CHESS'}
           avatarSource={getAvatarImage(profile?.avatarId)}
+          countryCode={profile?.country ?? null}
           rank="PRO (2145)"
           getRemaining={clock.getRemaining}
           color={playerColor}
@@ -497,6 +518,12 @@ export default function MatchScreen() {
           badgeCount={mode === 'online' ? chat.unreadCount : 0}
         />
         <ActionPillButton icon="flag" label="Resign" tone="danger" onPress={openResign} />
+        <ActionPillButton
+          icon="history"
+          label="Moves"
+          onPress={openHistory}
+          disabled={game.moveCount === 0 || game.lastMove === null}
+        />
         {mode !== 'bot' ? (
           <ActionPillButton
             icon="handshake"
@@ -514,6 +541,16 @@ export default function MatchScreen() {
         myColor={playerColor}
         onSend={chat.send}
         canSend={chat.canSend && !game.isGameOver}
+      />
+
+      <MoveHistoryPanel
+        visible={historyVisible}
+        onClose={closeHistory}
+        pgn={historySnapshot?.pgn ?? null}
+        moveElapsedMs={historySnapshot?.moveElapsedMs ?? null}
+        boardTheme={boardTheme}
+        pieceSprites={pieceSprites}
+        flipped={flipBoard}
       />
 
       {chat.toastMessage ? (
@@ -563,6 +600,7 @@ const PlayerRow = memo(function PlayerRow({
   name,
   avatarSource,
   avatarEmoji,
+  countryCode = null,
   rank,
   getRemaining,
   color,
@@ -574,6 +612,7 @@ const PlayerRow = memo(function PlayerRow({
   name: string;
   avatarSource?: ImageSourcePropType;
   avatarEmoji?: string;
+  countryCode?: string | null;
   rank: string;
   getRemaining: (color: 'w' | 'b') => number;
   color: 'w' | 'b';
@@ -587,9 +626,12 @@ const PlayerRow = memo(function PlayerRow({
       <View className="flex-shrink flex-row items-center gap-sm">
         <PlayerAvatar source={avatarSource} emoji={avatarEmoji} size="small" />
         <View className="flex-shrink">
-          <Text className="font-display-hero uppercase text-text-primary" style={styles.playerName} numberOfLines={1}>
-            {name}
-          </Text>
+          <View className="flex-row items-center gap-1">
+            <CountryFlag code={countryCode} size={12} />
+            <Text className="font-display-hero uppercase text-text-primary" style={styles.playerName} numberOfLines={1}>
+              {name}
+            </Text>
+          </View>
           <View className="mt-0.5 flex-row items-center gap-1">
             <MaterialCommunityIcons name="star" size={11} color={Colors.gold} />
             <Text className="font-heading-md uppercase text-text-muted" style={styles.playerRank}>

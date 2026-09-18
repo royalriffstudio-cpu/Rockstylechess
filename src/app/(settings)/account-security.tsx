@@ -3,12 +3,13 @@ import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppIcon, ConfirmModal, CurrencyPill, PlayerAvatar } from '@/components/ui';
+import { AppIcon, ConfirmModal, CountryFlag, CountryPickerModal, CurrencyPill, PlayerAvatar } from '@/components/ui';
 import { SubPageHeader } from '@/components/layout';
 import { getAvatarImage } from '@/constants/avatars';
+import { getCountryName } from '@/constants/countries';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-import { deleteAccount } from '@/lib/api';
+import { deleteAccount, updateProfile } from '@/lib/api';
 import { clearAuthToken, getAuthToken } from '@/lib/authStorage';
 import { setGuestMode } from '@/lib/guestMode';
 import { clearSocketAuth } from '@/lib/socket';
@@ -35,6 +36,19 @@ export default function AccountSecurityScreen() {
   const { profile, refresh: refreshPlayerProfile, gems } = usePlayerProfile();
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteVisible, setDeleteVisible] = useState(false);
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
+
+  async function handleCountrySelect(code: string) {
+    const token = await getAuthToken();
+    if (!token) return;
+    try {
+      await updateProfile(token, { country: code });
+      refreshPlayerProfile();
+    } catch (error) {
+      console.log('Country update failed', error);
+      Alert.alert('Something went wrong', 'Could not update your country. Please try again.');
+    }
+  }
 
   async function confirmDelete() {
     setDeleteVisible(false);
@@ -78,6 +92,32 @@ export default function AccountSecurityScreen() {
               </View>
             </View>
           </View>
+        </View>
+
+        <View className="gap-md">
+          <Text className="font-section-header text-section-header uppercase text-text-muted">Country</Text>
+          <Pressable
+            onPress={() => setCountryPickerOpen(true)}
+            className="flex-row items-center justify-between rounded p-md"
+            style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
+          >
+            <View className="flex-row items-center gap-md">
+              <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                {profile?.country ? (
+                  <CountryFlag code={profile.country} size={18} />
+                ) : (
+                  <AppIcon name="flag" size={18} color={Colors.textMuted} />
+                )}
+              </View>
+              <View>
+                <Text className="font-body-base text-body-base text-text-primary">
+                  {getCountryName(profile?.country) ?? 'Not set'}
+                </Text>
+                <Text className="font-caption text-caption text-text-muted">Shown next to your name</Text>
+              </View>
+            </View>
+            <AppIcon name="chevron_right" size={22} color={Colors.chromeDark} />
+          </Pressable>
         </View>
 
         <View className="gap-md">
@@ -142,6 +182,13 @@ export default function AccountSecurityScreen() {
         confirmLabel="Delete"
         onCancel={() => setDeleteVisible(false)}
         onConfirm={confirmDelete}
+      />
+
+      <CountryPickerModal
+        visible={countryPickerOpen}
+        selectedCode={profile?.country}
+        onSelect={handleCountrySelect}
+        onClose={() => setCountryPickerOpen(false)}
       />
     </View>
   );

@@ -19,6 +19,9 @@ export interface QueuedPlayer {
   // looked up server-side from playerProfiles by userId (see index.ts),
   // never trusted from client-supplied data.
   avatarId: string | null;
+  // Same null-for-guests-and-not-yet-onboarded, server-looked-up-only rule
+  // as avatarId above.
+  country: string | null;
   // The duration this player queued with. On a pairing, the player who was
   // ALREADY waiting (returned as `opponent` from joinQueue below) sets the
   // match's actual duration -- simplest reasonable tie-break given queues

@@ -17,6 +17,7 @@ export interface FriendProfile {
   userId: string;
   displayName: string | null;
   avatarId: string | null;
+  country: string | null;
   rating: number;
   level: number;
 }
@@ -25,6 +26,7 @@ const FRIEND_PROFILE_COLUMNS = {
   userId: playerProfiles.userId,
   displayName: playerProfiles.displayName,
   avatarId: playerProfiles.avatarId,
+  country: playerProfiles.country,
   rating: playerProfiles.rating,
   level: playerProfiles.level,
 } as const;

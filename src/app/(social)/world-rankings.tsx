@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FriendRow } from '@/components/friends/FriendRow';
-import { AppIcon, CurrencyPill, PlayerAvatar, RockButton, RockCard } from '@/components/ui';
+import { AppIcon, CountryFlag, CurrencyPill, PlayerAvatar, RockButton, RockCard } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useFriends } from '@/hooks/useFriends';
@@ -228,9 +228,12 @@ export default function WorldRankingsScreen() {
                           </View>
                         </View>
 
-                        <Text className="text-center font-heading-md uppercase" style={{ fontSize: rank === 1 ? 13 : 11, color: accent }} numberOfLines={1}>
-                          {entry.displayName ?? 'Anonymous'}
-                        </Text>
+                        <View className="flex-row items-center gap-1">
+                          <CountryFlag code={entry.country} size={rank === 1 ? 13 : 11} />
+                          <Text className="text-center font-heading-md uppercase" style={{ fontSize: rank === 1 ? 13 : 11, color: accent }} numberOfLines={1}>
+                            {entry.displayName ?? 'Anonymous'}
+                          </Text>
+                        </View>
                         <Text className="font-body-sm text-cyan" style={{ fontSize: 11 }}>
                           {entry.rating}
                         </Text>
@@ -267,9 +270,12 @@ export default function WorldRankingsScreen() {
                         </Text>
                         <PlayerAvatar source={getAvatarImage(entry.avatarId)} size="small" />
                         <View className="flex-1">
-                          <Text className="font-heading-md text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
-                            {entry.displayName ?? 'Anonymous'}
-                          </Text>
+                          <View className="flex-row items-center gap-1">
+                            <CountryFlag code={entry.country} size={12} />
+                            <Text className="font-heading-md text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
+                              {entry.displayName ?? 'Anonymous'}
+                            </Text>
+                          </View>
                           <Text className="font-body-sm text-text-muted" style={{ fontSize: 11, marginTop: 2 }}>
                             {formatRecord(entry)}
                           </Text>
@@ -318,9 +324,12 @@ export default function WorldRankingsScreen() {
                     </Text>
                     <PlayerAvatar source={getAvatarImage(myProfile.avatarId)} size="medium" />
                     <View className="flex-1">
-                      <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }} numberOfLines={1}>
-                        {myProfile.displayName ?? 'You'}
-                      </Text>
+                      <View className="flex-row items-center gap-1">
+                        <CountryFlag code={myProfile.country} size={12} />
+                        <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }} numberOfLines={1}>
+                          {myProfile.displayName ?? 'You'}
+                        </Text>
+                      </View>
                       <View className="mt-0.5 flex-row items-center gap-1.5">
                         <Text className="font-heading-md" style={{ fontSize: 11, color: Colors.emberLight }}>
                           TOP {percentile}%

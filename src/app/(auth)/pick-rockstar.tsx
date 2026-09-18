@@ -4,8 +4,18 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppIcon, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, SectionLabel } from '@/components/ui';
+import {
+  AppIcon,
+  CountryFlag,
+  CountryPickerModal,
+  CurrencyPill,
+  KeyboardAwareScrollView,
+  PlayerAvatar,
+  RockButton,
+  SectionLabel,
+} from '@/components/ui';
 import { AVATARS, type AvatarOption } from '@/constants/avatars';
+import { getCountryName } from '@/constants/countries';
 import { Colors, withOpacity } from '@/constants/theme';
 import { updateProfile } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
@@ -15,6 +25,8 @@ export default function PickRockstarScreen() {
   const insets = useSafeAreaInsets();
   const [selectedId, setSelectedId] = useState('axe');
   const [stageName, setStageName] = useState('');
+  const [country, setCountry] = useState<string | null>(null);
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function handleSelect(option: AvatarOption) {
@@ -30,7 +42,11 @@ export default function PickRockstarScreen() {
     try {
       const token = await getAuthToken();
       if (token) {
-        await updateProfile(token, { displayName: stageName || undefined, avatarId: selectedId });
+        await updateProfile(token, {
+          displayName: stageName || undefined,
+          avatarId: selectedId,
+          country: country ?? undefined,
+        });
       }
     } catch (error) {
       // Non-fatal -- the onboarding flow shouldn't get stuck over a profile
@@ -141,11 +157,37 @@ export default function PickRockstarScreen() {
           />
         </View>
 
+        <View className="w-full" style={{ maxWidth: 440 }}>
+          <SectionLabel label="Country" />
+          <Pressable
+            onPress={() => setCountryPickerOpen(true)}
+            className="mt-md flex-row items-center gap-sm rounded-lg px-lg"
+            style={{ height: 52, backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1.5, borderColor: withOpacity(Colors.chromeDark, 0.4) }}
+          >
+            {country ? (
+              <>
+                <CountryFlag code={country} size={20} />
+                <Text className="font-body-base text-text-primary">{getCountryName(country)}</Text>
+              </>
+            ) : (
+              <Text className="font-body-base" style={{ color: Colors.textMuted }}>
+                Select your country (optional)
+              </Text>
+            )}
+          </Pressable>
+        </View>
+
         <View className="w-full items-center" style={{ maxWidth: 440 }}>
           <RockButton label={isSubmitting ? 'Loading...' : "Let's Rock"} variant="primary" disabled={isSubmitting} onPress={handleContinue} />
         </View>
       </KeyboardAwareScrollView>
 
+      <CountryPickerModal
+        visible={countryPickerOpen}
+        selectedCode={country}
+        onSelect={setCountry}
+        onClose={() => setCountryPickerOpen(false)}
+      />
     </View>
   );
 }

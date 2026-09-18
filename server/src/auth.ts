@@ -4,6 +4,7 @@ import { Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import { requireAuth } from './authMiddleware.js';
 import { BOARD_THEMES } from './boardThemes.js';
+import { isValidCountryCode } from './countryCodes.js';
 import { chargeForAnalysis } from './db/analysisCharge.js';
 import {
   claimAchievement,
@@ -60,18 +61,30 @@ authRouter.patch(
   '/me/profile',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const { displayName, avatarId, equippedBoardId, equippedPieceId } = req.body ?? {};
+    const { displayName, avatarId, equippedBoardId, equippedPieceId, country } = req.body ?? {};
     const updates: {
       displayName?: string;
       avatarId?: string;
       equippedBoardId?: string;
       equippedPieceId?: string;
+      country?: string;
       updatedAt: Date;
     } = {
       updatedAt: new Date(),
     };
     if (typeof displayName === 'string') updates.displayName = displayName.slice(0, 40);
     if (typeof avatarId === 'string') updates.avatarId = avatarId.slice(0, 40);
+    // Unlike avatarId (an open, blindly-trusted cosmetic-catalog id), country
+    // is a closed ISO-3166-1 alpha-2 set -- reject anything that isn't a real
+    // code rather than storing it blindly.
+    if (typeof country === 'string') {
+      const normalized = country.toUpperCase();
+      if (!isValidCountryCode(normalized)) {
+        res.status(400).json({ error: 'invalid-country-code' });
+        return;
+      }
+      updates.country = normalized;
+    }
     if (typeof equippedBoardId === 'string') {
       const theme = BOARD_THEMES.find((t) => t.id === equippedBoardId);
       if (!theme) {
@@ -465,15 +478,20 @@ authRouter.get(
     ];
     const opponentProfiles = opponentIds.length
       ? await db
-          .select({ userId: playerProfiles.userId, displayName: playerProfiles.displayName })
+          .select({
+            userId: playerProfiles.userId,
+            displayName: playerProfiles.displayName,
+            country: playerProfiles.country,
+          })
           .from(playerProfiles)
           .where(inArray(playerProfiles.userId, opponentIds))
       : [];
-    const opponentNameByUserId = new Map(opponentProfiles.map((p) => [p.userId, p.displayName]));
+    const opponentProfileByUserId = new Map(opponentProfiles.map((p) => [p.userId, p]));
 
     res.json({
       matches: rows.map((row) => {
         const opponentUserId = row.color === 'w' ? row.blackUserId : row.whiteUserId;
+        const opponentProfile = opponentUserId ? opponentProfileByUserId.get(opponentUserId) : undefined;
         return {
           matchId: row.matchId,
           playedAt: row.playedAt,
@@ -484,7 +502,8 @@ authRouter.get(
           ratingBefore: row.ratingBefore,
           ratingAfter: row.ratingAfter,
           ratingDelta: row.ratingDelta,
-          opponentDisplayName: (opponentUserId && opponentNameByUserId.get(opponentUserId)) || 'Unknown',
+          opponentDisplayName: opponentProfile?.displayName || 'Unknown',
+          opponentCountry: opponentProfile?.country ?? null,
         };
       }),
     });
@@ -566,6 +585,7 @@ authRouter.get(
         userId: playerProfiles.userId,
         displayName: playerProfiles.displayName,
         avatarId: playerProfiles.avatarId,
+        country: playerProfiles.country,
         rating: playerProfiles.rating,
         wins: playerProfiles.wins,
         losses: playerProfiles.losses,
@@ -619,8 +639,8 @@ authRouter.get(
     const liveMatches = [...allMatches()].map((match) => ({
       matchId: match.id,
       players: {
-        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId },
-        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId },
+        w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId, country: match.players.w.country },
+        b: { displayName: match.players.b.displayName, avatarId: match.players.b.avatarId, country: match.players.b.country },
       },
       fen: match.chess.fen(),
       turn: match.chess.turn(),
@@ -667,6 +687,7 @@ authRouter.get(
         userId: f.userId,
         displayName: f.displayName,
         avatarId: f.avatarId,
+        country: f.country,
         rating: f.rating,
         level: f.level,
         online: online.has(f.userId),
@@ -703,7 +724,13 @@ authRouter.get(
       return;
     }
     res.json({
-      user: { userId: user.userId, displayName: user.displayName, avatarId: user.avatarId, rating: user.rating },
+      user: {
+        userId: user.userId,
+        displayName: user.displayName,
+        avatarId: user.avatarId,
+        country: user.country,
+        rating: user.rating,
+      },
     });
   }),
 );
@@ -813,6 +840,7 @@ authRouter.get(
         userId: s.user.userId,
         displayName: s.user.displayName,
         avatarId: s.user.avatarId,
+        country: s.user.country,
         rating: s.user.rating,
         online: online.has(s.user.userId),
         lastMessage: s.lastMessage,

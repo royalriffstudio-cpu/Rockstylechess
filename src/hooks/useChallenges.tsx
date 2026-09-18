@@ -92,6 +92,7 @@ export function ChallengesProvider({ children }: { children: ReactNode }) {
           fen: p.fen,
           opponentName: p.opponent.displayName,
           opponentAvatarId: p.opponent.avatarId ?? undefined,
+          opponentCountry: p.opponent.country ?? undefined,
           opponentUserId: p.opponent.userId ?? undefined,
           clockW: String(p.clocks.w),
           clockB: String(p.clocks.b),

@@ -19,7 +19,14 @@ export interface FriendPresencePayload {
 
 export interface FriendRequestPayload {
   // The other user, shaped like api.ts's FriendCodeLookup + level.
-  friend: { userId: string; displayName: string | null; avatarId: string | null; rating: number; level: number };
+  friend: {
+    userId: string;
+    displayName: string | null;
+    avatarId: string | null;
+    country: string | null;
+    rating: number;
+    level: number;
+  };
 }
 
 export interface FriendRemovedPayload {
@@ -28,7 +35,7 @@ export interface FriendRemovedPayload {
 
 export interface IncomingChallengePayload {
   challengeId: string;
-  from: { userId: string; displayName: string | null; avatarId: string | null };
+  from: { userId: string; displayName: string | null; avatarId: string | null; country: string | null };
   duration: Duration;
   expiresInMs: number;
 }

@@ -15,6 +15,7 @@ export interface MatchPlayer {
   userId: string | null;
   displayName: string;
   avatarId: string | null;
+  country: string | null;
 }
 
 // Server-authoritative chess clock. Kept as its own field, deliberately
@@ -98,6 +99,7 @@ export function createMatch(playerA: QueuedPlayer, playerB: QueuedPlayer, baseMs
         userId: white.userId,
         displayName: white.displayName,
         avatarId: white.avatarId,
+        country: white.country,
       },
       b: {
         socketId: black.socketId,
@@ -105,6 +107,7 @@ export function createMatch(playerA: QueuedPlayer, playerB: QueuedPlayer, baseMs
         userId: black.userId,
         displayName: black.displayName,
         avatarId: black.avatarId,
+        country: black.country,
       },
     },
     createdAt: new Date(),

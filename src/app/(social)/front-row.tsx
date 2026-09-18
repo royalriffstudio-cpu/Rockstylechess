@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 
-import { ChessBoard, PlayerAvatar, ScreenBackdrop } from '@/components/ui';
+import { ChessBoard, CountryFlag, PlayerAvatar, ScreenBackdrop } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
@@ -251,9 +251,12 @@ export default function FrontRowScreen() {
             <View className="flex-1 flex-row items-center gap-sm rounded-lg p-sm" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chrome, 0.2) }}>
               <PlayerAvatar source={getAvatarImage(players?.w.avatarId)} size="small" />
               <View>
-                <Text className="font-heading-md" style={{ fontSize: 12, color: Colors.chrome }} numberOfLines={1}>
-                  {players?.w.displayName ?? 'WHITE'}
-                </Text>
+                <View className="flex-row items-center gap-1">
+                  <CountryFlag code={players?.w.country} size={11} />
+                  <Text className="font-heading-md" style={{ fontSize: 12, color: Colors.chrome }} numberOfLines={1}>
+                    {players?.w.displayName ?? 'WHITE'}
+                  </Text>
+                </View>
                 <Text className="font-display-hero" style={{ fontSize: 16, color: Colors.chrome, marginTop: 2 }}>
                   {formatClockMs(boardState?.clocks.w ?? 0)}
                 </Text>
@@ -262,9 +265,12 @@ export default function FrontRowScreen() {
             <View className="flex-1 flex-row-reverse items-center gap-sm rounded-lg p-sm" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.emberLight, 0.3) }}>
               <PlayerAvatar source={getAvatarImage(players?.b.avatarId)} size="small" />
               <View style={{ alignItems: 'flex-end' }}>
-                <Text className="font-heading-md" style={{ fontSize: 12, color: Colors.emberLight }} numberOfLines={1}>
-                  {players?.b.displayName ?? 'BLACK'}
-                </Text>
+                <View className="flex-row-reverse items-center gap-1">
+                  <CountryFlag code={players?.b.country} size={11} />
+                  <Text className="font-heading-md" style={{ fontSize: 12, color: Colors.emberLight }} numberOfLines={1}>
+                    {players?.b.displayName ?? 'BLACK'}
+                  </Text>
+                </View>
                 <Text className="font-display-hero" style={{ fontSize: 16, color: Colors.emberLight, marginTop: 2 }}>
                   {formatClockMs(boardState?.clocks.b ?? 0)}
                 </Text>

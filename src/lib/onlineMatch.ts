@@ -18,7 +18,7 @@ export interface QueueMatchedPayload {
   color: 'w' | 'b';
   // userId is null when the opponent is playing as a guest -- only signed-in
   // opponents can be added as a friend from the post-game screen.
-  opponent: { userId: string | null; displayName: string; avatarId: string | null };
+  opponent: { userId: string | null; displayName: string; avatarId: string | null; country: string | null };
   fen: string;
   clocks: { w: number; b: number };
   incrementMs: number;

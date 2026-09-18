@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
-import { PlayerAvatar, RockCard } from '@/components/ui';
+import { CountryFlag, PlayerAvatar, RockCard } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, withOpacity } from '@/constants/theme';
 import type { FriendPresence } from '@/hooks/useFriends';
@@ -21,6 +21,7 @@ const PRESENCE_LABEL: Record<FriendPresence, string> = {
 interface FriendRowProps {
   displayName: string | null;
   avatarId: string | null;
+  country?: string | null;
   rating: number;
   presence?: FriendPresence;
   /** Extra line under the name (overrides the presence label). */
@@ -32,7 +33,7 @@ interface FriendRowProps {
 /** Shared "another player" row -- avatar + presence dot + name + rating, with
  *  a caller-supplied action slot. Used by the Friends screen and the
  *  world-rankings Friends tab. */
-export function FriendRow({ displayName, avatarId, rating, presence, subtitle, right, onPress }: FriendRowProps) {
+export function FriendRow({ displayName, avatarId, country, rating, presence, subtitle, right, onPress }: FriendRowProps) {
   const body = (
     <RockCard variant="surface" contentPadding={12}>
       <View className="flex-row items-center gap-md">
@@ -56,9 +57,12 @@ export function FriendRow({ displayName, avatarId, rating, presence, subtitle, r
         </View>
 
         <View className="flex-1">
-          <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
-            {displayName ?? 'Anonymous'}
-          </Text>
+          <View className="flex-row items-center gap-1">
+            <CountryFlag code={country} size={12} />
+            <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
+              {displayName ?? 'Anonymous'}
+            </Text>
+          </View>
           <Text className="mt-0.5 font-body-sm" style={{ fontSize: 11, color: Colors.textMuted }} numberOfLines={1}>
             {subtitle ?? (presence ? `${PRESENCE_LABEL[presence]} · ${rating} ELO` : `${rating} ELO`)}
           </Text>

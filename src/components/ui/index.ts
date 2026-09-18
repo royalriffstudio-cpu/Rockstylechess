@@ -31,6 +31,8 @@ export { BoardSwatch, PieceSwatch } from './CosmeticSwatches';
 
 export { ChatPanel } from './ChatPanel';
 
+export { MoveHistoryPanel } from './MoveHistoryPanel';
+
 export { ChatToast } from './ChatToast';
 
 export { AppIcon } from './AppIcon';
@@ -38,5 +40,9 @@ export { AppIcon } from './AppIcon';
 export { GlowBox } from './GlowBox';
 
 export { ConfirmModal } from './ConfirmModal';
+
+export { CountryFlag } from './CountryFlag';
+
+export { CountryPickerModal } from './CountryPickerModal';
 
 export { PromotionPicker } from './PromotionPicker';

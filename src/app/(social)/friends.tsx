@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FriendRow, RowAction } from '@/components/friends/FriendRow';
 import { SubPageHeader } from '@/components/layout';
-import { AppIcon, ConfirmModal, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
+import { AppIcon, ConfirmModal, CountryFlag, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
 import { useChallenges } from '@/hooks/useChallenges';
@@ -195,9 +195,12 @@ export default function FriendsScreen() {
               <View className="flex-row items-center gap-md">
                 <PlayerAvatar source={getAvatarImage(lookup.user.avatarId)} size="small" />
                 <View className="flex-1">
-                  <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
-                    {lookup.user.displayName ?? 'Anonymous'}
-                  </Text>
+                  <View className="flex-row items-center gap-1">
+                    <CountryFlag code={lookup.user.country} size={12} />
+                    <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }} numberOfLines={1}>
+                      {lookup.user.displayName ?? 'Anonymous'}
+                    </Text>
+                  </View>
                   <Text className="mt-0.5 font-body-sm" style={{ fontSize: 11, color: Colors.textMuted }}>
                     {lookup.user.rating} ELO
                   </Text>
@@ -226,6 +229,7 @@ export default function FriendsScreen() {
                 key={r.userId}
                 displayName={r.displayName}
                 avatarId={r.avatarId}
+                country={r.country}
                 rating={r.rating}
                 subtitle={`Wants to be friends · ${r.rating} ELO`}
                 right={
@@ -251,6 +255,7 @@ export default function FriendsScreen() {
                 key={r.userId}
                 displayName={r.displayName}
                 avatarId={r.avatarId}
+                country={r.country}
                 rating={r.rating}
                 subtitle="Request sent"
                 right={<RowAction label="Cancel" color={Colors.chromeMid} onPress={() => void friends.declineRequest(r.userId)} />}
@@ -275,6 +280,7 @@ export default function FriendsScreen() {
                   key={f.userId}
                   displayName={f.displayName}
                   avatarId={f.avatarId}
+                  country={f.country}
                   rating={f.rating}
                   presence={presence}
                   right={
