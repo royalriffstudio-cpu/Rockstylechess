@@ -4,42 +4,50 @@ import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 const STORAGE_KEY = 'rockstyle-chess:music-enabled';
 
 // Lazily created (not eagerly like soundEffects.ts's SFX players) -- this is
-// a non-trivial track, not a tiny bundled clip, so there's no reason to pay
-// its load cost before the menu is actually reached.
+// non-trivial background music, not a tiny bundled clip, so there's no
+// reason to pay its load cost before the menu is actually reached.
 //
-// The track is split into a one-shot intro plus a seamlessly loopable tail
-// (two separate files, since expo-audio's `loop` restarts the whole source
-// rather than looping a sub-region). `phase` tracks which one is current;
-// once the intro finishes it flips to 'loop' for the rest of the app's
-// lifetime, so returning to the menu later resumes the loop, not the intro.
-let introPlayer: AudioPlayer | null = null;
-let loopPlayer: AudioPlayer | null = null;
-let phase: 'intro' | 'loop' = 'intro';
+// Three tracks played back-to-back in a fixed cycle (1 -> 2 -> 3 -> 1 -> ...)
+// rather than one file with expo-audio's `loop`, since that flag restarts a
+// single source rather than advancing through several. Each track is its
+// own AudioPlayer with a `playbackStatusUpdate` listener watching
+// `didJustFinish`; when the current track ends, `advance()` moves to the
+// next index (wrapping via modulo) and plays it. All three files were
+// loudness-normalized to -23.5 LUFS (matching the level established for the
+// prior intro/loop track) with a short exponential fade-in baked in at
+// encode time, so no in-app fade logic is needed at the handoff points.
+const TRACK_SOURCES = [
+  require('../../assets/sounds/mainMenuFixed_track1.m4a'),
+  require('../../assets/sounds/mainMenuFixed_track2.m4a'),
+  require('../../assets/sounds/mainMenuFixed_track3.m4a'),
+];
 
-function getIntroPlayer(): AudioPlayer {
-  if (!introPlayer) {
-    introPlayer = createAudioPlayer(require('../../assets/sounds/mainMenuFixed_intro.wav'));
-    introPlayer.loop = false;
-    introPlayer.addListener('playbackStatusUpdate', (status) => {
-      if (status.didJustFinish && phase === 'intro') {
-        phase = 'loop';
-        if (wantsToPlay && enabledCache !== false) getLoopPlayer().play();
-      }
+const players: (AudioPlayer | null)[] = TRACK_SOURCES.map(() => null);
+let currentIndex = 0;
+
+function getPlayer(index: number): AudioPlayer {
+  let player = players[index];
+  if (!player) {
+    player = createAudioPlayer(TRACK_SOURCES[index]);
+    player.loop = false;
+    player.addListener('playbackStatusUpdate', (status) => {
+      if (status.didJustFinish && currentIndex === index) advance();
     });
+    players[index] = player;
   }
-  return introPlayer;
+  return player;
 }
 
-function getLoopPlayer(): AudioPlayer {
-  if (!loopPlayer) {
-    loopPlayer = createAudioPlayer(require('../../assets/sounds/mainMenuFixed_loop.wav'));
-    loopPlayer.loop = true;
+// Called when the current track finishes naturally -- moves to the next one
+// in the cycle and plays it from the start (the player that just finished
+// sits at its own end position until it's reached again next cycle).
+function advance(): void {
+  currentIndex = (currentIndex + 1) % TRACK_SOURCES.length;
+  if (wantsToPlay && enabledCache !== false) {
+    const next = getPlayer(currentIndex);
+    next.seekTo(0);
+    next.play();
   }
-  return loopPlayer;
-}
-
-function getPlayer(): AudioPlayer {
-  return phase === 'intro' ? getIntroPlayer() : getLoopPlayer();
 }
 
 // Same cached-variable-in-front-of-AsyncStorage pattern as soundEffects.ts.
@@ -65,8 +73,8 @@ export async function setMusicEnabled(value: boolean): Promise<void> {
   enabledCache = value;
   await AsyncStorage.setItem(STORAGE_KEY, String(value));
   if (wantsToPlay) {
-    if (value) getPlayer().play();
-    else getPlayer().pause();
+    if (value) getPlayer(currentIndex).play();
+    else getPlayer(currentIndex).pause();
   }
 }
 
@@ -74,13 +82,12 @@ export async function setMusicEnabled(value: boolean): Promise<void> {
 export function playMenuMusic(): void {
   wantsToPlay = true;
   if (enabledCache === false) return;
-  const p = getPlayer();
+  const p = getPlayer(currentIndex);
   if (!p.playing) p.play();
 }
 
 // Gameplay screens call this on focus.
 export function stopMenuMusic(): void {
   wantsToPlay = false;
-  introPlayer?.pause();
-  loopPlayer?.pause();
+  players.forEach((p) => p?.pause());
 }
