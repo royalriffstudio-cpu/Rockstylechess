@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import {
   acceptFriendRequest,
+  blockUser,
   declineFriendRequest,
   getConversations,
   getFriendRequests,
@@ -44,6 +45,7 @@ interface FriendsContextValue {
   acceptRequest: (userId: string) => Promise<void>;
   declineRequest: (userId: string) => Promise<void>;
   unfriend: (userId: string) => Promise<void>;
+  block: (userId: string) => Promise<void>;
   markConversationRead: (userId: string) => Promise<void>;
 }
 
@@ -222,6 +224,19 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
     [withToken, refresh],
   );
 
+  // Blocking reuses the friendships table's status column server-side --
+  // once blocked, the pair drops off the accepted friends list on refresh
+  // (same as unfriend), and DMs/challenges between them stop working too,
+  // since both already re-check live friendship status on every attempt.
+  const block = useCallback(
+    (userId: string) =>
+      withToken(async (token) => {
+        await blockUser(token, userId);
+        await refresh();
+      }),
+    [withToken, refresh],
+  );
+
   const markConversationRead = useCallback(
     (userId: string) =>
       withToken(async (token) => {
@@ -268,6 +283,7 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       acceptRequest,
       declineRequest,
       unfriend,
+      block,
       markConversationRead,
     }),
     [
@@ -285,6 +301,7 @@ export function FriendsProvider({ children }: { children: ReactNode }) {
       acceptRequest,
       declineRequest,
       unfriend,
+      block,
       markConversationRead,
     ],
   );

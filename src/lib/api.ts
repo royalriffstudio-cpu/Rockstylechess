@@ -251,6 +251,7 @@ export interface MatchHistoryEntry {
   ratingDelta: number;
   opponentDisplayName: string;
   opponentCountry: string | null;
+  opponentUserId: string | null;
 }
 
 export function getMyMatches(token: string, limit?: number): Promise<{ matches: MatchHistoryEntry[] }> {
@@ -383,6 +384,42 @@ export function declineFriendRequest(token: string, userId: string): Promise<{ o
 
 export function removeFriend(token: string, userId: string): Promise<{ ok: true }> {
   return request(`/me/friends/${encodeURIComponent(userId)}`, { method: 'DELETE', token });
+}
+
+// --- Blocking + reporting ---------------------------------------------------
+// Blocking reuses the friends table's status column server-side ('blocked'
+// alongside 'pending'/'accepted') -- once blocked, DMs/challenges between the
+// pair stop working too, since both already re-check live friendship status
+// on every attempt rather than just at connection time.
+
+export interface BlockedUser {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  country: string | null;
+  rating: number;
+  level: number;
+}
+
+export function blockUser(token: string, userId: string): Promise<{ ok: true }> {
+  return request(`/me/block/${encodeURIComponent(userId)}`, { method: 'POST', token });
+}
+
+export function unblockUser(token: string, userId: string): Promise<{ ok: true }> {
+  return request(`/me/block/${encodeURIComponent(userId)}`, { method: 'DELETE', token });
+}
+
+export function getBlockedUsers(token: string): Promise<{ blocked: BlockedUser[] }> {
+  return request('/me/blocked', { method: 'GET', token });
+}
+
+export type ReportReason = 'cheating' | 'harassment' | 'inappropriate_name' | 'spam' | 'other';
+
+export function submitReport(
+  token: string,
+  report: { reportedUserId: string; reason: ReportReason; details?: string; matchId?: string },
+): Promise<{ ok: true }> {
+  return request('/me/reports', { method: 'POST', body: report, token });
 }
 
 export interface ConversationSummary {

@@ -31,7 +31,9 @@ const FRIEND_PROFILE_COLUMNS = {
   level: playerProfiles.level,
 } as const;
 
-async function profilesByIds(ids: string[]): Promise<Map<string, FriendProfile>> {
+// Exported for db/moderation.ts's listBlocked, which needs the same
+// batched-lookup shape for a (typically short) list of userIds.
+export async function profilesByIds(ids: string[]): Promise<Map<string, FriendProfile>> {
   if (ids.length === 0) return new Map();
   const rows = await db
     .select(FRIEND_PROFILE_COLUMNS)

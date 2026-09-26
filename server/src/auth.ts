@@ -14,6 +14,7 @@ import {
 } from './db/achievements.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
+import { blockUser, isValidReportReason, listBlocked, submitReport, unblockUser } from './db/moderation.js';
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -504,6 +505,7 @@ authRouter.get(
           ratingDelta: row.ratingDelta,
           opponentDisplayName: opponentProfile?.displayName || 'Unknown',
           opponentCountry: opponentProfile?.country ?? null,
+          opponentUserId: opponentUserId ?? null,
         };
       }),
     });
@@ -824,6 +826,70 @@ authRouter.delete(
     const userId = req.userId as string;
     await removeFriend(userId, req.params.userId);
     emitToUser(req.params.userId, 'friend:removed', { userId });
+    res.json({ ok: true });
+  }),
+);
+
+// Blocking reuses the friendships table's existing 'blocked' status (see
+// db/moderation.ts) -- once set, it also stops DMs/challenges between the
+// pair, since both already gate on live friendship status on every attempt,
+// not just at connection time.
+authRouter.post(
+  '/me/block/:userId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    await blockUser(userId, req.params.userId);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.delete(
+  '/me/block/:userId',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const result = await unblockUser(userId, req.params.userId);
+    if (result.status === 'not-blocked-by-you') {
+      res.status(404).json({ error: 'not-blocked-by-you' });
+      return;
+    }
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.get(
+  '/me/blocked',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const blocked = await listBlocked(req.userId as string);
+    res.json({ blocked });
+  }),
+);
+
+// No admin/review workflow yet -- rows are queried directly for now (see
+// db/schema/moderation.ts's comment).
+authRouter.post(
+  '/me/reports',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const { reportedUserId, reason, details, matchId } = req.body ?? {};
+    if (typeof reportedUserId !== 'string' || !reportedUserId) {
+      res.status(400).json({ error: 'missing-reported-user' });
+      return;
+    }
+    if (!isValidReportReason(reason)) {
+      res.status(400).json({ error: 'invalid-reason' });
+      return;
+    }
+    await submitReport(
+      userId,
+      reportedUserId,
+      reason,
+      typeof details === 'string' ? details : undefined,
+      typeof matchId === 'string' ? matchId : undefined,
+    );
     res.json({ ok: true });
   }),
 );

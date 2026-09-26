@@ -1,10 +1,13 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SubPageHeader } from '@/components/layout';
 import { CurrencyPill, RockButton, RockCard } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
+import { openSupportEmail } from '@/constants/support';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 
 interface SupportCategory {
@@ -13,18 +16,53 @@ interface SupportCategory {
   title: string;
   subtitle: string;
   danger?: boolean;
+  onPress: () => void;
 }
-
-const SUPPORT_CATEGORIES: SupportCategory[] = [
-  { id: 'faq', icon: 'help-circle-outline', title: 'FAQ', subtitle: 'The playbook for all common issues.' },
-  { id: 'technical', icon: 'console-line', title: 'Technical Issues', subtitle: 'Latency, display, or piece logic glitches.' },
-  { id: 'billing', icon: 'receipt-text-outline', title: 'Billing Support', subtitle: 'Gems, subscriptions, and store items.' },
-  { id: 'report', icon: 'gavel', title: 'Report a Player', subtitle: 'Fair play and conduct enforcement.', danger: true },
-];
 
 export default function RoadieSupportScreen() {
   const insets = useSafeAreaInsets();
-  const { gems } = usePlayerProfile();
+  const router = useRouter();
+  const { gems, profile } = usePlayerProfile();
+
+  const categories: SupportCategory[] = [
+    {
+      id: 'faq',
+      icon: 'help-circle-outline',
+      title: 'FAQ',
+      subtitle: 'The playbook for all common issues.',
+      onPress: () => router.push('/faq'),
+    },
+    {
+      id: 'technical',
+      icon: 'console-line',
+      title: 'Technical Issues',
+      subtitle: 'Latency, display, or piece logic glitches.',
+      onPress: () =>
+        openSupportEmail(
+          'RockStyle Chess -- Technical Issue',
+          `App version: ${Constants.expoConfig?.version ?? 'unknown'}\nPlatform: ${Constants.platform?.ios ? 'iOS' : 'Android'}\n\nDescribe the issue:\n`,
+        ),
+    },
+    {
+      id: 'billing',
+      icon: 'receipt-text-outline',
+      title: 'Billing Support',
+      subtitle: 'Gems, subscriptions, and store items.',
+      onPress: () =>
+        openSupportEmail(
+          'RockStyle Chess -- Billing Support',
+          `Friend code: ${profile?.friendCode ?? 'N/A'}\n\nDescribe the issue:\n`,
+        ),
+    },
+    {
+      id: 'report',
+      icon: 'gavel',
+      title: 'Report a Player',
+      subtitle: 'Fair play and conduct enforcement.',
+      danger: true,
+      onPress: () => router.push('/report-player'),
+    },
+  ];
 
   return (
     <View className="flex-1 bg-bg-base">
@@ -48,12 +86,8 @@ export default function RoadieSupportScreen() {
         </View>
 
         <View className="flex-row flex-wrap justify-between gap-y-md">
-          {SUPPORT_CATEGORIES.map((category) => (
-            <Pressable
-              key={category.id}
-              style={{ width: '48%' }}
-              onPress={() => console.log('Support category pressed', category.title)}
-            >
+          {categories.map((category) => (
+            <Pressable key={category.id} style={{ width: '48%' }} onPress={category.onPress}>
               <RockCard glowColor={category.danger ? Colors.crimson : undefined}>
                 <View className="gap-sm">
                   <View
@@ -90,7 +124,7 @@ export default function RoadieSupportScreen() {
             label="Contact Crew"
             variant="primary"
             icon={<MaterialCommunityIcons name="chat" size={20} color={Colors.bgBase} />}
-            onPress={() => console.log('Contact Crew pressed')}
+            onPress={() => openSupportEmail('RockStyle Chess -- Support')}
           />
           <Text className="text-center font-body-sm text-body-sm italic text-text-muted">
             Estimated response time: &lt; 5 minutes
@@ -114,7 +148,7 @@ export default function RoadieSupportScreen() {
             </Text>
           </View>
           <Text className="font-section-header text-caption uppercase tracking-widest text-text-muted" style={{ opacity: 0.5 }}>
-            Version 4.2.0-Staging
+            Version {Constants.expoConfig?.version ?? '1.0.0'}
           </Text>
         </View>
       </ScrollView>

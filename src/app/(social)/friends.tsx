@@ -1,3 +1,4 @@
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -6,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FriendRow, RowAction } from '@/components/friends/FriendRow';
 import { SubPageHeader } from '@/components/layout';
+import { ReportPlayerModal } from '@/components/social/ReportPlayerModal';
 import { AppIcon, ConfirmModal, CountryFlag, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
 import { getAvatarImage } from '@/constants/avatars';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
@@ -39,6 +41,9 @@ export default function FriendsScreen() {
   const [sending, setSending] = useState(false);
   const [challengeTarget, setChallengeTarget] = useState<Friend | null>(null);
   const [removeTarget, setRemoveTarget] = useState<Friend | null>(null);
+  const [menuTarget, setMenuTarget] = useState<Friend | null>(null);
+  const [blockTarget, setBlockTarget] = useState<Friend | null>(null);
+  const [reportTarget, setReportTarget] = useState<Friend | null>(null);
   const [copied, setCopied] = useState(false);
 
   const friendlyError = (raw: string): string => {
@@ -298,7 +303,7 @@ export default function FriendsScreen() {
                         onPress={() => router.push({ pathname: '/messages', params: { userId: f.userId } })}
                       />
                       <Pressable
-                        onPress={() => setRemoveTarget(f)}
+                        onPress={() => setMenuTarget(f)}
                         hitSlop={8}
                         className="h-8 w-7 items-center justify-center rounded-md"
                         style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.9), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4) }}
@@ -374,6 +379,61 @@ export default function FriendsScreen() {
         }}
         onCancel={() => setRemoveTarget(null)}
       />
+
+      <Modal visible={menuTarget !== null} transparent animationType="fade" onRequestClose={() => setMenuTarget(null)}>
+        <Pressable
+          onPress={() => setMenuTarget(null)}
+          style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.lg, backgroundColor: withOpacity(Colors.bgBase, 0.8) }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 320, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.4), backgroundColor: Colors.bgPanel }}
+          >
+            {[
+              { label: 'Block', icon: 'block-helper' as const, color: Colors.crimson, onPress: () => setBlockTarget(menuTarget) },
+              { label: 'Report', icon: 'gavel' as const, color: Colors.crimson, onPress: () => setReportTarget(menuTarget) },
+              { label: 'Remove Friend', icon: 'account-remove-outline' as const, color: Colors.textPrimary, onPress: () => setRemoveTarget(menuTarget) },
+            ].map((action, index) => (
+              <Pressable
+                key={action.label}
+                onPress={() => {
+                  setMenuTarget(null);
+                  action.onPress();
+                }}
+                className="flex-row items-center gap-md px-lg py-md"
+                style={index > 0 ? { borderTopWidth: 1, borderTopColor: withOpacity(Colors.chromeDark, 0.3) } : undefined}
+              >
+                <MaterialCommunityIcons name={action.icon} size={18} color={action.color} />
+                <Text className="font-body-base" style={{ fontSize: 14, color: action.color }}>
+                  {action.label}
+                </Text>
+              </Pressable>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <ConfirmModal
+        visible={blockTarget !== null}
+        variant="danger"
+        title="Block Player"
+        message={`Block ${blockTarget?.displayName ?? 'this player'}? They won't be able to message or challenge you again, and they'll be removed from your friends list.`}
+        confirmLabel="Block"
+        onConfirm={() => {
+          if (blockTarget) void friends.block(blockTarget.userId);
+          setBlockTarget(null);
+        }}
+        onCancel={() => setBlockTarget(null)}
+      />
+
+      {reportTarget ? (
+        <ReportPlayerModal
+          visible
+          onClose={() => setReportTarget(null)}
+          reportedUserId={reportTarget.userId}
+          reportedDisplayName={reportTarget.displayName ?? 'this player'}
+        />
+      ) : null}
     </View>
   );
 }

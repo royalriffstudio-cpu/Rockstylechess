@@ -152,6 +152,23 @@ export default function AccountSecurityScreen() {
           </View>
         </View>
 
+        <View className="gap-md">
+          <Text className="font-section-header text-section-header uppercase text-text-muted">Privacy</Text>
+          <Pressable
+            onPress={() => router.push('/blocked-players')}
+            className="flex-row items-center justify-between rounded p-md"
+            style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
+          >
+            <View className="flex-row items-center gap-md">
+              <View className="h-10 w-10 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
+                <AppIcon name="account_circle" size={18} color={Colors.textMuted} />
+              </View>
+              <Text className="font-body-base text-body-base text-text-primary">Blocked Players</Text>
+            </View>
+            <AppIcon name="chevron_right" size={22} color={Colors.chromeDark} />
+          </Pressable>
+        </View>
+
         <View className="pt-xl" style={{ borderTopWidth: 1, borderTopColor: withOpacity(Colors.crimson, 0.2) }}>
           <Pressable
             onPress={() => setDeleteVisible(true)}
