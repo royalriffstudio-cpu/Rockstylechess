@@ -26,7 +26,11 @@ import type { EngineMove } from './botEngine';
 // the standard "iterative deepening with a time cutoff" pattern, not a
 // repeat of the old flat depth-3 attempt.
 export const HEURISTIC_MAX_SEARCH_DEPTH = 3; // medium tier (Valkyrie Riff, Old School Roy)
-export const EASY_HEURISTIC_DEPTH = 1; // easy tier (Roadie Rick) -- immediate eval only, no recursion
+// Easy tier (Roadie Rick). 1-ply (no look at the opponent's reply at all) let
+// it walk into any one-move recapture -- a real beginner still notices an
+// immediate threat, it just doesn't plan ahead, so this sees exactly one
+// opponent reply and no further.
+export const EASY_HEURISTIC_DEPTH = 2;
 // Hard safety net regardless of position complexity or depth -- once hit,
 // remaining nodes fall back to an instant static eval instead of recursing
 // further, so worst case is bounded no matter how many legal moves a given
@@ -141,19 +145,63 @@ interface SearchState {
 // visible amount. Every 32 nodes is a reasonable middle ground.
 const DEADLINE_CHECK_INTERVAL = 32;
 
+// A plain fixed-depth search that stops dead at a leaf mid-capture-sequence
+// suffers the classic "horizon effect": it happily grabs a piece that gets
+// recaptured one ply past where it stopped looking, because the static eval
+// at that leaf counts the material gained but never sees the reply that
+// takes it back. Quiescence search fixes this by continuing to search
+// *only* captures (a much narrower, cheaper search than a full ply) past
+// the nominal leaf until the position is "quiet" -- i.e. no capture still
+// improves on just standing pat -- so a leaf's score reflects a settled
+// position instead of a snapshot mid-trade. Capped at QUIESCENCE_MAX_PLY so
+// a long forced capture chain can't blow the wall-clock budget.
+const QUIESCENCE_MAX_PLY = 4;
+
+function quiescence(chess: Chess, alpha: number, beta: number, state: SearchState, qDepth: number): number {
+  state.nodeCount += 1;
+  if (!state.aborted && state.nodeCount % DEADLINE_CHECK_INTERVAL === 0 && Date.now() > state.deadline) {
+    state.aborted = true;
+  }
+  const standPat = evaluate(chess);
+  if (state.aborted || qDepth <= 0) return standPat;
+  if (standPat >= beta) return beta;
+  if (standPat > alpha) alpha = standPat;
+
+  // MVV ordering (highest-value victim first) so the strongest refutation of
+  // a bad capture is found early and prunes the rest via the beta cutoff.
+  const captures = chess
+    .moves({ verbose: true })
+    .filter((move) => move.isCapture())
+    .sort((a, b) => PIECE_VALUES[b.captured ?? 'p'] - PIECE_VALUES[a.captured ?? 'p']);
+
+  for (const move of captures) {
+    chess.move({ from: move.from, to: move.to, promotion: move.promotion ?? 'q' });
+    const score = -quiescence(chess, -beta, -alpha, state, qDepth - 1);
+    chess.undo();
+    if (state.aborted) break;
+    if (score >= beta) return beta;
+    if (score > alpha) alpha = score;
+  }
+  return alpha;
+}
+
 function negamax(chess: Chess, depth: number, alpha: number, beta: number, state: SearchState): number {
   state.nodeCount += 1;
   if (!state.aborted && state.nodeCount % DEADLINE_CHECK_INTERVAL === 0 && Date.now() > state.deadline) {
     state.aborted = true;
   }
-  // Leaf check comes first and skips move generation entirely -- the
-  // previous version generated moves at every leaf too, just to check for
-  // checkmate, which alone accounted for roughly half the total search cost
-  // for no benefit (a checkmate discovered only at the deepest ply is
-  // already an acceptable miss for a "medium" bot). Once aborted, every
-  // remaining node also takes this fast path so the search unwinds quickly
-  // instead of completing its full depth.
-  if (depth === 0 || state.aborted) return evaluate(chess);
+  // Once aborted, every remaining node takes the cheap static-eval fast path
+  // (skipping quiescence too) so the search unwinds quickly instead of
+  // completing its full depth.
+  if (state.aborted) return evaluate(chess);
+  // Leaf: hand off to quiescence instead of returning the static eval
+  // directly -- see QUIESCENCE_MAX_PLY above for why. The previous version
+  // generated moves at every leaf too, just to check for checkmate, which
+  // alone accounted for roughly half the total search cost for no benefit (a
+  // checkmate discovered only at the deepest ply is already an acceptable
+  // miss for a "medium" bot), so this still skips move generation for
+  // non-captures at the leaf.
+  if (depth === 0) return quiescence(chess, alpha, beta, state, QUIESCENCE_MAX_PLY);
 
   const moves = orderedMoves(chess);
   if (moves.length === 0) {
@@ -194,18 +242,22 @@ export function pickHeuristicMove(chess: Chess, maxDepth = HEURISTIC_MAX_SEARCH_
   // score once state.aborted trips), so bestScore/scored only ever reflect a
   // fully-completed round -- never a mix of two depths.
   for (let depth = 1; depth <= maxDepth; depth += 1) {
-    let alpha = -Infinity;
-    const beta = Infinity;
     let roundBest = -Infinity;
     const roundScored: ScoredMove[] = [];
 
     for (const move of moves) {
       chess.move({ from: move.from, to: move.to, promotion: move.promotion ?? 'q' });
-      const score = -negamax(chess, depth - 1, -beta, -alpha, state);
+      // Full (-Infinity, Infinity) window for every root move, deliberately
+      // *not* narrowed by a sibling's already-found score -- root moves feed
+      // the tied-move randomization below, which needs each one's real
+      // score, not a fail-soft alpha-beta bound that's merely "at least this
+      // bad" for a move a tighter window gave up on early. Deeper, non-root
+      // nodes still narrow their window from the caller as usual; only the
+      // root treats every candidate to a full search.
+      const score = -negamax(chess, depth - 1, -Infinity, Infinity, state);
       chess.undo();
       roundScored.push({ move, score });
       if (score > roundBest) roundBest = score;
-      if (score > alpha) alpha = score;
     }
 
     // The very first round is always kept even if it got cut off partway
