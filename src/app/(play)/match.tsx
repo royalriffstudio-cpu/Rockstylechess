@@ -18,7 +18,6 @@ import {
   ChessBoard,
   ConfirmModal,
   CountryFlag,
-  MoveHistoryPanel,
   PlayerAvatar,
   PromotionPicker,
   VenueBackdrop,
@@ -28,11 +27,12 @@ import { getPieceSprites } from '@/components/ui/pieceSprites';
 import { getAvatarImage } from '@/constants/avatars';
 import { getBoardTheme } from '@/constants/boardThemes';
 import { ScreenArt } from '@/constants/screenArt';
-import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
 import { getVenue, getVenueIntensity } from '@/constants/venues';
 import { useChessClock, type ClockTimes } from '@/hooks/useChessClock';
 import { useChessGame, type BotDifficulty, type ChessGameResult, type GameMode } from '@/hooks/useChessGame';
 import { useMatchChat } from '@/hooks/useMatchChat';
+import { useMatchReplay } from '@/hooks/useMatchReplay';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { claimMatchReward, reportMatchOutcome } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
@@ -151,7 +151,14 @@ export default function MatchScreen() {
   const stockfishRef = useRef<StockfishEngineHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [resignVisible, setResignVisible] = useState(false);
-  const [historyVisible, setHistoryVisible] = useState(false);
+  // Peeking at a previous board state repurposes the MAIN board itself
+  // (read-only, driven by useMatchReplay) rather than opening a separate
+  // panel/sheet -- see peekActive below. historySnapshot is a frozen
+  // point-in-time copy taken when peeking starts, deliberately NOT
+  // re-derived while peeking is on: the real chess.js position, the
+  // opponent/bot, and the match clock all keep running untouched underneath
+  // regardless of what the board is showing.
+  const [peekActive, setPeekActive] = useState(false);
   const [historySnapshot, setHistorySnapshot] = useState<{ pgn: string; moveElapsedMs: number[] } | null>(null);
   // chess.js only reports isGameOver for mate/stalemate/draw-by-rule; a resign,
   // timeout, forfeit or agreed draw leaves the position non-terminal, so the
@@ -331,6 +338,21 @@ export default function MatchScreen() {
     onClockSync,
   });
   const chat = useMatchChat({ mode, online, isOpen: chatOpen });
+  const replay = useMatchReplay(historySnapshot?.pgn ?? null, historySnapshot?.moveElapsedMs ?? null);
+  // Opens on the LATEST ply, not move 0 -- this is a peek at "how did we get
+  // here", not a from-the-start replay. Only fires on the false->true
+  // transition (not every render while active) so it never fights the
+  // player's own scrubbing. Relies on ordinary effect-ordering:
+  // useMatchReplay's own internal reset-to-0 effect (keyed on `plies`
+  // identity, declared inside the hook call above) always runs first within
+  // the same commit, and this effect runs immediately after -- React batches
+  // both setPlyIndex calls into one render, so there's no visible flash of
+  // move 0.
+  const wasPeekActiveRef = useRef(peekActive);
+  useEffect(() => {
+    if (peekActive && !wasPeekActiveRef.current) replay.goTo(replay.totalPlies);
+    wasPeekActiveRef.current = peekActive;
+  }, [peekActive, replay.totalPlies, replay.goTo]);
   const animateOpponentMove = game.lastMoveSource !== null && game.lastMoveSource !== 'human';
   // Destructured so the useCallbacks below can depend on the individual
   // methods (stable via React Compiler) rather than the whole `game` object,
@@ -402,11 +424,14 @@ export default function MatchScreen() {
   );
   const openChat = useCallback(() => setChatOpen(true), []);
   const closeChat = useCallback(() => setChatOpen(false), []);
-  const openHistory = useCallback(() => {
+  const togglePeek = useCallback(() => {
+    if (peekActive) {
+      setPeekActive(false);
+      return;
+    }
     setHistorySnapshot(game.getReplayData());
-    setHistoryVisible(true);
-  }, [game.getReplayData]);
-  const closeHistory = useCallback(() => setHistoryVisible(false), []);
+    setPeekActive(true);
+  }, [peekActive, game.getReplayData]);
   const openResign = useCallback(() => setResignVisible(true), []);
   const cancelResign = useCallback(() => setResignVisible(false), []);
   const confirmResign = useCallback(() => {
@@ -480,20 +505,46 @@ export default function MatchScreen() {
           captured={opponentColor === 'w' ? game.capturedByWhite : game.capturedByBlack}
         />
 
-        <ChessBoard
-          board={game.board}
-          selectedSquare={game.selectedSquare}
-          legalTargets={game.legalTargets}
-          checkSquare={game.checkSquare}
-          lastMove={game.lastMove}
-          turn={game.turn}
-          flipped={flipBoard}
-          animateLastMove={animateOpponentMove}
-          lastMoveSound={game.lastMoveSound}
-          onSquarePress={handleBoardSquarePress}
-          theme={boardTheme}
-          pieceSprites={pieceSprites}
-        />
+        <View style={styles.boardStack}>
+          <ChessBoard
+            board={peekActive ? replay.board : game.board}
+            selectedSquare={peekActive ? null : game.selectedSquare}
+            legalTargets={peekActive ? [] : game.legalTargets}
+            checkSquare={peekActive ? replay.checkSquare : game.checkSquare}
+            lastMove={peekActive ? replay.lastMove : game.lastMove}
+            turn={peekActive ? replay.turn : game.turn}
+            flipped={flipBoard}
+            animateLastMove={peekActive ? false : animateOpponentMove}
+            lastMoveSound={peekActive ? null : game.lastMoveSound}
+            // Omitting onSquarePress keeps the board read-only while peeking
+            // -- ChessBoard's own `interactive` gate (tap AND drag) is
+            // `Boolean(onSquarePress)`.
+            onSquarePress={peekActive ? undefined : handleBoardSquarePress}
+            theme={boardTheme}
+            pieceSprites={pieceSprites}
+          />
+          {/* Fixed height, always rendered (even when not peeking) so this
+              reserved strip below the board never appears/disappears and
+              shifts the board's own vertical position when peek mode
+              toggles -- only its contents are conditional. */}
+          <View style={styles.peekNavSlot}>
+            {peekActive ? (
+              <PeekNav
+                onPrev={replay.prev}
+                onNext={replay.next}
+                atStart={replay.plyIndex === 0}
+                atLatest={replay.plyIndex >= replay.totalPlies}
+                label={
+                  replay.totalPlies === 0
+                    ? 'No moves yet'
+                    : replay.plyIndex === 0
+                      ? 'Start'
+                      : `Move ${replay.plyIndex} / ${replay.totalPlies}`
+                }
+              />
+            ) : null}
+          </View>
+        </View>
 
         <PlayerRow
           name={profile?.displayName ?? 'AXL_CHESS'}
@@ -519,10 +570,11 @@ export default function MatchScreen() {
         />
         <ActionPillButton icon="flag" label="Resign" tone="danger" onPress={openResign} />
         <ActionPillButton
-          icon="history"
-          label="Moves"
-          onPress={openHistory}
-          disabled={game.moveCount === 0 || game.lastMove === null}
+          icon={peekActive ? 'eye-off' : 'history'}
+          label={peekActive ? 'Live' : 'Moves'}
+          onPress={togglePeek}
+          active={peekActive}
+          disabled={!peekActive && (game.moveCount === 0 || game.lastMove === null)}
         />
         {mode !== 'bot' ? (
           <ActionPillButton
@@ -541,16 +593,6 @@ export default function MatchScreen() {
         myColor={playerColor}
         onSend={chat.send}
         canSend={chat.canSend && !game.isGameOver}
-      />
-
-      <MoveHistoryPanel
-        visible={historyVisible}
-        onClose={closeHistory}
-        pgn={historySnapshot?.pgn ?? null}
-        moveElapsedMs={historySnapshot?.moveElapsedMs ?? null}
-        boardTheme={boardTheme}
-        pieceSprites={pieceSprites}
-        flipped={flipBoard}
       />
 
       {chat.toastMessage ? (
@@ -750,6 +792,7 @@ const ActionPillButton = memo(function ActionPillButton({
   label,
   onPress,
   tone = 'neutral',
+  active = false,
   disabled = false,
   badgeCount = 0,
 }: {
@@ -757,19 +800,25 @@ const ActionPillButton = memo(function ActionPillButton({
   label: string;
   onPress: () => void;
   tone?: 'neutral' | 'danger';
+  /** Toggled-on look (e.g. the Moves button while peek mode is active). */
+  active?: boolean;
   disabled?: boolean;
   badgeCount?: number;
 }) {
-  const bg = tone === 'danger' ? Colors.crimson : withOpacity(Colors.chromeDark, 0.25);
-  const border = tone === 'danger' ? withOpacity(Colors.textPrimary, 0.2) : withOpacity(Colors.chromeDark, 0.4);
+  const bg = tone === 'danger' ? Colors.crimson : active ? withOpacity(Colors.cyan, 0.2) : withOpacity(Colors.chromeDark, 0.25);
+  const border =
+    tone === 'danger' ? withOpacity(Colors.textPrimary, 0.2) : active ? Colors.cyan : withOpacity(Colors.chromeDark, 0.4);
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
       className="h-12 flex-1 flex-row items-center justify-center gap-1 rounded-lg"
       style={{ backgroundColor: bg, borderWidth: 1, borderColor: border, opacity: disabled ? 0.4 : 1 }}
     >
-      <MaterialCommunityIcons name={icon} size={16} color={Colors.textPrimary} />
-      <Text className="font-button-label uppercase text-text-primary" style={styles.actionLabel}>
+      <MaterialCommunityIcons name={icon} size={16} color={active ? Colors.cyan : Colors.textPrimary} />
+      <Text
+        className="font-button-label uppercase text-text-primary"
+        style={[styles.actionLabel, active && { color: Colors.cyan }]}
+      >
         {label}
       </Text>
       {badgeCount > 0 ? (
@@ -780,6 +829,47 @@ const ActionPillButton = memo(function ActionPillButton({
         </View>
       ) : null}
     </Pressable>
+  );
+});
+
+// Prev/next buttons + a ply-position pill, centered as one inline row in the
+// reserved strip below the board (see peekNavSlot/MatchScreen) -- NOT an
+// overlay on the board itself, so it never sits on top of the pieces.
+// Reuses useMatchReplay's own transport (prev/next), the same hook the
+// post-game replay screen (replay.tsx) drives its full-screen board with.
+const PeekNav = memo(function PeekNav({
+  onPrev,
+  onNext,
+  atStart,
+  atLatest,
+  label,
+}: {
+  onPrev: () => void;
+  onNext: () => void;
+  atStart: boolean;
+  atLatest: boolean;
+  label: string;
+}) {
+  return (
+    <View style={styles.peekNavRow}>
+      <Pressable
+        onPress={atStart ? undefined : onPrev}
+        disabled={atStart}
+        style={[styles.peekNavButton, atStart && styles.peekNavButtonDisabled]}
+      >
+        <MaterialCommunityIcons name="chevron-left" size={20} color={Colors.cyan} />
+      </Pressable>
+      <View style={styles.peekLabelPill}>
+        <Text style={styles.peekLabelText}>{label}</Text>
+      </View>
+      <Pressable
+        onPress={atLatest ? undefined : onNext}
+        disabled={atLatest}
+        style={[styles.peekNavButton, atLatest && styles.peekNavButtonDisabled]}
+      >
+        <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.cyan} />
+      </Pressable>
+    </View>
   );
 });
 
@@ -803,5 +893,53 @@ const styles = StyleSheet.create({
   actionLabel: { fontSize: 13 },
   actionBadge: { top: -4, right: -4, minWidth: 16, height: 16, backgroundColor: Colors.emberLight },
   actionBadgeText: { fontSize: 9, color: Colors.bgBase },
+  // Deliberately no alignItems/justifyContent here -- ChessBoard's own root
+  // style resolves a percentage width + aspectRatio against this wrapper;
+  // giving the wrapper a non-stretch alignItems collapses that resolution
+  // to a near-zero intrinsic size on web (verified: alignItems: 'center'
+  // shrank an 8x8 board to ~24px). Default (unset) alignItems is 'stretch',
+  // which both ChessBoard and peekNavSlot below need to size correctly.
+  boardStack: {
+    position: 'relative',
+  },
+  // Fixed height, always present (see the comment at its call site) -- a
+  // plain in-flow row below the board, never an overlay on top of it.
+  peekNavSlot: {
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  peekNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  peekNavButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: withOpacity(Colors.cyan, 0.12),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.cyan, 0.5),
+  },
+  peekNavButtonDisabled: { opacity: 0.3 },
+  peekLabelPill: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: withOpacity(Colors.bgBase, 0.6),
+    borderWidth: 1,
+    borderColor: withOpacity(Colors.cyan, 0.35),
+  },
+  peekLabelText: {
+    fontFamily: Fonts.heading,
+    fontSize: 10,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: Colors.cyan,
+  },
 });
 // #endregion

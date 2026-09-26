@@ -31,8 +31,6 @@ export { BoardSwatch, PieceSwatch } from './CosmeticSwatches';
 
 export { ChatPanel } from './ChatPanel';
 
-export { MoveHistoryPanel } from './MoveHistoryPanel';
-
 export { ChatToast } from './ChatToast';
 
 export { AppIcon } from './AppIcon';
