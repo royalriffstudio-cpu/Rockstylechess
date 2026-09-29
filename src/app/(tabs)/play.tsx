@@ -50,7 +50,7 @@ interface Mode {
 const COMPETITIVE: Mode[] = [
   { id: 'iron-duel', title: 'Iron Duel', sub: 'Custom 1v1 · pick venue & time control', icon: 'swords', glow: 'cyan', path: '/setup' },
   { id: 'friend', title: 'Play a Friend', sub: 'Private room · create or join by code', icon: 'handshake', glow: 'gold', path: '/game-room' },
-  { id: 'tournaments', title: 'Tournaments', sub: 'Arenas & brackets · high stakes', icon: 'emoji_events', glow: 'gold', path: '/tournaments' },
+  { id: 'tournaments', title: 'Tournaments', sub: 'Arenas & brackets · coming soon', icon: 'emoji_events', glow: 'gold', path: '/tournaments' },
 ];
 
 const TRAINING: Mode[] = [

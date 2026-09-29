@@ -27,7 +27,7 @@ type HomeTile = {
 
 const HOME_TILES: HomeTile[] = [
   { icon: 'swords', color: Colors.cyan, glow: Colors.cyan, label: 'Iron Duel', sub: '1v1 Ranked', route: '/setup' },
-  { icon: 'emoji_events', color: Colors.gold, glow: Colors.gold, label: 'Tournaments', sub: 'High Stakes', route: '/tournaments' },
+  { icon: 'emoji_events', color: Colors.gold, glow: Colors.gold, label: 'Tournaments', sub: 'Coming Soon', route: '/tournaments' },
   { icon: 'smart_toy', color: Colors.ember, glow: Colors.ember, label: 'Bots', sub: 'Practice', route: '/bots' },
   { icon: 'extension', color: Colors.cyan, glow: Colors.cyan, label: 'Puzzles', sub: 'Daily Grind', route: '/puzzles' },
 ];
