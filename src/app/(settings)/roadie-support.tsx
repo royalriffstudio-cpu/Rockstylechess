@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SubPageHeader } from '@/components/layout';
 import { CurrencyPill, RockButton, RockCard } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
-import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
+import { DATA_DELETION_URL, openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { openSupportEmail } from '@/constants/support';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 
@@ -133,7 +133,7 @@ export default function RoadieSupportScreen() {
         </View>
 
         <View className="items-center gap-md pt-lg">
-          <View className="flex-row items-center gap-md">
+          <View className="flex-row flex-wrap items-center justify-center gap-md">
             <Text
               className="font-section-header text-section-header uppercase text-text-muted"
               onPress={() => openLegalDocument(PRIVACY_POLICY_URL)}
@@ -146,6 +146,13 @@ export default function RoadieSupportScreen() {
               onPress={() => openLegalDocument(TERMS_OF_SERVICE_URL)}
             >
               Terms of Service
+            </Text>
+            <Text style={{ color: withOpacity(Colors.chrome, 0.2) }}>•</Text>
+            <Text
+              className="font-section-header text-section-header uppercase text-text-muted"
+              onPress={() => openLegalDocument(DATA_DELETION_URL)}
+            >
+              Delete Account
             </Text>
           </View>
           <Text className="font-section-header text-caption uppercase tracking-widest text-text-muted" style={{ opacity: 0.5 }}>

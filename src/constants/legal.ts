@@ -6,6 +6,11 @@ import * as WebBrowser from 'expo-web-browser';
 // files pushed -- until then these two URLs 404.
 export const PRIVACY_POLICY_URL = 'https://royalriffstudio-cpu.github.io/Rockstylechess/privacy-policy.html';
 export const TERMS_OF_SERVICE_URL = 'https://royalriffstudio-cpu.github.io/Rockstylechess/terms-of-service.html';
+// The Google Play-required web-accessible path to request account/data
+// deletion, independent of the app -- also the URL that goes in Play
+// Console's Data Safety form. See server/src/db/deleteAccountByEmail.ts for
+// how an email-based request made through this page is actually fulfilled.
+export const DATA_DELETION_URL = 'https://royalriffstudio-cpu.github.io/Rockstylechess/data-deletion.html';
 
 // Opens an in-app browser tab (SFSafariViewController / Chrome Custom Tab)
 // instead of kicking the player out to their default browser app.

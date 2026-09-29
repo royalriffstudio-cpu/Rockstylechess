@@ -12,6 +12,7 @@ import {
   reportMatchForAchievements,
   reportPuzzleSolvedForAchievements,
 } from './db/achievements.js';
+import { deleteUserAccount } from './db/accountDeletion.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
 import { blockUser, isValidReportReason, listBlocked, submitReport, unblockUser } from './db/moderation.js';
@@ -602,28 +603,15 @@ authRouter.get(
   }),
 );
 
-// Maps account-security.tsx's "Delete Account" button.
+// Maps account-security.tsx's "Delete Account" button. See
+// db/accountDeletion.ts's deleteUserAccount for what this actually deletes --
+// also called from deleteAccountByEmail.ts, the CLI fallback for a web/email
+// deletion request made by someone without app access (docs/data-deletion.html).
 authRouter.delete(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const userId = req.userId as string;
-
-    // matches.white/blackUserId deliberately has no onDelete cascade (see
-    // db/schema/matches.ts) -- deleting a user who's played matches should
-    // preserve the match/rating record for whoever they played against,
-    // not force it to vanish too. Null out the reference on those rows
-    // instead of deleting them; everything else that's actually this
-    // user's own data (profile, their own match_participants rows, and
-    // any future purchases/social rows -- all `onDelete: 'cascade'`) goes
-    // via the users row cascade below. One transaction so a mid-way
-    // failure can't leave a half-deleted account.
-    await db.transaction(async (tx) => {
-      await tx.update(matches).set({ whiteUserId: null }).where(eq(matches.whiteUserId, userId));
-      await tx.update(matches).set({ blackUserId: null }).where(eq(matches.blackUserId, userId));
-      await tx.delete(users).where(eq(users.id, userId));
-    });
-
+    await deleteUserAccount(req.userId as string);
     res.json({ ok: true });
   }),
 );
