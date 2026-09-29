@@ -40,14 +40,6 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-audio",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "usesCleartextTraffic": true
-          }
-        }
-      ],
       "./plugins/withReleaseKeystore.js"
     ],
     "experiments": {
