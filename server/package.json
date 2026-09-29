@@ -29,6 +29,7 @@
     "cors": "^2.8.5",
     "drizzle-orm": "^0.45.2",
     "express": "^4.19.2",
+    "google-auth-library": "^11.1.0",
     "postgres": "^3.4.9",
     "socket.io": "^4.8.1"
   },

@@ -47,7 +47,8 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "./plugins/withReleaseKeystore.js"
     ],
     "experiments": {
       "typedRoutes": true,

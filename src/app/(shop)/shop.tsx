@@ -1,60 +1,132 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIAP, type Purchase, type PurchaseError } from 'react-native-iap';
 
 import { AppIcon, CurrencyIcon, ProgressBar, RockButton, RockCard } from '@/components/ui';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { ALL_IAP_ANDROID_PRODUCT_IDS, androidProductIdForPack, packIdForAndroidProductId } from '@/constants/iapProducts';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { verifyPurchase } from '@/lib/api';
+import { getAuthToken } from '@/lib/authStorage';
 import { goUp } from '@/lib/navigation';
 
 interface ChipPack {
   id: string;
   amount: string;
   name: string;
-  price: string;
+  fallbackPrice: string;
   isClaim?: boolean;
   highlighted?: boolean;
   badge?: string;
-  bonusNote?: string;
 }
 
+// fallbackPrice shows only until the Play Store's own (correctly localized)
+// price loads via useIAP's fetchProducts -- see priceForPack below. Never
+// used to actually charge anything; server/src/iapCatalog.ts is the only
+// source of truth for what a purchase grants and costs.
 const CHIP_PACKS: ChipPack[] = [
-  { id: 'starter', amount: '1,000', name: 'Starter Pack', price: '$1.99' },
-  { id: 'roadie-box', amount: '10,000', name: 'Roadie Box', price: '$9.99' },
+  { id: 'starter', amount: '1,000', name: 'Starter Pack', fallbackPrice: '$1.99' },
+  { id: 'roadie-box', amount: '10,000', name: 'Roadie Box', fallbackPrice: '$9.99' },
   {
     id: 'bonus-pack',
     amount: '250,000',
     name: '+ Bonus Pack',
-    price: '$49.99',
+    fallbackPrice: '$49.99',
     highlighted: true,
     badge: 'HOT',
-    bonusNote: 'Includes Exclusive "Electric Legend" Piece Skin',
   },
-  { id: 'headliner-chest', amount: '50,000', name: 'Headliner Chest', price: '$24.99' },
-  { id: 'stadium-vault', amount: 'Stadium Vault', name: 'Unlimited Energy', price: 'Claim', isClaim: true },
+  { id: 'headliner-chest', amount: '50,000', name: 'Headliner Chest', fallbackPrice: '$24.99' },
+  { id: 'stadium-vault', amount: 'Stadium Vault', name: 'Unlimited Energy', fallbackPrice: 'Claim', isClaim: true },
 ];
 
 interface GemPack {
   id: string;
   amount: number;
-  price: string;
+  fallbackPrice: string;
 }
 
 const GEM_PACKS: GemPack[] = [
-  { id: 'gem-100', amount: 100, price: '$0.99' },
-  { id: 'gem-550', amount: 550, price: '$4.99' },
-  { id: 'gem-1200', amount: 1200, price: '$9.99' },
+  { id: 'gem-100', amount: 100, fallbackPrice: '$0.99' },
+  { id: 'gem-550', amount: 550, fallbackPrice: '$4.99' },
+  { id: 'gem-1200', amount: 1200, fallbackPrice: '$9.99' },
 ];
 
 const VIP_PERKS = ['+20% Chip Bonus on every win', 'Exclusive avatar skin', 'Daily Bonus x2', 'Ad-free matchmaking'];
 
 type ShopTab = 'chips' | 'gems' | 'vip';
 
+function notifyVipComingSoon() {
+  Alert.alert('Coming Soon', "Backstage Pass isn't live yet -- check back soon!");
+}
+
 export default function RockShopScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<ShopTab>('chips');
+  const { refresh: refreshProfile } = usePlayerProfile();
+  // Tracks the pack currently being purchased so its button can show a
+  // loading state and so a stray purchaseUpdatedListener delivery (e.g. a
+  // restored/pending purchase from a previous session) doesn't get treated
+  // as "just bought this" for an unrelated pack.
+  const [purchasingPackId, setPurchasingPackId] = useState<string | null>(null);
+
+  const { connected, products, fetchProducts, requestPurchase, finishTransaction } = useIAP({
+    onPurchaseSuccess: async (purchase: Purchase) => {
+      const packId = packIdForAndroidProductId(purchase.productId);
+      if (!packId || !purchase.purchaseToken) {
+        setPurchasingPackId(null);
+        return;
+      }
+      try {
+        const token = await getAuthToken();
+        if (!token) throw new Error('not-signed-in');
+        await verifyPurchase(token, packId, purchase.purchaseToken);
+        await refreshProfile();
+        // The server already verified + consumed the purchase via the Play
+        // Developer API -- this local call just clears react-native-iap's
+        // own pending-purchase cache so the same purchase isn't redelivered
+        // on next app start.
+        await finishTransaction({ purchase, isConsumable: true });
+      } catch (error) {
+        console.log('Purchase verification failed', error);
+        Alert.alert('Purchase Error', "We couldn't confirm this purchase. If you were charged, contact support and it'll be sorted out.");
+      } finally {
+        setPurchasingPackId(null);
+      }
+    },
+    onPurchaseError: (error: PurchaseError) => {
+      setPurchasingPackId(null);
+      if (error.code === 'user-cancelled') return;
+      Alert.alert('Purchase Failed', error.message || 'Something went wrong. Please try again.');
+    },
+  });
+
+  useEffect(() => {
+    if (connected) void fetchProducts({ skus: ALL_IAP_ANDROID_PRODUCT_IDS, type: 'in-app' });
+  }, [connected, fetchProducts]);
+
+  function priceForPack(packId: string, fallbackPrice: string): string {
+    const androidProductId = androidProductIdForPack(packId);
+    const product = products.find((p) => p.id === androidProductId);
+    return product?.displayPrice ?? fallbackPrice;
+  }
+
+  function handlePurchase(packId: string) {
+    const androidProductId = androidProductIdForPack(packId);
+    if (!androidProductId) return;
+    if (!connected) {
+      Alert.alert('Store Unavailable', "Can't reach the Play Store right now. Please try again in a moment.");
+      return;
+    }
+    setPurchasingPackId(packId);
+    requestPurchase({ request: { google: { skus: [androidProductId] } }, type: 'in-app' }).catch((error) => {
+      setPurchasingPackId(null);
+      console.log('requestPurchase dispatch failed', error);
+    });
+  }
 
   return (
     <View className="flex-1 bg-bg-base">
@@ -152,7 +224,13 @@ export default function RockShopScreen() {
             </Text>
             <View className="flex-row flex-wrap justify-between gap-y-md">
               {CHIP_PACKS.map((pack) => (
-                <ChipPackCard key={pack.id} pack={pack} />
+                <ChipPackCard
+                  key={pack.id}
+                  pack={pack}
+                  price={priceForPack(pack.id, pack.fallbackPrice)}
+                  purchasing={purchasingPackId === pack.id}
+                  onPress={() => (pack.isClaim ? Alert.alert('Coming Soon', 'Stadium Vault claims are on the way!') : handlePurchase(pack.id))}
+                />
               ))}
             </View>
           </>
@@ -165,7 +243,13 @@ export default function RockShopScreen() {
             </Text>
             <View className="flex-row flex-wrap justify-between gap-y-md">
               {GEM_PACKS.map((pack) => (
-                <GemPackCard key={pack.id} pack={pack} />
+                <GemPackCard
+                  key={pack.id}
+                  pack={pack}
+                  price={priceForPack(pack.id, pack.fallbackPrice)}
+                  purchasing={purchasingPackId === pack.id}
+                  onPress={() => handlePurchase(pack.id)}
+                />
               ))}
             </View>
           </>
@@ -173,7 +257,7 @@ export default function RockShopScreen() {
 
         {activeTab === 'vip' ? (
           <>
-            <VipBanner compact={false} onUpgrade={() => console.log('Upgrade to Backstage Pass pressed')} />
+            <VipBanner compact={false} onUpgrade={notifyVipComingSoon} />
             <View className="gap-sm">
               {VIP_PERKS.map((perk) => (
                 <View key={perk} className="flex-row items-center gap-sm">
@@ -234,7 +318,17 @@ function VipBanner({ compact, onUpgrade }: { compact: boolean; onUpgrade: () => 
   );
 }
 
-function ChipPackCard({ pack }: { pack: ChipPack }) {
+function ChipPackCard({
+  pack,
+  price,
+  purchasing,
+  onPress,
+}: {
+  pack: ChipPack;
+  price: string;
+  purchasing: boolean;
+  onPress: () => void;
+}) {
   const iconColor = pack.isClaim ? Colors.cyan : Colors.gold;
   const iconSize = pack.highlighted ? 88 : 56;
 
@@ -285,14 +379,13 @@ function ChipPackCard({ pack }: { pack: ChipPack }) {
             {pack.amount}
           </Text>
           <Text className="mb-1.5 font-body-sm text-caption uppercase text-text-muted">{pack.name}</Text>
-          {pack.bonusNote ? (
-            <Text className="mb-1.5 font-body-sm text-caption italic text-text-muted">{pack.bonusNote}</Text>
-          ) : null}
           <View className="w-full">
             <RockButton
-              label={pack.price}
+              label={price}
+              loadingLabel="Purchasing…"
+              loading={purchasing}
               variant={pack.isClaim ? 'primary' : 'reward'}
-              onPress={() => console.log('Purchase pressed', pack.id, pack.price)}
+              onPress={onPress}
             />
           </View>
         </View>
@@ -305,7 +398,17 @@ function ChipPackCard({ pack }: { pack: ChipPack }) {
 // cards, so gem packs use a smaller dedicated price chip instead -- same
 // depth language, just sized for the space, consistent with how Match's
 // action bar already deviated from RockButton for a shape it wasn't built for.
-function GemPackCard({ pack }: { pack: GemPack }) {
+function GemPackCard({
+  pack,
+  price,
+  purchasing,
+  onPress,
+}: {
+  pack: GemPack;
+  price: string;
+  purchasing: boolean;
+  onPress: () => void;
+}) {
   return (
     <RockCard style={{ width: '31%', alignItems: 'center' }}>
       <View
@@ -319,10 +422,11 @@ function GemPackCard({ pack }: { pack: GemPack }) {
       </Text>
       <Pressable
         className="w-full items-center rounded-sm py-2"
-        style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.cyan, 0.4) }}
-        onPress={() => console.log('Purchase gems pressed', pack.id, pack.price)}
+        style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.cyan, 0.4), opacity: purchasing ? 0.6 : 1 }}
+        onPress={onPress}
+        disabled={purchasing}
       >
-        <Text className="font-heading-md text-caption text-cyan">{pack.price}</Text>
+        <Text className="font-heading-md text-caption text-cyan">{purchasing ? '…' : price}</Text>
       </Pressable>
     </RockCard>
   );

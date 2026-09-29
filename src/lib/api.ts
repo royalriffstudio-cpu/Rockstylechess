@@ -55,6 +55,20 @@ export function unlockCosmetic(
   });
 }
 
+// Real-money purchase (shop.tsx's chip/gem packs). purchaseToken is what
+// react-native-iap hands back after a completed Google Play purchase --
+// the server independently verifies it against the Play Developer API
+// before crediting anything (see server/src/iapCatalog.ts's authoritative
+// pack list; the client never dictates price or amount). Rejects with
+// Error('unknown-pack' | 'purchase-not-valid' | 'verification-unavailable').
+export function verifyPurchase(
+  token: string,
+  packId: string,
+  purchaseToken: string,
+): Promise<{ ok: true; chips: number; gems: number }> {
+  return request('/me/purchases/verify', { method: 'POST', body: { packId, purchaseToken }, token });
+}
+
 // Premium action: charges chips or gems every time Game Analysis is used
 // (no persistent "unlocked" record). Rejects with Error('insufficient-funds')
 // -- callers catch that specifically, same pattern as unlockCosmetic.

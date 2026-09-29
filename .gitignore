@@ -20,6 +20,11 @@ expo-env.d.ts
 *.apk
 *.aab
 android/keystore.properties
+# Real upload keystore (see plugins/withReleaseKeystore.js) -- lives at the
+# repo root, outside android/, so it survives `expo prebuild` regenerating
+# that directory. NEVER commit this or release.jks (already covered by the
+# *.jks rule above) -- back both up somewhere durable and secure instead.
+/keystore.properties
 
 # Metro
 .metro-health-check*

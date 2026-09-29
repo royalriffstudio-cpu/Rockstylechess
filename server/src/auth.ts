@@ -15,6 +15,9 @@ import {
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
 import { blockUser, isValidReportReason, listBlocked, submitReport, unblockUser } from './db/moderation.js';
+import { creditVerifiedPurchase } from './db/purchases.js';
+import { acknowledgeAndConsume, verifyProductPurchase } from './googlePlay.js';
+import { getPackById } from './iapCatalog.js';
 import {
   getNotifications,
   getUnreadNotificationCount,
@@ -192,6 +195,58 @@ authRouter.post(
       gems: result.gems,
       chips: result.chips,
     });
+  }),
+);
+
+// Real-money purchase (chip/gem packs, shop.tsx) -- packId identifies which
+// pack the client believes it bought, purchaseToken is what react-native-iap
+// hands back from Google Play after a completed purchase. Never trusts the
+// client's claim alone: verifies the token against the Play Developer API
+// before crediting anything, matching iapCatalog.ts's server-side-only
+// pack/price list (the client's shop.tsx copy is display-only).
+authRouter.post(
+  '/me/purchases/verify',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const userId = req.userId as string;
+    const { packId, purchaseToken } = req.body ?? {};
+    if (typeof packId !== 'string' || typeof purchaseToken !== 'string' || !purchaseToken) {
+      res.status(400).json({ error: 'invalid-request' });
+      return;
+    }
+    const pack = getPackById(packId);
+    if (!pack) {
+      res.status(400).json({ error: 'unknown-pack' });
+      return;
+    }
+
+    let verification;
+    try {
+      verification = await verifyProductPurchase(pack.androidProductId, purchaseToken);
+    } catch (error) {
+      console.log('Google Play purchase verification failed', error);
+      res.status(502).json({ error: 'verification-unavailable' });
+      return;
+    }
+    if (verification.status !== 'valid') {
+      res.status(400).json({ error: 'purchase-not-valid' });
+      return;
+    }
+
+    const credited = await creditVerifiedPurchase(userId, pack, purchaseToken);
+
+    try {
+      await acknowledgeAndConsume(pack.androidProductId, purchaseToken);
+    } catch (error) {
+      // The currency is already credited and won't be double-granted (the
+      // providerTransactionId unique constraint holds regardless) -- a
+      // failure here just means the SKU may not be repurchasable again
+      // until it's consumed, worth logging but not worth failing the
+      // response the player is waiting on.
+      console.log('Google Play acknowledge/consume failed', error);
+    }
+
+    res.json({ ok: true, chips: credited.chips, gems: credited.gems });
   }),
 );
 
