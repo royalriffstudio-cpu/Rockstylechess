@@ -35,6 +35,8 @@ export { ChatToast } from './ChatToast';
 
 export { AppIcon } from './AppIcon';
 
+export { Checkbox } from './Checkbox';
+
 export { GlowBox } from './GlowBox';
 
 export { ConfirmModal } from './ConfirmModal';

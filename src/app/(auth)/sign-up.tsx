@@ -6,7 +6,8 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AppIcon, CurrencyIcon, KeyboardAwareScrollView, RockButton } from '@/components/ui';
+import { AppIcon, Checkbox, CurrencyIcon, KeyboardAwareScrollView, RockButton } from '@/components/ui';
+import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -23,8 +24,13 @@ export default function SignUpScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   async function handleCreateAccount() {
+    if (!agreedToTerms) {
+      setErrorMessage('You must agree to the Terms of Service and Privacy Policy to continue');
+      return;
+    }
     if (password !== confirmPassword) {
       setErrorMessage("Passwords don't match");
       return;
@@ -69,13 +75,32 @@ export default function SignUpScreen() {
             <FormField label="Secret Key" icon="lock" value={password} onChangeText={setPassword} secure />
             <FormField label="Confirm Secret Key" icon="lock" value={confirmPassword} onChangeText={setConfirmPassword} secure />
 
+            <View className="flex-row items-start gap-sm px-xs">
+              <Checkbox checked={agreedToTerms} onToggle={() => setAgreedToTerms((v) => !v)} style={{ marginTop: 2 }} />
+              <Text
+                onPress={() => setAgreedToTerms((v) => !v)}
+                className="flex-1 font-body-sm text-body-sm text-text-muted"
+                style={{ lineHeight: 20 }}
+              >
+                I agree to the{' '}
+                <Text className="font-bold text-cyan" onPress={() => openLegalDocument(TERMS_OF_SERVICE_URL)}>
+                  Terms of Service
+                </Text>{' '}
+                and{' '}
+                <Text className="font-bold text-cyan" onPress={() => openLegalDocument(PRIVACY_POLICY_URL)}>
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
+            </View>
+
             {errorMessage ? <Text className="text-center font-body-sm text-body-sm text-crimson">{errorMessage}</Text> : null}
 
             <RockButton
               label={isSubmitting ? 'Creating...' : 'Create Account'}
               icon={<AppIcon name="arrow_forward" size={18} color={Colors.textPrimary} />}
               variant="primary"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !agreedToTerms}
               onPress={handleCreateAccount}
               style={{ marginTop: 4 }}
             />

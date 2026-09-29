@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SubPageHeader } from '@/components/layout';
 import { CurrencyPill, RockButton, RockCard } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
+import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { openSupportEmail } from '@/constants/support';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 
@@ -135,14 +136,14 @@ export default function RoadieSupportScreen() {
           <View className="flex-row items-center gap-md">
             <Text
               className="font-section-header text-section-header uppercase text-text-muted"
-              onPress={() => console.log('Privacy Policy pressed')}
+              onPress={() => openLegalDocument(PRIVACY_POLICY_URL)}
             >
               Privacy Policy
             </Text>
             <Text style={{ color: withOpacity(Colors.chrome, 0.2) }}>•</Text>
             <Text
               className="font-section-header text-section-header uppercase text-text-muted"
-              onPress={() => console.log('Terms of Service pressed')}
+              onPress={() => openLegalDocument(TERMS_OF_SERVICE_URL)}
             >
               Terms of Service
             </Text>

@@ -1,13 +1,9 @@
 import { Linking } from 'react-native';
 
-// PLACEHOLDER -- swap for the real support inbox before shipping. Nothing
-// currently monitors this address.
-export const SUPPORT_EMAIL = 'support@rockstylechess.com';
+export const SUPPORT_EMAIL = 'royalriffstudio@gmail.com';
 
-// mailto: is the only Linking scheme this app opens today -- there's no
-// expo-web-browser usage anywhere yet (that plugin is declared in app.json
-// purely in anticipation of a future Privacy Policy/Terms link, deferred for
-// now), so this is the first external-link affordance in the app.
+// mailto: is the only Linking scheme this file opens -- see constants/legal.ts
+// for the expo-web-browser-based Privacy Policy/Terms of Service links.
 export function openSupportEmail(subject: string, body?: string): void {
   const params = new URLSearchParams({ subject });
   if (body) params.set('body', body);
