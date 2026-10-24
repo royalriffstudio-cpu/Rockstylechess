@@ -43,8 +43,9 @@ is wired end to end; what is still missing before launch is tracked in
 - **Social** — friends with live presence, DMs, notifications, global and
   friends leaderboards, public player profiles, report/block.
 
-**Not built yet:** tournaments, Backstage Pass, venue/country leaderboards,
-push notifications, social sign-in. See [`ROADMAP.md`](ROADMAP.md).
+**Not built yet:** tournaments, Backstage Pass, venue/country leaderboards.
+Sign-in is email + password (primary), "Continue with Google" (the one social option,
+needs the Google Cloud setup below) and guest play. See [`ROADMAP.md`](ROADMAP.md).
 
 ## Tech stack
 
@@ -286,6 +287,52 @@ keystore when those files are missing (e.g. a fresh clone).
 **Play Store upload needs an App Bundle, not an APK:** run
 `./gradlew bundleRelease` (output `android/app/build/outputs/bundle/release/app-release.aab`).
 `plugins/withKotlinMetadataSkip.js` is required for the AdMob native build.
+
+### Email verification (one-time setup)
+
+New email/password accounts get a 6-digit code by email (and "Forgot Password?" works) once the mail side exists. Until
+`EMAIL_GATE=1` is set on the server nothing is enforced, so it can be deployed first. Email *checks* (typos, disposable
+and non-existent domains) are always on.
+
+1. A domain you control and a Resend account (free tier is fine); add the SPF/DKIM DNS records it shows and create an API key.
+2. `npm run db:migrate:remote` (migration 0022) **before** deploying the new server. It marks every existing unverified account
+   as grandfathered, so nobody already playing is gated.
+3. Railway variables `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Rockstyle Chess <no-reply@yourdomain>`), then `EMAIL_GATE=1`.
+4. Locally, with no key the code is printed in the server console. A fake test domain can be exempted with `TEST_EMAIL_DOMAIN`
+   in your local `server/.env` (see `.env.example`); it is ignored on any non-local database.
+
+### Google sign-in (one-time setup)
+
+The code is complete and uses the browser flow (Chrome Custom Tab; no native module, no SHA-1s). Until the two
+server variables below are set, the Google button just reports "not available" and email/password is unaffected.
+
+1. Google Cloud Console -> OAuth consent screen: External, app name + support email, scopes `openid`, `email`,
+   `profile` only (no Google review). Publish it ("In production"), otherwise only listed test users can sign in.
+2. Credentials -> OAuth client ID -> **Web application**. Authorised redirect URIs:
+   `https://<your-railway-url>/api/auth/callback/google` and, for local testing,
+   `http://localhost:4000/api/auth/callback/google`.
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on Railway (and in `server/.env` locally). `BETTER_AUTH_URL`
+   must be the real public URL, because it builds that redirect URI (a mismatch is Google's `redirect_uri_mismatch`).
+4. Existing email/password players are not auto-linked (their email is unverified, and linking on it would allow
+   account takeover); they sign in with their password and tap **Link Now** under Account Security.
+
+### Push notifications (one-time setup)
+
+The code is complete (Expo Push Service); delivery needs accounts only you can create. Until step 1-3 are done
+the app simply never gets a push token and nothing breaks.
+
+1. **Firebase:** create a project, add an Android app `com.rockstylechess.app`, download `google-services.json`
+   into the repo root and add `"googleServicesFile": "./google-services.json"` under `android` in `app.json`
+   (adding it earlier would make `expo prebuild` fail on the missing file).
+2. **Expo project id:** `npx eas-cli init` (free account; builds stay local). It writes `extra.eas.projectId` into
+   `app.json`, which `getExpoPushTokenAsync` needs.
+3. **FCM key for Expo:** Firebase -> Project settings -> Service accounts -> generate a key, then upload it at
+   expo.dev -> your project -> Credentials -> Android -> FCM V1 service account key.
+4. **Server:** `npm run db:migrate:remote` (migration 0021) before deploying; `EXPO_ACCESS_TOKEN` only if you turn
+   on enhanced push security. Details: `server/README.md` -> "Push notifications".
+5. Rebuild the APK (`expo prebuild` + gradle). Expo Go cannot receive Android push on SDK 54, and an emulator
+   returns no token (`Device.isDevice` is false). Test with a real phone: sign in, allow notifications, then use
+   expo.dev -> Push notifications tool with the token the server stored (`select token from push_devices`).
 
 ## Architecture
 

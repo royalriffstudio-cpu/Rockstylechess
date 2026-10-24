@@ -27,6 +27,12 @@ export interface UciEngine {
 }
 
 export function loadStockfish(): Promise<UciEngine> {
+  // The vendored Emscripten build runs `fetch=null` as an implicit global when it detects Node, which would
+  // otherwise leave the whole process without fetch (Expo push, AdMob SSV key download, ...). Put it back.
+  const nativeFetch = globalThis.fetch;
+  const restoreFetch = (): void => {
+    if (globalThis.fetch !== nativeFetch) globalThis.fetch = nativeFetch;
+  };
   return new Promise((resolve, reject) => {
     try {
       const factory = require(JS_PATH) as () => (mod: Record<string, unknown>) => Promise<unknown>;
@@ -35,8 +41,11 @@ export function loadStockfish(): Promise<UciEngine> {
         locateFile: (file: string) => (file.includes('.wasm') ? WASM_PATH : JS_PATH),
         listener: (line: string) => lineListener(line),
       };
-      factory()(mod)
+      const loading = factory()(mod);
+      restoreFetch();
+      loading
         .then(function ready() {
+          restoreFetch();
           const engine = mod as unknown as EngineModule;
           if (engine._isReady && !engine._isReady()) return void setTimeout(ready, 10);
           resolve({
@@ -48,8 +57,12 @@ export function loadStockfish(): Promise<UciEngine> {
             },
           });
         })
-        .catch(reject);
+        .catch((error) => {
+          restoreFetch();
+          reject(error);
+        });
     } catch (error) {
+      restoreFetch();
       reject(error);
     }
   });

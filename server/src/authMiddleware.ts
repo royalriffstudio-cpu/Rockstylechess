@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import type { Socket } from 'socket.io';
 
 import { auth } from './betterAuth.js';
+import { needsEmailVerification } from './db/emailGate.js';
 
 declare global {
   namespace Express {
@@ -21,6 +22,16 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
   req.userId = session.user.id;
+  next();
+}
+
+// After requireAuth, on the online/social REST actions: an account that has not verified its email yet gets a 403 the
+// app turns into its "verify your email" prompt (soft gate, see db/emailGate.ts; always passes with EMAIL_GATE off).
+export async function requireVerifiedEmail(req: Request, res: Response, next: NextFunction) {
+  if (await needsEmailVerification(req.userId as string)) {
+    res.status(403).json({ error: 'email-not-verified' });
+    return;
+  }
   next();
 }
 

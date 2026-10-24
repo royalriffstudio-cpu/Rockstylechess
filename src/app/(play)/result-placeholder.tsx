@@ -4,6 +4,7 @@ import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-nat
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FestivalSetPanel } from '@/components/festival/FestivalSetPanel';
+import { PushPrimer } from '@/components/match/PushPrimer';
 import { RematchPanel } from '@/components/match/RematchPanel';
 import { PlayerProfileSheet } from '@/components/social/PlayerProfileSheet';
 import { ShowReport } from '@/components/progression/ShowReport';
@@ -531,6 +532,10 @@ export default function ResultScreen() {
             void goHome();
           }}
         />
+      </View>
+
+      <View className="w-full" style={{ maxWidth: 320 }}>
+        <PushPrimer />
       </View>
 
       {isVictory ? (

@@ -33,8 +33,12 @@ mounted at `/api/auth/*` (e.g. `POST /api/auth/sign-up/email`,
 `src/lib/authClient.ts`. A `databaseHooks` user-create hook creates the
 `player_profiles` row and its friend code. Sessions are verified by
 `authMiddleware.ts` for both REST (`requireAuth`) and Socket.IO connections
-(`socketAuth`, via `socket.handshake.auth.token`). Not configured yet:
-password reset and email verification (see `../ROADMAP.md`). A socket
+(`socketAuth`, via `socket.handshake.auth.token`). **Google sign-in** is a second route in
+(`socialProviders.google`, present only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set; browser flow,
+redirect URI `${BETTER_AUTH_URL}/api/auth/callback/google`, `/sign-in/social` limited to 10/min): same
+`users`/`account` tables (no migration), same create hook, same bearer session. Existing email/password users are
+deliberately not auto-linked (better-auth refuses while their email is unverified); a signed-in user links Google
+through `/link-social`. `GET /me/profile` also returns `email` and `signInMethods` for Account Security. Email verification and password reset are described in "Email verification" below. A socket
 with no/invalid token is still allowed to connect and play as a guest
 (`src/lib/playerId.ts`'s persisted UUID on the client side) -- it just
 never gets a trusted `socket.data.userId`, and match persistence below
@@ -454,6 +458,56 @@ account is refused (`purchase-belongs-to-another-account`). `ads_removed` is not
 `PATCH /me/profile`'s whitelist. Migration `0011` adds `ad_events`, `ads_removed` and the
 `purchases` changes.
 
+## Push notifications (Expo Push Service)
+
+Phones that are not looking at the app are reached through the Expo Push Service (no extra dependency: `push.ts`
+POSTs to `https://exp.host/--/api/v2/push/send` with Node's `fetch`). The app registers its Expo token on every
+launch (`POST /me/push/devices {token, platform, tzOffsetMin}`; `DELETE` on logout; table `push_devices`, token is
+the primary key so a shared phone follows whoever is signed in) and keeps four switches per account
+(`GET|PUT /me/push/preferences`, table `push_preferences`, no row = all on): `social`, `invites`, `results`, `daily`.
+
+- **One choke point**: `insertNotification` (`db/notifications.ts`) also pushes, mapping `friend_request_*` -> social,
+  `friend_challenge_received` -> invites (30 s ttl, it expires with the challenge), `match_ended` -> results. Direct
+  messages call `pushDirectMessage` from the `dm:send` handler (sender name + 80-character preview, one push per
+  sender/recipient per 30 s, never for blocked pairs).
+- **Foreground**: the client emits `app:state {foreground}`; `realtime.ts` tracks foreground sockets per account and
+  `pushToUser` sends nothing while one is set. A live socket alone does not count (a backgrounded Android app keeps it).
+- **Daily reminder** (`pushScheduler.ts`): every 10 minutes, accounts whose local hour (from the device's
+  `tzOffsetMin`) is 17-20, with `daily` on and the daily bonus and/or free spin unclaimed this UTC day, get one push.
+  The once-a-day claim is an atomic upsert on `push_preferences.last_daily_push_day`, so several instances cannot
+  double-send. Game resets stay on the UTC day; the copy only mentions a streak when claiming today is what keeps it.
+- **Dead tokens**: a `DeviceNotRegistered` ticket deletes the token at once; accepted tickets are re-checked as
+  receipts ~15 minutes later (in memory, lost on restart, harmless).
+- **Env**: `EXPO_PUSH_DISABLED=1` sends nothing, `EXPO_ACCESS_TOKEN` is only for projects with enhanced push security,
+  `EXPO_PUSH_URL` / `EXPO_PUSH_RECEIPTS_URL` redirect to a stub for tests. The FCM service-account key is uploaded to
+  Expo (Project -> Credentials), never to this server.
+- Gotcha fixed along the way: the vendored Stockfish build ran `fetch=null` as a global; `bots/stockfishNode.ts` now
+  restores it (it would otherwise have broken every `fetch` in the process, AdMob SSV included).
+
+## Email verification, codes and the soft gate
+
+Email/password sign-up used to store whatever string was typed. Now:
+
+- **Always on** (`emailPolicy.ts`, run from a better-auth `hooks.before` on `/sign-up/email`): syntax and length,
+  a typo list for the big providers (`email-typo` + suggestion), the `disposable-email-domains` blocklist,
+  and an MX lookup (`email-undeliverable`; DNS trouble fails open). Google sign-ups arrive verified and skip it.
+- **Codes** (`EMAIL_GATE=1`; better-auth `emailOTP`, 6 digits, 10 minutes, hashed in `verification`, 5 tries, 5 requests a
+  minute per IP, plus our own pacing in `mailer.ts`: one mail per address per minute, 10 a day): the sign-up mails a code,
+  `/api/auth/email-otp/verify-email` verifies it, `/email-otp/request-password-reset` + `/reset-password` reset a
+  password (sessions revoked). Passwordless sign-in and email change are disabled on purpose. With the flag off every
+  `/email-otp/*` route is a 404.
+- **Mail** (`mailer.ts`): Resend over `fetch` (`RESEND_API_KEY`, `MAIL_FROM`). On the LOCAL database with no key it prints the
+  message to the console; on any other database it never prints and fails loudly instead.
+- **Soft gate** (`db/emailGate.ts`, `blockedByEmailGate` in `index.ts`, `requireVerifiedEmail`): a new email/password account that
+  has not verified cannot use online matchmaking/rooms, festival, friend requests/challenges, DMs (socket: `account:gate`,
+  REST: 403 `email-not-verified`); bots, puzzles, Tour, shop, daily bonus/spin and purchases are never gated. Existing accounts are
+  `users.email_grandfathered` (migration 0022 backfill) and Google/test accounts are verified, so none of them is gated. The 4,000-chip
+  welcome bonus of a new email account is held (`player_profiles.welcome_bonus_pending`, chips 0) and paid by `grantWelcomeBonus`
+  (one conditional UPDATE) when the email is verified; `/me/profile` heals it if the hook ever failed.
+- **Local test accounts**: `TEST_EMAIL_DOMAIN` (only in a developer's local `server/.env`) names a fake domain that skips every
+  rule above and gets dev chips/gems. `isTestEmail` is always false unless the database is local, so it does nothing in production.
+- Deploy order: `db:migrate:remote` (0022) -> server with `EMAIL_GATE` unset -> sending domain + `RESEND_API_KEY` + `MAIL_FROM` -> `EMAIL_GATE=1`.
+
 ## Local development vs. production
 
 Postgres 16 runs locally on this machine as a system service (not Docker --
@@ -509,6 +563,7 @@ Client -> Server:
 - `friend:challenge { guestId, toUserId, duration }` -- authed only
 - `friend:challenge:respond { guestId, challengeId, accept }` -- authed only
 - `friend:challenge:cancel { challengeId }` -- authed only
+- `app:state { foreground }` -- authed only; lets the server hold back pushes while the app is on screen
 - `dm:send { toUserId, text }` -- authed only; persisted, friends-only
 
 Server -> Client:
@@ -632,7 +687,8 @@ Railway supports deploying from a subdirectory of a monorepo:
 6. Set service variables: `DATABASE_URL` (the Neon connection string above),
    `BETTER_AUTH_SECRET` (a long random string), `BETTER_AUTH_URL` (the
    Railway public URL from step 8, once generated), `WEB_CLIENT_ORIGINS`,
-   and `MOBILE_APP_SCHEME` (must match `app.json`'s `"scheme"`).
+   and `MOBILE_APP_SCHEME` (must match `app.json`'s `"scheme"`). Optional for push:
+   `EXPO_ACCESS_TOKEN` (only with enhanced push security), `EXPO_PUSH_DISABLED`. For "Continue with Google": `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. For email codes: `RESEND_API_KEY`, `MAIL_FROM`, `EMAIL_GATE` (see the root README).
 7. Run `npm run db:migrate:remote` once (with `server/.env.production` set
    to this same Neon `DATABASE_URL` -- see "Local development vs.
    production" above) to create the tables before the first real request

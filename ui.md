@@ -144,7 +144,9 @@ match, puzzle, replay, and cosmetic-preview board in the app. Key mechanics:
   screens (bots, setup, matchmaking, tournaments, etc.) where menu music should
   keep playing.
 - **Settings**: both toggles ("Music" / "Sound FX") live in Control Core
-  (`(settings)/control-core.tsx`), each a labeled `Switch` row.
+  (`(settings)/control-core.tsx`), each a labeled `Switch` row. Below them, signed-in players get a
+  "Push Notifications" card: an "Allow notifications" row (system prompt, or "Open" once denied) and
+  four category switches (friends & messages, match invites, match results, daily rewards).
 
 ---
 

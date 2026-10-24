@@ -148,6 +148,20 @@
       "when": 1792736050173,
       "tag": "0020_spin_paid_chips",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792827388211,
+      "tag": "0021_push_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792836063812,
+      "tag": "0022_email_verification",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,9 @@
+import { emitEmailGate } from './emailGate';
+
 const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
 interface RequestOptions {
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   token?: string;
 }
@@ -18,6 +20,8 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
 
   const data = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
+    // New email/password account that has not entered its code yet: open the "verify your email" prompt.
+    if (data.error === 'email-not-verified') emitEmailGate();
     throw new Error(data.error ?? `request failed (${response.status})`);
   }
   return data;
@@ -170,6 +174,14 @@ export interface PlayerProfile {
   adsRemoved: boolean;
   // Title shown under the name (id from economy.config.json levels.titles).
   equippedTitleId: string | null;
+  // The login email and the ways this account can sign in ('password' and/or 'google'); own account only.
+  email?: string | null;
+  signInMethods?: string[];
+  // Email verification (server/src/db/emailGate.ts). needsEmailVerification = a new email/password account that
+  // has not entered its code (soft gate on online play); welcomeBonusPending = its 4,000 chips are still held.
+  emailVerified?: boolean;
+  needsEmailVerification?: boolean;
+  welcomeBonusPending?: boolean;
 }
 
 export function getMyProfile(token: string): Promise<{ profile: PlayerProfile }> {
@@ -858,4 +870,33 @@ export function markNotificationRead(token: string, notificationId: string): Pro
 
 export function markAllNotificationsRead(token: string): Promise<{ ok: true }> {
   return request('/me/notifications/read-all', { method: 'POST', token });
+}
+
+// --- Push notifications (server/src/push.ts) -----------------------------------------------------------
+
+export interface PushPreferences {
+  social: boolean;
+  invites: boolean;
+  results: boolean;
+  daily: boolean;
+}
+
+export function registerPushDevice(token: string, device: { pushToken: string; platform: string; tzOffsetMin: number }): Promise<{ ok: true }> {
+  return request('/me/push/devices', {
+    method: 'POST',
+    body: { token: device.pushToken, platform: device.platform, tzOffsetMin: device.tzOffsetMin },
+    token,
+  });
+}
+
+export function unregisterPushDevice(token: string, pushToken: string): Promise<{ ok: true }> {
+  return request('/me/push/devices', { method: 'DELETE', body: { token: pushToken }, token });
+}
+
+export function getPushPreferences(token: string): Promise<{ preferences: PushPreferences }> {
+  return request('/me/push/preferences', { method: 'GET', token });
+}
+
+export function updatePushPreferences(token: string, patch: Partial<PushPreferences>): Promise<{ preferences: PushPreferences }> {
+  return request('/me/push/preferences', { method: 'PUT', body: patch, token });
 }

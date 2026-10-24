@@ -3,7 +3,7 @@ import { Router } from 'express';
 
 import { asyncHandler } from './asyncHandler.js';
 import { FREE_AVATAR_IDS, getPremiumAvatar, UNLOCK_ALL_AVATARS } from './avatars.js';
-import { requireAuth } from './authMiddleware.js';
+import { requireAuth, requireVerifiedEmail } from './authMiddleware.js';
 import { BOARD_THEMES } from './boardThemes.js';
 import { isValidCountryCode } from './countryCodes.js';
 import { ADS_REQUIRE_SSV, AD_PLACEMENTS } from './adRewards.js';
@@ -21,6 +21,7 @@ import {
 import { deleteUserAccount } from './db/accountDeletion.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
+import { getPushPrefs, isExpoPushToken, PUSH_CATEGORIES, removePushDevice, setPushPrefs, upsertPushDevice, type PushPrefs } from './db/pushPrefs.js';
 import { blockUser, isValidReportReason, listBlocked, submitReport, unblockUser } from './db/moderation.js';
 import { creditVerifiedPurchase, grantEntitlement } from './db/purchases.js';
 import { acknowledgeAndConsume, acknowledgePurchase, verifyProductPurchase } from './googlePlay.js';
@@ -54,7 +55,8 @@ import { redeemVenueRefill } from './db/venueRefill.js';
 import { applyTour, getTour } from './db/tour.js';
 import { getOwnedTitleIds, getUnseenCelebrations, grantFame, markProgressionSeen, TITLES } from './db/progression.js';
 import { claimQuest, getQuestsStatus, reportPuzzleSolvedForQuests } from './db/quests.js';
-import { matchParticipants, matches, playerProfiles, userCosmetics, users } from './db/schema/index.js';
+import { grantWelcomeBonus, needsEmailVerification } from './db/emailGate.js';
+import { account, matchParticipants, matches, playerProfiles, userCosmetics, users } from './db/schema/index.js';
 import { getSpinStatus, performSpin } from './db/spin.js';
 import { emitToUser, onlineAmong } from './realtime.js';
 
@@ -183,20 +185,31 @@ authRouter.get(
   '/me/profile',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const [profile] = await db
-      .select()
-      .from(playerProfiles)
-      .where(eq(playerProfiles.userId, req.userId as string))
-      .limit(1);
+    const userId = req.userId as string;
+    // Own-account facts for Account Security / the verification gate.
+    const [login] = await db.select({ email: users.email, emailVerified: users.emailVerified }).from(users).where(eq(users.id, userId)).limit(1);
+    let [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
     if (!profile) {
       res.status(404).json({ error: 'profile-not-found' });
       return;
     }
-    const owned = await db
-      .select({ itemId: userCosmetics.itemId })
-      .from(userCosmetics)
-      .where(eq(userCosmetics.userId, req.userId as string));
-    res.json({ profile: { ...profile, ownedCosmeticIds: owned.map((o) => o.itemId) } });
+    // Self-heal: a verified account whose held welcome bonus never got paid (the verify hook failed) is paid now.
+    if (profile.welcomeBonusPending && login?.emailVerified && (await grantWelcomeBonus(userId))) {
+      [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
+    }
+    const owned = await db.select({ itemId: userCosmetics.itemId }).from(userCosmetics).where(eq(userCosmetics.userId, userId));
+    const providers = await db.select({ providerId: account.providerId }).from(account).where(eq(account.userId, userId));
+    const signInMethods = [...new Set(providers.map((p) => (p.providerId === 'credential' ? 'password' : p.providerId)))];
+    res.json({
+      profile: {
+        ...profile,
+        ownedCosmeticIds: owned.map((o) => o.itemId),
+        email: login?.email ?? null,
+        emailVerified: login?.emailVerified ?? false,
+        needsEmailVerification: await needsEmailVerification(userId),
+        signInMethods,
+      },
+    });
   }),
 );
 
@@ -451,6 +464,7 @@ authRouter.get(
 authRouter.post(
   '/me/festival/:tierId/enter',
   requireAuth,
+  requireVerifiedEmail,
   asyncHandler(async (req, res) => {
     const result = await startRun(req.userId as string, String(req.params.tierId));
     if (result.status === 'ok') {
@@ -1155,6 +1169,7 @@ authRouter.get(
 authRouter.post(
   '/me/friends/request',
   requireAuth,
+  requireVerifiedEmail,
   asyncHandler(async (req, res) => {
     const userId = req.userId as string;
     const friendCode = typeof req.body?.friendCode === 'string' ? req.body.friendCode : undefined;
@@ -1205,6 +1220,7 @@ authRouter.post(
 authRouter.post(
   '/me/friends/:userId/accept',
   requireAuth,
+  requireVerifiedEmail,
   asyncHandler(async (req, res) => {
     const userId = req.userId as string;
     const result = await acceptRequest(userId, req.params.userId);
@@ -1399,6 +1415,64 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     await markNotificationRead(req.userId as string, req.params.id);
     res.json({ ok: true });
+  }),
+);
+
+// --- Push notifications (push.ts / pushScheduler.ts) ---------------------------------------------
+// The app registers its Expo token on every launch; the upsert moves the token to whoever is signed in.
+authRouter.post(
+  '/me/push/devices',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { token, platform, tzOffsetMin } = (req.body ?? {}) as { token?: unknown; platform?: unknown; tzOffsetMin?: unknown };
+    if (!isExpoPushToken(token)) {
+      res.status(400).json({ error: 'bad-token' });
+      return;
+    }
+    const tz = typeof tzOffsetMin === 'number' && Number.isFinite(tzOffsetMin) ? Math.max(-840, Math.min(840, Math.round(tzOffsetMin))) : 0;
+    const os = typeof platform === 'string' ? platform.slice(0, 16) : 'unknown';
+    await upsertPushDevice(req.userId as string, token, os, tz);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.delete(
+  '/me/push/devices',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { token } = (req.body ?? {}) as { token?: unknown };
+    if (!isExpoPushToken(token)) {
+      res.status(400).json({ error: 'bad-token' });
+      return;
+    }
+    await removePushDevice(req.userId as string, token);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.get(
+  '/me/push/preferences',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json({ preferences: await getPushPrefs(req.userId as string) });
+  }),
+);
+
+authRouter.put(
+  '/me/push/preferences',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: Partial<PushPrefs> = {};
+    for (const key of PUSH_CATEGORIES) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== 'boolean') {
+        res.status(400).json({ error: 'bad-preferences' });
+        return;
+      }
+      patch[key] = body[key] as boolean;
+    }
+    res.json({ preferences: await setPushPrefs(req.userId as string, patch) });
   }),
 );
 

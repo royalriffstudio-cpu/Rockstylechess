@@ -46,11 +46,36 @@ export function removeUserSocket(userId: string, socketId: string): { wasLast: b
   const set = socketsByUser.get(userId);
   if (!set) return { wasLast: false };
   set.delete(socketId);
+  foregroundSockets.get(userId)?.delete(socketId);
   if (set.size === 0) {
     socketsByUser.delete(userId);
+    foregroundSockets.delete(userId);
     return { wasLast: true };
   }
   return { wasLast: false };
+}
+
+// Sockets whose app reports it is on screen (client `app:state`). A live socket alone does not mean the
+// player is looking at the game -- a backgrounded Android app keeps its socket for a while -- so push.ts
+// only suppresses a notification when one of these is set.
+const foregroundSockets = new Map<string, Set<string>>();
+
+export function setSocketForeground(userId: string, socketId: string, foreground: boolean): void {
+  let set = foregroundSockets.get(userId);
+  if (foreground) {
+    if (!set) {
+      set = new Set();
+      foregroundSockets.set(userId, set);
+    }
+    set.add(socketId);
+  } else {
+    set?.delete(socketId);
+    if (set && set.size === 0) foregroundSockets.delete(userId);
+  }
+}
+
+export function isUserForeground(userId: string): boolean {
+  return (foregroundSockets.get(userId)?.size ?? 0) > 0;
 }
 
 export function isUserOnline(userId: string): boolean {

@@ -46,8 +46,12 @@ import {
   isUserOnline,
   removeUserSocket,
   setIO,
+  setSocketForeground,
   socketIdsForUser,
 } from './realtime.js';
+import { needsEmailVerification } from './db/emailGate.js';
+import { pushDirectMessage } from './push.js';
+import { startPushScheduler } from './pushScheduler.js';
 import { cancelRoomBySocketId, createRoom, joinRoom } from './gameRoom.js';
 import {
   closeRematch,
@@ -823,6 +827,16 @@ function afterAppliedMove(
   if (match.bot && chess.turn() === match.bot.color) void botTurn(match);
 }
 
+// Soft email gate (db/emailGate.ts): an account that has not verified its email yet is refused on the online and
+// social actions and told why, so the app can open its "verify your email" prompt. Guests are not accounts and are
+// never gated here (they have no progress or wagers to protect); with EMAIL_GATE off this is always false.
+async function blockedByEmailGate(socket: Socket): Promise<boolean> {
+  const uid = socket.data.userId as string | undefined;
+  if (!uid || !(await needsEmailVerification(uid))) return false;
+  socket.emit('account:gate', { reason: 'email-unverified' });
+  return true;
+}
+
 io.on('connection', (socket: Socket) => {
   // Signed-in sockets join a per-user room so realtime.ts's emitToUser can
   // reach every device this account has open, and register with the presence
@@ -842,6 +856,7 @@ io.on('connection', (socket: Socket) => {
     const uid = socket.data.userId as string | undefined;
     if (!uid || !payload?.guestId || !payload?.toUserId) return;
     if (payload.toUserId === uid) return;
+    if (await blockedByEmailGate(socket)) return;
 
     if (!(await areFriends(uid, payload.toUserId))) {
       socket.emit('friend:challenge:error', { reason: 'not-friends' });
@@ -881,6 +896,7 @@ io.on('connection', (socket: Socket) => {
     async (payload: { guestId?: string; challengeId?: string; accept?: boolean }) => {
       const uid = socket.data.userId as string | undefined;
       if (!uid || !payload?.guestId || !payload?.challengeId) return;
+      if (await blockedByEmailGate(socket)) return;
 
       const challenge = consumeChallenge(payload.challengeId);
       if (!challenge || challenge.toUserId !== uid) {
@@ -923,6 +939,7 @@ io.on('connection', (socket: Socket) => {
   socket.on('dm:send', async (payload: { toUserId?: string; text?: string }) => {
     const uid = socket.data.userId as string | undefined;
     if (!uid || !payload?.toUserId || payload.toUserId === uid) return;
+    if (await blockedByEmailGate(socket)) return;
 
     const text = sanitizeChatText(payload.text);
     if (!text || !allowChatMessage(socket.id)) return;
@@ -942,6 +959,15 @@ io.on('connection', (socket: Socket) => {
     // the sending screen inserts optimistically and de-dupes on `id`.
     emitToUser(payload.toUserId, 'dm:message', dto);
     emitToUser(uid, 'dm:message', dto);
+    void pushDirectMessage(uid, payload.toUserId, result.message.text, result.message.conversationId);
+  });
+
+  // The client tells us when the app goes to / comes back from the background, so push.ts can tell "has a
+  // socket" from "is looking at the game".
+  socket.on('app:state', (payload: { foreground?: boolean }) => {
+    const uid = socket.data.userId as string | undefined;
+    if (!uid) return;
+    setSocketForeground(uid, socket.id, payload?.foreground === true);
   });
 
   socket.on(
@@ -953,6 +979,7 @@ io.on('connection', (socket: Socket) => {
       }
       const tier = payload.venueTier;
       guestIdBySocket.set(socket.id, payload.guestId);
+      if (await blockedByEmailGate(socket)) return;
 
       const userId = (socket.data.userId as string | undefined) ?? null;
 
@@ -1040,6 +1067,7 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('room:create', async (payload: { guestId?: string; displayName?: string; duration?: string }) => {
     if (!payload?.guestId) return;
+    if (await blockedByEmailGate(socket)) return;
     guestIdBySocket.set(socket.id, payload.guestId);
 
     const userId = (socket.data.userId as string | undefined) ?? null;
@@ -1061,6 +1089,7 @@ io.on('connection', (socket: Socket) => {
 
   socket.on('room:join', async (payload: { guestId?: string; displayName?: string; code?: string }) => {
     if (!payload?.guestId || !payload?.code) return;
+    if (await blockedByEmailGate(socket)) return;
     guestIdBySocket.set(socket.id, payload.guestId);
 
     const userId = (socket.data.userId as string | undefined) ?? null;
@@ -1100,6 +1129,7 @@ io.on('connection', (socket: Socket) => {
     const fail = (reason: string) => socket.emit('festival:error', { reason });
     if (!uid) return fail('auth-required');
     if (!payload?.guestId || typeof payload.runId !== 'string') return fail('bad-request');
+    if (await blockedByEmailGate(socket)) return;
     guestIdBySocket.set(socket.id, payload.guestId);
     for (const live of allMatches()) {
       if (live.players.w.userId === uid || live.players.b.userId === uid) return fail('already-in-match');
@@ -1456,6 +1486,9 @@ const runSweeper = setInterval(() => {
     .catch((err) => console.error('festival sweep failed', err));
 }, 2 * 60_000);
 runSweeper.unref();
+
+// Daily-reward reminders + push receipt cleanup (pushScheduler.ts).
+startPushScheduler();
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

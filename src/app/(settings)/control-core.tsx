@@ -9,10 +9,14 @@ import type { ICONS } from '@/constants/icons';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useNotifications } from '@/hooks/useNotifications';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { usePushPreferences } from '@/hooks/usePushPreferences';
 import { initAds, isPrivacyOptionsRequired, openPrivacyOptions } from '@/lib/ads';
 import { loadMusicPreference, setMusicEnabled } from '@/lib/backgroundMusic';
 import { clearAuthToken } from '@/lib/authStorage';
 import { setGuestMode } from '@/lib/guestMode';
+import { openPushSettings } from '@/lib/pushNotifications';
+import { unregisterThisDevice } from '@/lib/pushRegistration';
 import { clearSocketAuth } from '@/lib/socket';
 import { loadSoundFxPreference, setSoundFxEnabled } from '@/lib/soundEffects';
 
@@ -55,9 +59,9 @@ function SettingsRow({ icon, title, subtitle, trailing, badge, last, onPress }: 
   );
 }
 
-function ToggleRow({ icon, title, subtitle, value, onValueChange, last }: { icon: keyof typeof ICONS; title: string; subtitle: string; value: boolean; onValueChange: (v: boolean) => void; last?: boolean }) {
+function ToggleRow({ icon, title, subtitle, value, onValueChange, last, disabled }: { icon: keyof typeof ICONS; title: string; subtitle: string; value: boolean; onValueChange: (v: boolean) => void; last?: boolean; disabled?: boolean }) {
   return (
-    <View className="flex-row items-center justify-between p-md" style={!last ? { borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.2) } : undefined}>
+    <View className="flex-row items-center justify-between p-md" style={[!last ? { borderBottomWidth: 1, borderBottomColor: withOpacity(Colors.chromeDark, 0.2) } : null, disabled ? { opacity: 0.5 } : null]}>
       <View className="flex-row items-center gap-md">
         <View className="h-10 w-10 items-center justify-center rounded-lg" style={{ backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}>
           <AppIcon name={icon} size={20} color={Colors.ember} />
@@ -70,6 +74,7 @@ function ToggleRow({ icon, title, subtitle, value, onValueChange, last }: { icon
       <Switch
         value={value}
         onValueChange={onValueChange}
+        disabled={disabled}
         trackColor={{ false: withOpacity(Colors.chromeDark, 0.4), true: withOpacity(Colors.ember, 0.6) }}
         thumbColor={value ? Colors.ember : Colors.chrome}
         ios_backgroundColor={withOpacity(Colors.chromeDark, 0.4)}
@@ -85,6 +90,8 @@ export default function ControlCoreScreen() {
   const [soundFxOn, setSoundFxOn] = useState(true);
   const [logoutVisible, setLogoutVisible] = useState(false);
   const { profile, refresh: refreshPlayerProfile, gems } = usePlayerProfile();
+  const { permission: pushPermission, enable: enablePush } = usePushNotifications();
+  const { prefs: pushPrefs, setPref: setPushPref } = usePushPreferences(profile !== null && pushPermission !== 'unavailable');
 
   useEffect(() => {
     loadSoundFxPreference().then(setSoundFxOn);
@@ -103,6 +110,8 @@ export default function ControlCoreScreen() {
 
   async function handleLogout() {
     setLogoutVisible(false);
+    // Needs the auth token, so before it is cleared: stops this phone buzzing for the account that just left.
+    await unregisterThisDevice();
     await clearAuthToken();
     // Clear the explicit-guest latch too, so the next launch shows the
     // sign-in gate rather than silently dropping back into guest mode.
@@ -170,6 +179,33 @@ export default function ControlCoreScreen() {
             <ToggleRow icon="volume_up" title="Sound FX" subtitle="Piece moves & alerts" value={soundFxOn} onValueChange={handleSoundFxChange} last />
           </RockCard>
         </View>
+
+        {profile ? (
+          <View className="gap-sm">
+            <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Push Notifications</Text>
+            <RockCard variant="surface" contentPadding={0}>
+              {pushPermission === 'unavailable' ? (
+                <SettingsRow icon="notifications" title="Push notifications" subtitle="Needs the mobile app" last />
+              ) : (
+                <>
+                  {pushPermission !== 'granted' ? (
+                    <SettingsRow
+                      icon="notifications"
+                      title="Allow notifications"
+                      subtitle={pushPermission === 'denied' ? 'Blocked in system settings' : 'Challenges, messages, rewards'}
+                      trailing={pushPermission === 'denied' ? 'Open' : 'Turn on'}
+                      onPress={() => (pushPermission === 'denied' ? openPushSettings() : void enablePush())}
+                    />
+                  ) : null}
+                  <ToggleRow icon="chat" title="Friends & messages" subtitle="Messages and friend requests" value={pushPrefs.social} onValueChange={(v) => void setPushPref('social', v)} disabled={pushPermission !== 'granted'} />
+                  <ToggleRow icon="swords" title="Match invites" subtitle="Friends challenging you" value={pushPrefs.invites} onValueChange={(v) => void setPushPref('invites', v)} disabled={pushPermission !== 'granted'} />
+                  <ToggleRow icon="emoji_events" title="Match results" subtitle="How your games ended" value={pushPrefs.results} onValueChange={(v) => void setPushPref('results', v)} disabled={pushPermission !== 'granted'} />
+                  <ToggleRow icon="redeem" title="Daily rewards" subtitle="Bonus and free spin reminders" value={pushPrefs.daily} onValueChange={(v) => void setPushPref('daily', v)} disabled={pushPermission !== 'granted'} last />
+                </>
+              )}
+            </RockCard>
+          </View>
+        ) : null}
 
         <View className="gap-sm">
           <Text className="px-xs font-section-header text-section-header uppercase tracking-widest text-text-muted">Game</Text>

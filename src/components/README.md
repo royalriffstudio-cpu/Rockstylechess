@@ -10,7 +10,7 @@ Shared, reusable UI building blocks — not full screens.
   Import from `@/components/ui`.
 - `festival/` — `FestivalSetPanel`: the Set Break on the result screen after a Festival set (bank the purse or start the next set; end states for cleared / lost / interrupted runs). Reads the cached `festival:update` from `src/lib/festival.ts`.
 - `social/` — `PlayerProfileSheet`: the tap-a-player profile popup (Modal, so it can open over a live match); data from `GET /users/:id/profile`.
-- `match/` — `RematchPanel`: the result screen's online "play again" (Rematch button, waiting state, accept/decline prompt, wager affordability); the protocol is `useRematch` + `server/src/rematch.ts`.
+- `match/` — `PushPrimer` (one-time "turn on notifications?" card under the result buttons; either answer retires it) and `RematchPanel`: the result screen's online "play again" (Rematch button, waiting state, accept/decline prompt, wager affordability); the protocol is `useRematch` + `server/src/rematch.ts`.
 - `shop/` — `GearPanel`: the Shop's Gear tab (Backstage Gear consumables: the bag, buy with chips, activate one copy; all rules live on the server, see `server/README.md` -> "Backstage Gear") and `ReviewPackCard` (10 Game Reviews at a discount, see "Review Packs").
 - `progression/` — the Fame/level moments: `Emblem` (`TitleEmblem` / `TierEmblem`: painted badges from `assets/progression/emblems`, cut out of the generated green-screen originals by `scripts/cutout-green.py`), `ShowReport` (the post-match report card section)
   and `ProgressionOverlay` (global Level Up / New Title celebration, queued from

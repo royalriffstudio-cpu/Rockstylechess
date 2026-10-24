@@ -277,6 +277,29 @@ ids are the default until real ones are set — a Play Store build must not ship
 them. "Remove Ads" is a non-consumable entitlement (`ads_removed`, acknowledge-only
 verify path). Full detail: root `README.md` → "Ads", `server/README.md` → "Ads".
 
+### Push notifications — `server/src/push.ts` / `src/lib/pushNotifications/`
+
+Expo Push Service (Android first). `src/lib/pushNotifications/index.ts` is the only file that imports
+`expo-notifications` (`index.web.ts` is the web stub — keep exports identical). The app registers its token on
+every launch (`pushRegistration.ts`, `usePushNotifications` provider in `_layout.tsx`); the server stores it in
+`push_devices` (token = primary key, so a shared phone follows the signed-in account) and four per-account
+category switches in `push_preferences`. Almost every push goes out through ONE choke point:
+`insertNotification` (`db/notifications.ts`) maps the stored type to a category; DMs call `pushDirectMessage`;
+the daily reminder is `pushScheduler.ts` (atomic once-a-day claim). A push is skipped while any socket of the
+account reports the app in the foreground (`app:state`). New notification types: add them to `PUSH_CATEGORY`
+and to `src/lib/notificationRoutes.ts` (shared with the Backstage Alerts feed). Never call `fetch` assuming it
+survives the Stockfish loader unpatched — `bots/stockfishNode.ts` restores it. Setup steps: root `README.md`
+-> "Push notifications"; server detail: `server/README.md`.
+
+### Email accounts — `server/src/emailPolicy.ts` / `db/emailGate.ts` / `mailer.ts`
+
+Email/password sign-up is checked (`emailPolicy.ts`: syntax, typos, disposable, MX) and, with `EMAIL_GATE=1`, verified by a
+6-digit code (better-auth `emailOTP`, mailed by `mailer.ts`). Unverified NEW accounts are softly gated: online matchmaking, rooms,
+festival, friend requests/challenges and DMs refuse them (`blockedByEmailGate`, `requireVerifiedEmail`), and their welcome bonus is
+held until `grantWelcomeBonus` (idempotent) runs on verification. Existing accounts are `email_grandfathered`; Google and test-domain
+accounts are verified at creation. The local test domain lives only in `TEST_EMAIL_DOMAIN` (never in source or docs) and
+`isTestEmail` is false on any non-local database: never branch on a literal domain. New online/social actions must call the gate.
+
 ### Sound — `src/lib/soundEffects.ts` / `src/lib/backgroundMusic.ts`
 
 Six short gameplay SFX (move/capture/castle/check/checkmate/illegal) plus

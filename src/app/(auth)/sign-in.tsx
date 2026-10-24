@@ -1,4 +1,3 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -6,6 +5,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { KeyboardAwareScrollView, RockButton, RockCard } from '@/components/ui';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
@@ -89,7 +89,7 @@ export default function SignInScreen() {
                   onChangeText={setPassword}
                   secureTextEntry
                   trailing={
-                    <Pressable onPress={() => console.log('Forgot Password pressed')}>
+                    <Pressable onPress={() => router.push('/forgot-password')}>
                       <Text className="font-caption text-caption text-cyan">Forgot Password?</Text>
                     </Pressable>
                   }
@@ -106,11 +106,7 @@ export default function SignInScreen() {
                   <Text className="font-caption text-caption uppercase text-chrome-dark">Or continue with</Text>
                   <View className="h-px flex-1 bg-chrome-dark/30" />
                 </View>
-                <View className="flex-row justify-center gap-md">
-                  <SocialButton icon="google" onPress={() => console.log('Continue with Google')} />
-                  <SocialButton icon="facebook" onPress={() => console.log('Continue with Facebook')} />
-                  <SocialButton icon="apple" onPress={() => console.log('Continue with Apple')} />
-                </View>
+                <GoogleSignInButton />
               </View>
             </View>
           </RockCard>
@@ -162,17 +158,3 @@ function AuthInput({ label, value, onChangeText, secureTextEntry, keyboardType, 
   );
 }
 
-function SocialButton({ icon, onPress }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="h-14 w-14 items-center justify-center rounded-full"
-      style={({ pressed }) => [
-        { backgroundColor: withOpacity(Colors.chromeDark, 0.3), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) },
-        { transform: [{ scale: pressed ? 0.9 : 1 }] },
-      ]}
-    >
-      <MaterialCommunityIcons name={icon} size={22} color={Colors.textMuted} />
-    </Pressable>
-  );
-}

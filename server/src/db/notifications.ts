@@ -1,10 +1,12 @@
 import { and, count, desc, eq, isNull, lt } from 'drizzle-orm';
 
+import { pushToUser } from '../push.js';
 import { emitToUser } from '../realtime.js';
 import { getAchievementsStatus } from './achievements.js';
 import { db } from './client.js';
 import { getDailyBonusStatus } from './dailyBonus.js';
 import { getQuestsStatus } from './quests.js';
+import type { PushCategory } from './pushPrefs.js';
 import { notifications, notificationTypeEnum } from './schema/index.js';
 
 // Cap on a single feed page -- mirrors auth.ts's clampLimit / directMessages.ts's MAX_PAGE.
@@ -42,6 +44,14 @@ function toDTO(row: typeof notifications.$inferSelect): NotificationDTO {
   };
 }
 
+// Which push category (and so which Settings switch) each stored notification type belongs to.
+const PUSH_CATEGORY: Record<NotificationType, PushCategory> = {
+  friend_request_received: 'social',
+  friend_request_accepted: 'social',
+  friend_challenge_received: 'invites',
+  match_ended: 'results',
+};
+
 // Fire-and-forget-friendly: inserts the persisted row and pushes it live to
 // any open app via the same emitToUser mechanism friend requests/DMs already
 // use. Called from the real-event trigger sites (auth.ts, index.ts,
@@ -56,6 +66,15 @@ export async function insertNotification(
 ): Promise<void> {
   const [row] = await db.insert(notifications).values({ userId, type, title, body, payload }).returning();
   emitToUser(userId, 'notification:new', { notification: toDTO(row) });
+  // Same event, for a phone that is not looking at the app (push.ts skips it when one is). A challenge is
+  // only answerable for 30 s, so its push expires with it.
+  const extra = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  void pushToUser(userId, PUSH_CATEGORY[type], {
+    title,
+    body,
+    data: { ...extra, kind: type },
+    ...(type === 'friend_challenge_received' ? { ttl: 30 } : {}),
+  });
 }
 
 // Read-time reconciliation, same idea db/achievements.ts's getAchievementsStatus

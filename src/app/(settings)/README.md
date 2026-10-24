@@ -7,7 +7,7 @@ from a single Home tile, distinct from `(social)`'s other-player screens.
 The parentheses make this a *route group* — Expo Router uses the folder to organize
 files without adding `/settings` to the URL/deep-link path.
 
-- `control-core.tsx` — audio toggles, game settings rows, account ID, logout, built
+- `control-core.tsx` — audio toggles, Push Notifications section (system permission row + four category switches, `usePushPreferences`; logout unregisters the device first), game settings rows, account ID, logout, built
   from `control_core_pro_stage_animated`. Real entry point: a gear icon on Iron ID's
   header. Logout clears the stored session token (`src/lib/authStorage.ts`), the guest
   latch and the socket's trusted identity (`src/lib/socket.ts`'s `clearSocketAuth`),
@@ -17,10 +17,12 @@ files without adding `/settings` to the URL/deep-link path.
 - `backstage-alerts.tsx` — notification feed with claim/view actions, built from
   `backstage_alerts_pro_stage_animated`. Reached from Control Core's Notifications row.
   In-app only (no push notifications).
-- `account-security.tsx` — linked accounts + blocked players + delete-account danger
+- `account-security.tsx` — sign-in methods + blocked players + delete-account danger
   zone, built from `account_security_pro_stage_animated`. Reached from Control Core's
-  Account row. **The linked-accounts list is hardcoded mock data** (it shows "Google:
-  gm.player@gmail.com, connected" to everyone; no social sign-in exists). Delete Account
+  Account row. "Sign-in Methods" is real: `/me/profile` returns `signInMethods`
+  (`password` and/or `google`) and the login email; an account without Google gets a
+  **Link Now** button (`linkGoogleAccount` in `authClient.ts`, same browser tab as sign-in;
+  success is read back from the profile). Delete Account
   calls the real `DELETE /me` on the server (`src/lib/api.ts`), then clears local auth
   state the same way logout does. A guest (never signed in) has nothing server-side to
   delete, so it just navigates back.

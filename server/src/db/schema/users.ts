@@ -9,6 +9,9 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
+  // Accounts that existed (with an unverified email) when email verification was introduced: never gated,
+  // never locked out. New sign-ups default to false and are gated until verified (db/emailGate.ts).
+  emailGrandfathered: boolean('email_grandfathered').notNull().default(false),
   // Populated with the email's local-part at signup; pick-rockstar.tsx
   // collects the real display name (playerProfiles.displayName) one screen
   // later, unchanged.
@@ -25,6 +28,9 @@ export const playerProfiles = pgTable('player_profiles', {
   userId: uuid('user_id')
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
+  // True for a new email/password account whose 4,000-chip welcome bonus is held until the email is
+  // verified (db/emailGate.ts grantWelcomeBonus clears it in the same UPDATE that pays it).
+  welcomeBonusPending: boolean('welcome_bonus_pending').notNull().default(false),
   displayName: varchar('display_name', { length: 40 }),
   avatarId: varchar('avatar_id', { length: 40 }),
   // Short human-typed code another player enters to send a friend request

@@ -44,7 +44,7 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 
 | # | Gap | Where |
 |---|---|---|
-| 5 | **Forgot Password does nothing** (`console.log`); no `sendResetPassword` or email verification in better-auth | `src/app/(auth)/sign-in.tsx`, `server/src/betterAuth.ts` |
+| 5 | **Email verification + Forgot Password: code done, mail setup deferred (owner's call, doing it later).** See the checklist under this table. Sign-up email checks (typos, disposable, non-existent domains) are already always on | `server/src/betterAuth.ts`, `server/src/emailPolicy.ts`, `server/src/mailer.ts` |
 | 6 | No crash reporting on either side (no Sentry/Crashlytics) | client + server |
 | 7 | No React error boundary: a render error white-screens the app | `src/app/_layout.tsx` |
 | 8 | IAP refunds are not handled (no Real-time Developer Notifications / Voided Purchases API): refunded gems stay spendable | `server/src/googlePlay.ts` |
@@ -57,10 +57,19 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 | 15 | No analytics (funnel, retention, economy sinks/sources) to tune `economy.config.json` against | client |
 | 16 | No CI and no automated tests; the money paths (wagers, festival, IAP, `grantFame`) need them first | repo |
 | 17 | Release build is not minified (R8 off by default) | `android/` via `expo-build-properties` |
-| 18 | Account Security shows a **hardcoded** "Google: gm.player@gmail.com, connected" to every user; no social sign-in exists | `src/app/(settings)/account-security.tsx` |
+| 18 | Google sign-in is built (browser flow) but **needs the Google Cloud OAuth setup** (README "Google sign-in": consent screen published, Web client, redirect URI, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` on Railway) and a real-device test; there is still no Apple/Facebook (dropped on purpose) | `server/src/betterAuth.ts`, `src/lib/authClient.ts` |
 | 19 | Control Core's Language and Terms of Service rows only `console.log` (the legal URLs exist in `src/constants/legal.ts`) | `src/app/(settings)/control-core.tsx` |
 | 20 | No i18n, and no `accessibilityLabel` anywhere | client |
 | 21 | iOS is not shippable (no `bundleIdentifier`, Google-only IAP, test AdMob iOS id). Fine for an Android-only launch | `app.json` |
+
+**Item 5 checklist (do in this order; full steps in the root `README.md` -> "Email verification"):**
+- [ ] Get a domain you control (any registrar).
+- [ ] Make a Resend account, add the domain, copy its DNS records (SPF/DKIM) into the registrar, wait until Resend shows "Verified".
+- [ ] Create a Resend API key.
+- [ ] `cd server && npm run db:migrate:remote` (migration 0022) **before** deploying; it grandfathers existing accounts.
+- [ ] Railway variables: `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Rockstyle Chess <no-reply@yourdomain.com>`), then `EMAIL_GATE=1` **last**.
+- [ ] Deploy, then test with a real address: sign up, receive the code, verify (welcome bonus arrives), and try Forgot Password.
+- Do not set `EMAIL_GATE=1` before mail works, or new players wait on a code that never arrives. Until then everything behaves as before.
 
 ## 3. Game layer gaps
 
@@ -80,8 +89,16 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
     `player_profiles.season_xp` exists but nothing uses it.
 29. **Tournaments are "Coming Soon"** (`src/app/(play)/tournaments.tsx`).
 30. **Venue and Country leaderboards are "Coming Soon"**; no weekly/seasonal boards.
-31. **No push notifications** (`expo-notifications` not installed): Backstage Alerts is in-app
-    only.
+31. **Push notifications: code done, Firebase/Expo setup deferred (owner's call, not doing it now).**
+    Code is in (server `push.ts` / `pushScheduler.ts`, app `usePushNotifications`, Settings switches,
+    result-screen primer) and migration 0021 is applied locally only. To switch it on, later:
+    - [ ] Firebase project + Android app `com.rockstylechess.app`; put `google-services.json` in the repo
+      root and add `android.googleServicesFile` to `app.json`.
+    - [ ] `npx eas-cli init` (writes `extra.eas.projectId`).
+    - [ ] Upload the FCM V1 service-account key at expo.dev -> Credentials -> Android.
+    - [ ] `npm run db:migrate:remote` (0021), deploy the server, rebuild the APK.
+    - [ ] Test on a real phone (nothing has been delivered end to end yet).
+    Full steps: root `README.md` -> "Push notifications". iOS later also needs a bundle id and an APNs key.
 32. **Puzzles are thin:** ~250 puzzles, no daily puzzle, no puzzle rating, no Puzzle Rush, and
     solved state is device-only (`src/lib/puzzleProgress.ts`).
 33. **No live-ops tooling** (limited-time events, featured bosses, shop rotation) and no share

@@ -8,6 +8,7 @@ import { CurrencyPill, RockCard } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useNotifications } from '@/hooks/useNotifications';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { hrefForNotification } from '@/lib/notificationRoutes';
 import type { NotificationDTO, NotificationKind } from '@/lib/api';
 
 type Accent = 'gold' | 'cyan' | 'crimson' | 'muted';
@@ -60,34 +61,8 @@ export default function BackstageAlertsScreen() {
   function handlePress(item: NotificationDTO) {
     void markRead(item.id);
     const payload = (item.payload ?? {}) as Record<string, unknown>;
-    switch (item.type) {
-      case 'friend_request_received':
-      case 'friend_request_accepted':
-      case 'friend_challenge_received':
-        router.push('/friends');
-        return;
-      case 'match_ended':
-        router.push({
-          pathname: '/replay',
-          params: {
-            matchId: String(payload.matchId ?? ''),
-            opponentDisplayName: typeof payload.opponentDisplayName === 'string' ? payload.opponentDisplayName : undefined,
-            resultType: typeof payload.resultType === 'string' ? payload.resultType : undefined,
-            color: typeof payload.color === 'string' ? payload.color : undefined,
-            playedAt: typeof payload.playedAt === 'string' ? payload.playedAt : undefined,
-          },
-        });
-        return;
-      case 'quest_claimable':
-        router.push('/quests');
-        return;
-      case 'achievement_claimable':
-        router.push('/achievements');
-        return;
-      case 'daily_bonus_claimable':
-        router.push('/daily-bonus');
-        return;
-    }
+    const href = hrefForNotification(item.type, payload);
+    if (href) router.push(href);
   }
 
   return (

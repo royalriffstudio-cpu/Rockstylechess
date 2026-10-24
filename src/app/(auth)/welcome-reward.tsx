@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppIcon, CurrencyIcon, RockButton } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
+import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { ECONOMY } from '@/lib/economy.generated';
 
 const REWARD_CHIPS = ECONOMY.welcomeChips;
@@ -24,8 +25,13 @@ export default function WelcomeRewardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [displayChips, setDisplayChips] = useState(0);
+  const { status, profile } = usePlayerProfile();
+  // New email/password account that has not verified its email: the bonus is held, so say so instead of celebrating.
+  const held = profile?.welcomeBonusPending === true;
+  const profileSettled = status !== 'loading';
 
   useEffect(() => {
+    if (!profileSettled || held) return;
     const totalFrames = DURATION_MS / FRAME_MS;
     let currentFrame = 0;
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -46,11 +52,35 @@ export default function WelcomeRewardScreen() {
       clearTimeout(startId);
       clearTimeout(timeoutId);
     };
-  }, []);
+  }, [profileSettled, held]);
 
   function handleClaim() {
     console.log('Claimed reward', REWARD_CHIPS, 'chips');
     router.replace('/home');
+  }
+
+  if (held) {
+    return (
+      <View className="flex-1 items-center justify-center bg-bg-base" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
+        <LinearGradient pointerEvents="none" colors={[withOpacity(Colors.gold, 0.15), Colors.bgBase, Colors.bgBase]} style={{ position: 'absolute', inset: 0 }} />
+        <View className="items-center gap-lg px-margin-mobile" style={{ width: '100%', maxWidth: 440 }}>
+          <Text className="text-center font-display-hero text-display-hero uppercase tracking-widest text-gold">Welcome Bonus</Text>
+          <View className="items-center gap-sm">
+            <CurrencyIcon type="chips" size={72} color={Colors.gold} />
+            <Text className="font-display-hero text-display-hero text-text-primary" style={{ fontVariant: ['tabular-nums'] }}>
+              {formatNumber(REWARD_CHIPS)}
+            </Text>
+          </View>
+          <Text className="text-center font-body-base text-body-base text-text-muted">
+            Verify your email to unlock your {formatNumber(REWARD_CHIPS)} welcome chips and online play.
+          </Text>
+          <View style={{ width: '100%', maxWidth: 380, gap: 12 }}>
+            <RockButton label="Verify Email" variant="gold" onPress={() => router.replace({ pathname: '/verify-email', params: { next: '/home' } })} />
+            <RockButton label="Maybe Later" variant="secondary" onPress={() => router.replace('/home')} />
+          </View>
+        </View>
+      </View>
+    );
   }
 
   return (

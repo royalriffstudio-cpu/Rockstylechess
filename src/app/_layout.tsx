@@ -14,6 +14,7 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableFreeze } from 'react-native-screens';
 
+import { EmailGateModal } from '@/components/auth/EmailGateModal';
 import { ChallengeModals } from '@/components/friends/ChallengeModals';
 import { ProgressionOverlay } from '@/components/progression/ProgressionOverlay';
 import { BottomNav, bottomNavTabForRoute } from '@/components/ui';
@@ -22,6 +23,7 @@ import { Colors } from '@/constants/theme';
 import { ChallengesProvider } from '@/hooks/useChallenges';
 import { FriendsProvider } from '@/hooks/useFriends';
 import { PlayerProfileProvider } from '@/hooks/usePlayerProfile';
+import { PushNotificationsProvider } from '@/hooks/usePushNotifications';
 import { initAds } from '@/lib/ads';
 import { loadMusicPreference, playMenuMusic, stopMenuMusic } from '@/lib/backgroundMusic';
 import { BLOCKED_BACK, goUp, ROOT_ROUTES } from '@/lib/navigation';
@@ -136,26 +138,29 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardProviderOrFragment>
           <PlayerProfileProvider>
-            <FriendsProvider>
-              <ChallengesProvider>
-                <StatusBar style="light" />
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: Colors.bgBase },
-                    // The iOS left-edge swipe-back is a plain history pop, which
-                    // contradicts the hierarchical "back = up" model (and would
-                    // let a player swipe out of a live match). All back
-                    // navigation goes through the header button or the hardware
-                    // back handler instead.
-                    gestureEnabled: false,
-                  }}
-                />
-                {navTab ? <BottomNav activeTab={navTab} /> : null}
-                <ChallengeModals />
-                <ProgressionOverlay />
-              </ChallengesProvider>
-            </FriendsProvider>
+            <PushNotificationsProvider>
+              <FriendsProvider>
+                <ChallengesProvider>
+                  <StatusBar style="light" />
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      contentStyle: { backgroundColor: Colors.bgBase },
+                      // The iOS left-edge swipe-back is a plain history pop, which
+                      // contradicts the hierarchical "back = up" model (and would
+                      // let a player swipe out of a live match). All back
+                      // navigation goes through the header button or the hardware
+                      // back handler instead.
+                      gestureEnabled: false,
+                    }}
+                  />
+                  {navTab ? <BottomNav activeTab={navTab} /> : null}
+                  <ChallengeModals />
+                  <EmailGateModal />
+                  <ProgressionOverlay />
+                </ChallengesProvider>
+              </FriendsProvider>
+            </PushNotificationsProvider>
           </PlayerProfileProvider>
         </KeyboardProviderOrFragment>
         {showSplashReveal && <SplashReveal onDone={() => setShowSplashReveal(false)} />}

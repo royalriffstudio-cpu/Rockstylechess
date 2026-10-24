@@ -114,6 +114,8 @@ files without adding `/play` to the URL/deep-link path.
   rematch window (`server/README.md` -> "Rematch"): one player offers, the other accepts or declines, colours swap,
   a wagered rematch re-escrows the stake (each player's Safety Net choice carries over) and is disabled with a
   reason when chips or rating fall short.
+- **Push primer** (`result-placeholder.tsx` -> `components/match/PushPrimer.tsx`): under the buttons, once per install, a signed-in
+  player with undecided notification permission is offered "Turn on notifications" / "Not now". Either answer retires it.
 - **Show Report** (`result-placeholder.tsx` + `src/components/progression/ShowReport.tsx`):
   after every match the result card shows the server's progression report instead of the old
   hardcoded "710 -> 726": Fame earned (with Opening Night / Hot Streak / daily-cap pills), the
