@@ -416,6 +416,27 @@ upload a Play Store build that still uses test ids.
 - Native module → needs `npx expo prebuild -p android` and a rebuild; not in Expo Go.
   Server rules: `server/README.md` → "Ads".
 
+## Crash reporting (Sentry)
+
+Crashes and handled errors go to Sentry, **anonymously** (see `docs/privacy-policy.html`, Section
+2j): no account id, email, name, chat, tokens, request bodies or screenshots. `src/lib/crashReporting.ts`
+is the only file that imports the SDK (the web build uses `crashReporting.web.ts`); it is off in
+development and whenever `EXPO_PUBLIC_SENTRY_DSN` is unset. `src/app/_layout.tsx` starts it, wraps the
+root, and exports an `ErrorBoundary` so a render error shows a themed "Something went wrong" screen
+(`src/components/ui/AppErrorScreen.tsx`) instead of closing the app. The match screen tags reports
+with `screen`/`matchMode`/`difficulty` and leaves breadcrumbs (including the measured board size).
+
+Setup: create a Sentry account on the **EU region**, two projects (`rockstyle-app`: React Native,
+`rockstyle-server`: Node), then
+- put the app project's DSN in the root `.env` as `EXPO_PUBLIC_SENTRY_DSN` (public by design) and
+  optionally `EXPO_PUBLIC_SENTRY_TRACES` (default `0.1`, `0` = no performance timings);
+- put the build-time secrets in a gitignored `.env.sentry` (`SENTRY_AUTH_TOKEN` with
+  `project:releases` + `org:read`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_URL=https://de.sentry.io/`).
+  `scripts/build-apk.sh` loads it so the Gradle plugin uploads source maps and native symbols (readable
+  stack traces); without it the build still works but traces are minified.
+Sentry cannot see a process that Android kills with SIGKILL (for example after a GPU hang); its ANR
+and frozen-frame data would show the symptom, but `adb logcat` is still the tool for that case.
+
 ## Scripts
 
 | Command | Where | What |

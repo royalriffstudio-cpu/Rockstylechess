@@ -54,6 +54,7 @@ import { DURATION_MS, isDuration, isVenueTier } from '@/lib/onlineMatch';
 import { ensureProgressionListener, putReport, titleName } from '@/lib/progression';
 import { ensureWagerListener } from '@/lib/wagerResult';
 import { ensureFestivalListener } from '@/lib/festival';
+import { addCrashBreadcrumb, reportError, setCrashTags } from '@/lib/crashReporting';
 import type { FestivalMatchInfo } from '@/lib/onlineMatch';
 
 
@@ -371,7 +372,7 @@ export default function MatchScreen() {
           if (finished.progression) putReport(reportKey, finished.progression);
           chipsGranted = finished.chipsGranted ?? 0;
         } catch (error) {
-          console.log('Failed to finish bot match', error);
+          reportError(error, { area: 'bot-match-finish', difficulty });
           noReward = 'offline';
         }
       } else if (!token) {
@@ -499,7 +500,7 @@ export default function MatchScreen() {
         const { sessionId } = await startBotMatch(token, botId, playerColor);
         if (!cancelled) botSessionRef.current = sessionId;
       } catch (error) {
-        console.log('Failed to start bot match', error);
+        reportError(error, { area: 'bot-match-start' });
       }
     })();
     return () => {
@@ -519,6 +520,17 @@ export default function MatchScreen() {
   function onTip() {
     if (tipsLeft > 0 && game.suggestTip()) setTipsLeft((n) => n - 1);
   }
+
+  // Technical context for any crash report from this screen (never player identities).
+  useEffect(() => {
+    const kind = festivalInfo ? 'festival' : mode;
+    setCrashTags({ screen: 'match', matchMode: kind, difficulty: festivalDifficulty ?? (mode === 'bot' ? difficulty : undefined) });
+    addCrashBreadcrumb('match', 'match screen mounted', { mode: kind, color: playerColor });
+    return () => {
+      addCrashBreadcrumb('match', 'match screen unmounted');
+      setCrashTags({ screen: undefined, matchMode: undefined, difficulty: undefined });
+    };
+  }, [festivalInfo, festivalDifficulty, mode, difficulty, playerColor]);
 
   // Make sure the shared wager:settled listener is attached for the whole online
   // match, so the settlement is cached even if it lands after we navigate away.
@@ -654,6 +666,12 @@ export default function MatchScreen() {
     boardAreaHeight === null
       ? undefined
       : Math.max(MIN_BOARD_SIZE, boardAreaHeight - PEEK_NAV_HEIGHT - BOARD_VERTICAL_GAP * 2);
+
+  // Once the board size is known: the size it settled at is the first thing to check on a
+  // render-hang report from a weak GPU.
+  useEffect(() => {
+    if (boardAreaHeight !== null) addCrashBreadcrumb('match', 'board area measured', { boardAreaHeight });
+  }, [boardAreaHeight]);
 
   return (
     <View style={styles.root}>

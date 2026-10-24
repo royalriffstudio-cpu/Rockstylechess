@@ -1,4 +1,5 @@
 import { Chess } from 'chess.js';
+import { reportError } from './monitoring.js';
 
 import { EASY_HEURISTIC_DEPTH, pickHeuristicMove } from './bots/heuristicBot.generated.js';
 import { STOCKFISH_PRESETS } from './bots/presets.generated.js';
@@ -38,7 +39,7 @@ function getEngine(): Promise<UciEngine> {
 
 /** Warm the engine at boot so the first Stockfish set does not pay the load time. */
 export function warmServerBot(): void {
-  void getEngine().catch((error) => console.error('server bot: Stockfish failed to load', error));
+  void getEngine().catch((error) => reportError(error, { area: 'server-bot-load' }));
 }
 
 function stockfishMove(fen: string, difficulty: 'stockfish-basic' | 'stockfish-lite' | 'stockfish-strong'): Promise<EngineMove | null> {
@@ -77,7 +78,7 @@ export function pickBotMove(fen: string, difficulty: BotDifficulty): Promise<Eng
     try {
       return await stockfishMove(fen, difficulty);
     } catch (error) {
-      console.error('server bot: engine failed, using the heuristic bot for this move', error);
+      reportError(error, { area: 'server-bot-engine' });
       return heuristicMove(fen, 'medium');
     }
   };

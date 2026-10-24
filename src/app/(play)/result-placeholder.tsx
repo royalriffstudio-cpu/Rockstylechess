@@ -18,6 +18,7 @@ import { maybeShowInterstitial } from '@/lib/ads/maybeShowInterstitial';
 import { buyAnalysisPack, chargeForAnalysis } from '@/lib/api';
 import { ANALYSIS_COST, ANALYSIS_PACK, packSavings } from '@/lib/analysisCost';
 import { getAuthToken } from '@/lib/authStorage';
+import { reportError } from '@/lib/crashReporting';
 import { clearPendingLocalReplay, getPendingLocalReplay } from '@/lib/localMatchReplayStore';
 import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
 import { isVenueTier, type WagerSettledPayload } from '@/lib/onlineMatch';
@@ -247,7 +248,7 @@ export default function ResultScreen() {
       if (error instanceof Error && error.message === 'insufficient-funds') {
         Alert.alert('Not Enough Currency', currency === 'credit' ? 'You have no stored reviews left.' : `You need ${ANALYSIS_COST[currency].toLocaleString()} ${currency} to analyze this game.`);
       } else {
-        console.log('Failed to charge for analysis', error);
+        reportError(error, { area: 'analysis-charge' });
         Alert.alert('Something Went Wrong', 'Please try again.');
       }
     }

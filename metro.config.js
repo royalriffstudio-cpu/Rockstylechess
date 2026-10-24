@@ -1,7 +1,9 @@
-const { getDefaultConfig } = require("expo/metro-config");
+// Sentry's wrapper of expo's default Metro config: adds the debug-id plumbing the source-map
+// upload needs. Everything below still applies on top of it.
+const { getSentryExpoConfig } = require("@sentry/react-native/metro");
 const { withNativeWind } = require("nativewind/metro");
 
-const config = getDefaultConfig(__dirname);
+const config = getSentryExpoConfig(__dirname);
 
 // Metro's file watcher/Haste map builder otherwise crawls the whole repo
 // root by default, including new_ui/ (a separate self-contained Expo

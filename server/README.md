@@ -508,6 +508,21 @@ Email/password sign-up used to store whatever string was typed. Now:
   rule above and gets dev chips/gems. `isTestEmail` is always false unless the database is local, so it does nothing in production.
 - Deploy order: `db:migrate:remote` (0022) -> server with `EMAIL_GATE` unset -> sending domain + `RESEND_API_KEY` + `MAIL_FROM` -> `EMAIL_GATE=1`.
 
+## Crash reporting (Sentry)
+
+`src/monitoring.ts` initialises `@sentry/node` when `SENTRY_DSN` is set (Railway variable; unset
+locally = no-op) and exposes `reportError(err, { area, matchId, tier })`, which always
+`console.error`s as well. It is anonymous by policy (`docs/privacy-policy.html` Section 2j): Sentry 11
+collects headers, cookies, bodies and user info by default, so `dataCollection` switches all of it off
+and `beforeSend` strips anything left. Never put a player id or email in a tag. The Express error handler is
+registered (`setupExpressMonitoring`) before the last-resort handler in `index.ts`; the money paths
+(settlement, escrow, bot engine, Festival, fame grant, sweepers) call `reportError`; SIGTERM awaits
+`flushMonitoring` before exiting. The server is ESM, so there is no auto-instrumentation or tracing, only
+errors. Stack traces map to TypeScript through `sourceMap: true` + `node --enable-source-maps` (no upload
+needed). Variables: `SENTRY_DSN`, optional `SENTRY_ENVIRONMENT` (default production), optional
+`SENTRY_RELEASE` (default `RAILWAY_GIT_COMMIT_SHA`, else `rockstyle-server@<version>`). `@sentry/node` 11
+needs Node >= 20.19 or >= 22.12: check the Railway Node version after deploying.
+
 ## Local development vs. production
 
 Postgres 16 runs locally on this machine as a system service (not Docker --

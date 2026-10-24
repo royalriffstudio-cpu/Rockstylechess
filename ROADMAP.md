@@ -31,22 +31,15 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 4. **Store blockers in `app.json` / the Android build.**
    - AdMob uses Google's public **test** app id, and the unit ids default to test units
      (`src/lib/ads/adsConfig.ts`). Set the real ids and turn on `ADS_REQUIRE_SSV`.
-   - The release manifest requests `RECORD_AUDIO` (from `expo-audio`), `SYSTEM_ALERT_WINDOW`
-     and external-storage permissions. Block them (`android.blockedPermissions`, or
-     `expo-audio`'s `microphonePermission: false`).
    - Play requires an **AAB**; the docs only build an APK (`assembleRelease`). Add
      `bundleRelease` (or an `eas.json`).
-   - `expo.name` is `rockstyle-chess` (shown under the launcher icon), the adaptive icon
-     background is the template's `#E6F4FE`, and `userInterfaceStyle` is `automatic` on a
-     dark-only app.
 
 ## 2. Production readiness
 
 | # | Gap | Where |
 |---|---|---|
 | 5 | **Email verification + Forgot Password: code done, mail setup deferred (owner's call, doing it later).** See the checklist under this table. Sign-up email checks (typos, disposable, non-existent domains) are already always on | `server/src/betterAuth.ts`, `server/src/emailPolicy.ts`, `server/src/mailer.ts` |
-| 6 | No crash reporting on either side (no Sentry/Crashlytics) | client + server |
-| 7 | No React error boundary: a render error white-screens the app | `src/app/_layout.tsx` |
+| 6 | **Crash reporting: code done (Sentry, anonymous), account setup is the owner's.** See the item 6 checklist under this table. Not yet verified end to end: no event has been sent and no stack trace seen until the account, DSNs and token exist | `src/lib/crashReporting.ts`, `server/src/monitoring.ts` |
 | 8 | IAP refunds are not handled (no Real-time Developer Notifications / Voided Purchases API): refunded gems stay spendable | `server/src/googlePlay.ts` |
 | 9 | Rewarded-ad rewards trust the client until `ADS_REQUIRE_SSV=true` | `server/src/adRewards.ts` |
 | 10 | No minimum-app-version check / forced update, no OTA (`expo-updates`) | client + a `/config` route |
@@ -58,7 +51,7 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 | 16 | No CI and no automated tests; the money paths (wagers, festival, IAP, `grantFame`) need them first | repo |
 | 17 | Release build is not minified (R8 off by default) | `android/` via `expo-build-properties` |
 | 18 | Google sign-in is built (browser flow) but **needs the Google Cloud OAuth setup** (README "Google sign-in": consent screen published, Web client, redirect URI, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` on Railway) and a real-device test; there is still no Apple/Facebook (dropped on purpose) | `server/src/betterAuth.ts`, `src/lib/authClient.ts` |
-| 19 | Control Core's Language and Terms of Service rows only `console.log` (the legal URLs exist in `src/constants/legal.ts`) | `src/app/(settings)/control-core.tsx` |
+| 19 | Control Core's Language row only `console.log`s (Terms of Service now opens the live page; Privacy Policy has no row of its own, only the sign-up link) | `src/app/(settings)/control-core.tsx` |
 | 20 | No i18n, and no `accessibilityLabel` anywhere | client |
 | 21 | iOS is not shippable (no `bundleIdentifier`, Google-only IAP, test AdMob iOS id). Fine for an Android-only launch | `app.json` |
 
@@ -70,6 +63,18 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 - [ ] Railway variables: `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Rockstyle Chess <no-reply@yourdomain.com>`), then `EMAIL_GATE=1` **last**.
 - [ ] Deploy, then test with a real address: sign up, receive the code, verify (welcome bonus arrives), and try Forgot Password.
 - Do not set `EMAIL_GATE=1` before mail works, or new players wait on a code that never arrives. Until then everything behaves as before.
+
+**Item 6 checklist (Sentry; what Claude needs from the owner; details in the root `README.md` -> "Crash reporting"):**
+- [ ] Create a Sentry account and choose the **EU region** (the privacy policy says crash reports are stored in the EU/Germany; if you pick another region, tell Claude so the policy text is changed).
+- [ ] Create two projects: `rockstyle-app` (platform React Native) and `rockstyle-server` (platform Node.js).
+- [ ] Copy the **DSN** of each project (Project Settings -> Client Keys). DSNs are not secret; they can be sent in chat.
+- [ ] Note the **organization slug** (the part in the Sentry URL).
+- [ ] Create an **auth token** (Settings -> Auth Tokens) with `project:releases` and `org:read`, and put it in a gitignored `.env.sentry` at the repo root as `SENTRY_AUTH_TOKEN=...`, plus `SENTRY_ORG=<slug>`, `SENTRY_PROJECT=rockstyle-app`, `SENTRY_URL=https://de.sentry.io/`. **Never paste the token in chat.**
+- [ ] Root `.env`: `EXPO_PUBLIC_SENTRY_DSN=<app DSN>`. Railway: `SENTRY_DSN=<server DSN>`.
+- [ ] Play Console -> App content -> **Data safety**: declare **Crash logs** and **Diagnostics** as collected, not linked to the user, not shared.
+- [ ] Publish the updated `docs/privacy-policy.html` (new Section 2j, effective 2026-10-24) wherever the policy is hosted, before releasing a build that contains Sentry.
+- [ ] After that Claude: builds the APK, triggers a test JS error / native crash from a dev-only control, and confirms in Sentry that traces are readable, tags are present and no user, token or request body is attached.
+- Note: Sentry cannot see a process that Android kills with SIGKILL (e.g. after a GPU hang); item 1 still needs `adb logcat`.
 
 ## 3. Game layer gaps
 
@@ -123,9 +128,13 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 
 ## Suggested order
 
-1 -> 6 + 7 -> 4 -> 3, 8, 9, 12 (money safety) -> 2 -> 5, 10, 13, 15 -> 22, 24 -> 31, 28, 29.
+1 -> 6 -> 4 -> 3, 8, 9, 12 (money safety) -> 2 -> 5, 10, 13, 15 -> 22, 24 -> 31, 28, 29.
 
 ## Done (recently, keep short)
+
+- React error boundary (`ErrorBoundary` export in `src/app/_layout.tsx` + `AppErrorScreen`): a render error now shows a recovery screen and is reported instead of closing the app. Sentry code on both sides is in place (item 6 is the account setup).
+
+- Store identity and permissions: app name "Rockstyle Chess", adaptive icon background `#0B0709`, `userInterfaceStyle: dark`, and unused Android permissions blocked in `app.json` (`blockedPermissions`, `expo-audio` without microphone). Verified against the merged manifest.
 
 - Rematch / play again (`server/src/rematch.ts`, `RematchPanel`), time-control pools with an
   opt-in widen, public player profiles (`PlayerProfileSheet`): uncommitted as of 2026-10-23.

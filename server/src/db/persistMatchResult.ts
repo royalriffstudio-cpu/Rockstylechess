@@ -6,6 +6,7 @@ import { emitToUser } from '../realtime.js';
 import { reportMatchForAchievements } from './achievements.js';
 import { spendLuckyPick } from './boosts.js';
 import { db } from './client.js';
+import { reportError } from '../monitoring.js';
 import { expectedScore, updatedRating } from './elo.js';
 import { insertNotification } from './notifications.js';
 import { analyzeGame } from '../matchAnalysis.js';
@@ -175,7 +176,7 @@ export async function persistMatchResult(
         });
         emitToUser(p.userId, 'progression:update', summary);
       } catch (error) {
-        console.error('fame grant failed', error);
+        reportError(error, { area: 'fame-grant' });
       }
     }),
   );

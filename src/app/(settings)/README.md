@@ -12,8 +12,8 @@ files without adding `/settings` to the URL/deep-link path.
   header. Logout clears the stored session token (`src/lib/authStorage.ts`), the guest
   latch and the socket's trusted identity (`src/lib/socket.ts`'s `clearSocketAuth`),
   then returns to `sign-in.tsx`. Shows "Privacy & Ad Choices" (Google UMP) only where
-  consent rules require it. **Not wired yet:** the Language and Terms of Service rows
-  only `console.log` (see `ROADMAP.md`).
+  consent rules require it. The Terms of Service row opens the live terms page in an in-app
+  browser tab (`openLegalDocument`). **Not wired yet:** the Language row only `console.log`s (see `ROADMAP.md`).
 - `backstage-alerts.tsx` — notification feed with claim/view actions, built from
   `backstage_alerts_pro_stage_animated`. Reached from Control Core's Notifications row.
   In-app only (no push notifications).

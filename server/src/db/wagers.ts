@@ -1,6 +1,7 @@
 import { and, eq, lt, sql } from 'drizzle-orm';
 
 import { ECONOMY } from '../economy.generated.js';
+import { reportError } from '../monitoring.js';
 import { safetyNetTerms } from '../gear.js';
 import { db } from './client.js';
 import { playerProfiles, wagers } from './schema/index.js';
@@ -235,7 +236,7 @@ export async function settleWagerWithRetry(matchId: string, input: SettleInput):
       await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
-  console.error('wager settlement failed after retries -- left for the sweeper', matchId, lastError);
+  reportError(lastError, { area: 'wager-settle-failed', matchId });
   return null;
 }
 

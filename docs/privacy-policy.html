@@ -96,7 +96,7 @@
 <header>
   <div class="brand">Royal Riff Studio</div>
   <h1>Privacy Policy</h1>
-  <div class="updated">RockStyle Chess &nbsp;•&nbsp; Effective October 17, 2026</div>
+  <div class="updated">RockStyle Chess &nbsp;•&nbsp; Effective October 24, 2026</div>
 </header>
 <nav class="crumbs"><a href="terms-of-service.html">View Terms of Service →</a>&nbsp;&nbsp;&nbsp;<a href="data-deletion.html">Delete Your Account &amp; Data →</a></nav>
 <main>
@@ -112,7 +112,8 @@ players everywhere else the App is available.</p>
 <div class="callout">
 <strong>Short version:</strong> We collect what's needed to run your account, your matches,
 and your in-game purchases. The App shows ads served by Google AdMob (see Section 2i);
-there are no analytics or crash-reporting SDKs. Where the law requires it, ads are only
+there are no analytics SDKs, and the only diagnostics tool is an anonymous crash reporter
+(Sentry, see Section 2j). Where the law requires it, ads are only
 requested after you consent through Google's consent form, and a one-time "Remove Ads"
 purchase turns off the ads shown between games. We never sell your personal information.
 </div>
@@ -213,13 +214,26 @@ data it collects through the SDK — see
 apps that use its services</a>. A one-time "Remove Ads" purchase in the Shop turns off the
 full-screen ads; optional rewarded ads remain available.</p>
 
+<h3>j. Crash and error reports (Sentry)</h3>
+<p>To find and fix crashes, the App and our server send crash and error reports to Sentry
+(Functional Software, Inc.). These reports are <strong>anonymous</strong>: we do not attach
+your account ID, email address, display name, chat messages, session token or the contents of
+requests. A report contains technical information only: the error message and stack trace,
+your device model and Android version, the App version, which screen you were on and recent
+navigation steps, whether the App was in the foreground, and performance information such as
+slow or frozen frames. A small share of sessions (about 10%) also includes screen-load and
+request timings. We do not record your screen, take screenshots, or capture what you type.
+Our server sends reports of its own errors (for example a failed match settlement) the same
+way, tagged with technical identifiers such as a match ID but not with player identities.</p>
+
 <h2 id="information-we-do-not-collect">3. Information We Do Not Collect</h2>
 <p>To be explicit, RockStyle Chess does <strong>not</strong> contain:</p>
 <ul>
   <li>Any advertising SDK other than Google AdMob (Section 2i).</li>
   <li>Any analytics or product-usage tracking SDK (e.g. no Firebase Analytics, no Mixpanel,
   no Amplitude, no Segment).</li>
-  <li>Any crash-reporting SDK (e.g. no Sentry, no Crashlytics).</li>
+  <li>Any crash-reporting SDK other than Sentry (Section 2j), and no crash report ever carries
+  your account details.</li>
   <li>Any social-media login or tracking pixels.</li>
   <li>Access to your contacts, camera, microphone, photo library, or precise location.</li>
 </ul>
@@ -250,6 +264,9 @@ everyone (Art. 6(1)(f))</td></tr>
 form (Art. 6(1)(a)); <strong>legitimate interests</strong> in funding the free game
 elsewhere (Art. 6(1)(f)). Preventing a reward from being claimed twice:
 <strong>legitimate interests</strong></td></tr>
+<tr><td>Detecting and fixing crashes and errors through anonymous crash reports (Section 2j)</td>
+<td><strong>Legitimate interests</strong> — keeping the App stable and working; the reports
+contain no account details (Art. 6(1)(f))</td></tr>
 <tr><td>Your optional country flag</td>
 <td><strong>Consent</strong> — this field is optional and only set if you choose to add it
 (Art. 6(1)(a)); you can remove it at any time in Settings</td></tr>
@@ -274,6 +291,10 @@ that a rewarded ad was watched</td><td>Collected directly by the SDK on your dev
 advertising ID, IP address, device/OS information and ad interactions. Sent to our server
 by Google when you watch a rewarded ad: your internal player ID and an ad transaction
 ID</td></tr>
+<tr><td>Sentry (Functional Software, Inc.)</td><td>Receiving and displaying anonymous crash
+and error reports so we can fix bugs</td><td>Technical crash data from your device and from
+our server: error messages, stack traces, device model, OS and App version, screen name and
+navigation steps. No account ID, email, name, chat, tokens or request contents</td></tr>
 <tr><td>Railway</td><td>Hosts our backend application server</td><td>All server-side data
 described above, as our infrastructure provider</td></tr>
 <tr><td>Neon</td><td>Hosts our production database</td><td>All server-side data described
@@ -290,6 +311,9 @@ profile, currencies, cosmetics, friendships, messages, purchase records, and pro
 data. Matches you played remain in your opponents' match history for accuracy, but your
 account reference on those records is removed rather than deleted outright, so their
 history and rating stay intact.</p>
+
+<p>Crash and error reports (Section 2j) are anonymous and are kept by Sentry for 90 days, then
+deleted automatically.</p>
 
 <h2 id="your-rights">7. Your Rights Under the GDPR</h2>
 <p>If you are in the EEA, UK, or otherwise protected by the GDPR, you have the following
@@ -362,7 +386,8 @@ users outside the EEA/UK, we rely on appropriate safeguards recognized under GDP
 — such as the European Commission's Standard Contractual Clauses (SCCs) — to the extent our
 providers offer them, or another valid transfer mechanism. You can lodge a complaint with
 your local data protection authority; in Poland this is the President of the Personal Data
-Protection Office (UODO).</p>
+Protection Office (UODO). Anonymous crash reports (Section 2j) are stored by Sentry in its
+EU region (Germany).</p>
 
 <h2 id="changes">12. Changes to This Policy</h2>
 <p>We may update this Policy as the App changes. We'll update the "Effective" date above

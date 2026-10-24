@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppIcon, ConfirmModal, CurrencyPill, PlayerAvatar, RockCard } from '@/components/ui';
 import { SubPageHeader } from '@/components/layout';
 import type { ICONS } from '@/constants/icons';
+import { openLegalDocument, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useNotifications } from '@/hooks/useNotifications';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -142,7 +143,7 @@ export default function ControlCoreScreen() {
   const gameRows: GameRow[] = [
     { id: 'notifications', icon: 'notifications', label: 'Notifications', subtitle: 'Match, reward, and social alerts', badge: unreadNotifications, action: () => router.push('/backstage-alerts') },
     { id: 'language', icon: 'menu_book', label: 'Language', subtitle: 'Display language', trailing: 'English', action: () => console.log('Language pressed') },
-    { id: 'terms', icon: 'style', label: 'Terms of Service', subtitle: 'Legal & privacy', action: () => console.log('Terms of Service pressed') },
+    { id: 'terms', icon: 'style', label: 'Terms of Service', subtitle: 'Legal & privacy', action: () => openLegalDocument(TERMS_OF_SERVICE_URL) },
     ...(privacyOptionsVisible
       ? [{ id: 'ad-choices', icon: 'visibility' as const, label: 'Privacy & Ad Choices', subtitle: 'Review your ad consent', action: () => void openPrivacyOptions() }]
       : []),

@@ -300,6 +300,18 @@ held until `grantWelcomeBonus` (idempotent) runs on verification. Existing accou
 accounts are verified at creation. The local test domain lives only in `TEST_EMAIL_DOMAIN` (never in source or docs) and
 `isTestEmail` is false on any non-local database: never branch on a literal domain. New online/social actions must call the gate.
 
+### Crash reporting — `src/lib/crashReporting.ts` / `server/src/monitoring.ts`
+
+Sentry, **anonymous by policy** (`docs/privacy-policy.html` Section 2j): no user id, email, name,
+headers, bodies or tokens are ever sent, and that is enforced centrally in `beforeSend` /
+`beforeBreadcrumb` (app) and `dataCollection` + `beforeSend` (server), not at call sites. The app
+SDK is imported ONLY by `src/lib/crashReporting.ts` (`crashReporting.web.ts` is the web stub, same
+rule as `src/lib/ads`); everything else calls its helpers (`reportError`, `setCrashTags`,
+`addCrashBreadcrumb`). It does nothing in `__DEV__` or without `EXPO_PUBLIC_SENTRY_DSN`; the server
+does nothing without `SENTRY_DSN`. Never add a tag or breadcrumb carrying a player id/email/name:
+if the privacy policy's description of what is sent changes, update it in the same change.
+Details: root `README.md` → "Crash reporting", `server/README.md` → "Crash reporting".
+
 ### Sound — `src/lib/soundEffects.ts` / `src/lib/backgroundMusic.ts`
 
 Six short gameplay SFX (move/capture/castle/check/checkmate/illegal) plus

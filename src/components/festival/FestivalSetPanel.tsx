@@ -10,6 +10,7 @@ import type { BotDifficulty } from '@/hooks/useChessGame';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { cashOutFestival } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
+import { reportError } from '@/lib/crashReporting';
 import { FESTIVAL_ERROR_COPY, festivalMatchParams, getFestivalUpdate, startFestivalSet, subscribeFestival, type FestivalUpdate } from '@/lib/festival';
 import type { QueueMatchedPayload } from '@/lib/onlineMatch';
 
@@ -71,7 +72,7 @@ export function FestivalSetPanel({ matchId }: { matchId: string }) {
       setCashed(result.payout);
       refresh();
     } catch (error) {
-      console.log('Cash out failed', error);
+      reportError(error, { area: 'festival-cash-out' });
       Alert.alert('Could not cash out', 'Please try again from the Festival screen.');
     } finally {
       setBusy(false);

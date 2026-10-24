@@ -13,6 +13,7 @@ import { useFestival } from '@/hooks/useFestival';
 import type { BotDifficulty } from '@/hooks/useChessGame';
 import { cashOutFestival, enterFestival, recoverFestivalRun, type FestivalRunView, type FestivalTierView } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
+import { reportError } from '@/lib/crashReporting';
 import { FESTIVAL_ERROR_COPY, festivalMatchParams, rejoinFestivalSet, startFestivalSet } from '@/lib/festival';
 import type { QueueMatchedPayload } from '@/lib/onlineMatch';
 
@@ -85,7 +86,7 @@ export default function FestivalScreen() {
             await cashOutFestival(token, run.id);
             refresh();
           } catch (e) {
-            console.log('Cash out failed', e);
+            reportError(e, { area: 'festival-cash-out' });
             Alert.alert('Could not cash out', 'Please try again.');
           } finally {
             await reload();

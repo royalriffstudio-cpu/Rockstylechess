@@ -32,7 +32,17 @@ esac
 export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
 export PATH="$JAVA_HOME/bin:$PATH"
 
+# Sentry: .env.sentry (gitignored) holds SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT / SENTRY_URL.
+# With it, the Gradle plugin uploads source maps + native symbols so crash stack traces are readable;
+# without it the build still succeeds (nothing is uploaded). Never print the token.
+if [ -f "$ROOT/.env.sentry" ]; then
+  set -a; source "$ROOT/.env.sentry"; set +a
+fi
+export SENTRY_ALLOW_FAILURE=true
+if [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then SENTRY_STATE="upload enabled (${SENTRY_ORG:-?}/${SENTRY_PROJECT:-?})"; else SENTRY_STATE="no token -- source maps will NOT be uploaded"; fi
+
 echo "mode:    $MODE ($ABIS)"
+echo "sentry:  $SENTRY_STATE"
 echo "server:  $(grep -E '^EXPO_PUBLIC_SERVER_URL=' "$ROOT/.env" 2>/dev/null || echo 'EXPO_PUBLIC_SERVER_URL not set in .env')"
 
 cd "$ROOT/android"

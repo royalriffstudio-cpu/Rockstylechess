@@ -1,4 +1,5 @@
 import './env.js';
+import { flushMonitoring, reportError, setupExpressMonitoring } from './monitoring.js';
 
 import { toNodeHandler } from 'better-auth/node';
 import cors from 'cors';
@@ -154,6 +155,8 @@ app.all('/api/auth/*', toNodeHandler(auth));
 app.use(express.json());
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use(authRouter);
+// Reports unhandled route errors (5xx) to Sentry; must come before the last-resort handler below.
+setupExpressMonitoring(app);
 
 // Last-resort net for anything asyncHandler forwards (auth.ts) -- turns an
 // unhandled request-time failure (e.g. the DB being unreachable) into a 500
@@ -254,7 +257,7 @@ function finishMatch(
   const rematch = opts.forceRefund ? null : snapshotForRematch(match);
   endMatchClean(match.id);
   const task: Promise<void> = settleAndPersist(match, type, winnerColor, opts.forceRefund === true, rematch)
-    .catch((err) => console.error('match persistence failed', err))
+    .catch((err) => reportError(err, { area: 'match-persistence', matchId: match.id }))
     .finally(() => pendingSettlements.delete(task));
   pendingSettlements.add(task);
   return task;
@@ -316,7 +319,7 @@ async function withRetry<T>(task: () => Promise<T>, attempts = 3): Promise<T | n
     try {
       return await task();
     } catch (error) {
-      console.error(`festival settlement attempt ${i} failed`, error);
+      reportError(error, { area: 'festival-settle', attempt: i });
       await new Promise((resolve) => setTimeout(resolve, 250 * i));
     }
   }
@@ -376,7 +379,7 @@ async function settleFestivalSet(match: MatchState, type: EndType, winnerColor: 
         emitToUser(userId, 'progression:update', applied.progression);
       }
     } catch (error) {
-      console.error('festival set rewards failed', error);
+      reportError(error, { area: 'festival-rewards', matchId: match.id });
     }
   }
 
@@ -413,17 +416,17 @@ async function botTurn(match: MatchState): Promise<void> {
     // The set may have ended (resign, flag, disconnect) while the engine was thinking.
     if (getMatch(match.id) !== match || match.chess.turn() !== bot.color) return;
     if (!move) {
-      console.error('server bot returned no move in a live position', match.chess.fen());
+      reportError(new Error('server bot returned no move in a live position'), { area: 'server-bot', fen: match.chess.fen() });
       return;
     }
     const chess = applyMove(match, bot.color, { from: move.from, to: move.to, promotion: move.promotion });
     if (!chess) {
-      console.error('server bot produced an illegal move', move, match.chess.fen());
+      reportError(new Error(`server bot produced an illegal move ${JSON.stringify(move)}`), { area: 'server-bot', fen: match.chess.fen() });
       return;
     }
     afterAppliedMove(match, chess, { from: move.from, to: move.to, promotion: move.promotion });
   } catch (error) {
-    console.error('bot turn failed', error);
+    reportError(error, { area: 'bot-turn', matchId: match.id });
   } finally {
     bot.thinking = false;
   }
@@ -536,7 +539,7 @@ async function startPairedMatch(waiting: QueuedPlayer, joiner: QueuedPlayer, tie
   try {
     escrow = await escrowWager(matchId, tier, white.userId as string, black.userId as string, { white: white.insured, black: black.insured });
   } catch (error) {
-    console.error('wager escrow failed', error);
+    reportError(error, { area: 'wager-escrow', tier });
     if (opts.rematch) failRematch('unavailable');
     else for (const p of [waiting, joiner]) io.to(p.socketId).emit('queue:error', { reason: 'unavailable' });
     return;
@@ -567,7 +570,7 @@ async function startPairedMatch(waiting: QueuedPlayer, joiner: QueuedPlayer, tie
       wager: { venueTier: tier, buyIn: stake.buyIn, prize: stake.prize },
     });
   } catch (error) {
-    console.error('createMatch failed after escrow -- refunding', error);
+    reportError(error, { area: 'wager-create-after-escrow', tier });
     await settleWagerWithRetry(matchId, { resultType: 'draw', winnerUserId: null, plies: 0, forceRefund: true });
     for (const p of [waiting, joiner]) io.to(p.socketId).emit('queue:error', { reason: 'unavailable' });
     return;
@@ -688,7 +691,7 @@ async function startRematch(window: RematchWindow): Promise<void> {
       }),
     );
   } catch (error) {
-    console.error('rematch failed to start', error);
+    reportError(error, { area: 'rematch' });
     fail('unavailable');
   }
 }
@@ -1141,7 +1144,7 @@ io.on('connection', (socket: Socket) => {
     try {
       run = await beginSet(uid, payload.runId, matchId);
     } catch (error) {
-      console.error('festival beginSet failed', error);
+      reportError(error, { area: 'festival-begin-set' });
       return fail('unavailable');
     }
     if (!run) return fail('not-ready');
@@ -1178,7 +1181,7 @@ io.on('connection', (socket: Socket) => {
       );
       notifyFestivalMatched(match);
     } catch (error) {
-      console.error('festival set creation failed -- releasing the set', error);
+      reportError(error, { area: 'festival-set-creation' });
       await revertSet(run.id, matchId).catch((e) => console.error('festival revert failed', e));
       fail('unavailable');
     }
@@ -1471,7 +1474,7 @@ const sweeper = setInterval(() => {
     .then((refunded) => {
       if (refunded > 0) console.log(`Refunded ${refunded} stale wager(s)`);
     })
-    .catch((err) => console.error('wager sweep failed', err));
+    .catch((err) => reportError(err, { area: 'wager-sweep' }));
 }, 2 * 60_000);
 sweeper.unref();
 
@@ -1483,7 +1486,7 @@ const runSweeper = setInterval(() => {
       for (const r of resolved) emitInterrupted(r);
       if (resolved.length > 0) console.log(`Resolved ${resolved.length} stale festival run(s)`);
     })
-    .catch((err) => console.error('festival sweep failed', err));
+    .catch((err) => reportError(err, { area: 'festival-sweep' }));
 }, 2 * 60_000);
 runSweeper.unref();
 
@@ -1503,6 +1506,7 @@ async function shutdown(signal: string): Promise<void> {
     });
   }
   await Promise.race([Promise.allSettled([...pendingSettlements]), new Promise((resolve) => setTimeout(resolve, 8_000))]);
+  await flushMonitoring(2000);
   httpServer.close();
   process.exit(0);
 }
