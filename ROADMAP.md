@@ -60,7 +60,7 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 - [ ] Make a Resend account, add the domain, copy its DNS records (SPF/DKIM) into the registrar, wait until Resend shows "Verified".
 - [ ] Create a Resend API key.
 - [ ] `cd server && npm run db:migrate:remote` (migration 0022) **before** deploying; it grandfathers existing accounts.
-- [ ] Railway variables: `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Rockstyle Chess <no-reply@yourdomain.com>`), then `EMAIL_GATE=1` **last**.
+- [ ] Railway variables: `RESEND_API_KEY`, `MAIL_FROM` (e.g. `Rockstyle Chess <no-reply@yourdomain.com>`), then `EMAIL_GATE=1` **last**. The Terms of Service (Section 2) state that email accounts must confirm their address, so set this before publishing the updated `docs/`.
 - [ ] Deploy, then test with a real address: sign up, receive the code, verify (welcome bonus arrives), and try Forgot Password.
 - Do not set `EMAIL_GATE=1` before mail works, or new players wait on a code that never arrives. Until then everything behaves as before.
 
