@@ -10,6 +10,7 @@ import type { BotDifficulty } from '@/hooks/useChessGame';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { cashOutFestival } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
+import { celebrate } from '@/lib/celebration';
 import { reportError } from '@/lib/crashReporting';
 import { FESTIVAL_ERROR_COPY, festivalMatchParams, getFestivalUpdate, startFestivalSet, subscribeFestival, type FestivalUpdate } from '@/lib/festival';
 import type { QueueMatchedPayload } from '@/lib/onlineMatch';
@@ -46,6 +47,13 @@ export function FestivalSetPanel({ matchId }: { matchId: string }) {
   }, [matchId, refresh]);
 
   const run = update?.run;
+
+  // The "Run over" moment: the purse is gone. Once per panel (this screen mounts per finished set), whether the
+  // update was already cached or arrives a moment later.
+  const lost = update?.kind === 'lost';
+  useEffect(() => {
+    if (lost) celebrate('runOver');
+  }, [lost]);
 
   function openSet(payload: QueueMatchedPayload) {
     router.replace({ pathname: '/match', params: festivalMatchParams(payload) });
