@@ -34,8 +34,8 @@ mounted at `/api/auth/*` (e.g. `POST /api/auth/sign-up/email`,
 `player_profiles` row and its friend code. Sessions are verified by
 `authMiddleware.ts` for both REST (`requireAuth`) and Socket.IO connections
 (`socketAuth`, via `socket.handshake.auth.token`). **Google sign-in** is a second route in
-(`socialProviders.google`, present only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set; browser flow,
-redirect URI `${BETTER_AUTH_URL}/api/auth/callback/google`, `/sign-in/social` limited to 10/min): same
+(`socialProviders.google`, present only when `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set; the app signs in natively and posts a Google ID token to `/sign-in/social` (audience = the Web client ID);
+the browser flow with redirect URI `${BETTER_AUTH_URL}/api/auth/callback/google`, `/sign-in/social` limited to 10/min): same
 `users`/`account` tables (no migration), same create hook, same bearer session. Existing email/password users are
 deliberately not auto-linked (better-auth refuses while their email is unverified); a signed-in user links Google
 through `/link-social`. `GET /me/profile` also returns `email` and `signInMethods` for Account Security. Email verification and password reset are described in "Email verification" below. A socket

@@ -9,8 +9,9 @@ import { getCountryName } from '@/constants/countries';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { deleteAccount, updateProfile } from '@/lib/api';
+import { signOutGoogle } from '@/lib/googleSignIn';
 import { clearAuthToken, getAuthToken } from '@/lib/authStorage';
-import { linkGoogleAccount } from '@/lib/authClient';
+import { GoogleCancelledError, linkGoogleAccount } from '@/lib/authClient';
 import { setGuestMode } from '@/lib/guestMode';
 import { clearSocketAuth } from '@/lib/socket';
 
@@ -28,7 +29,7 @@ export default function AccountSecurityScreen() {
     { id: 'google', name: 'Google', detail: methods.includes('google') ? 'Connected' : 'Not linked', linked: methods.includes('google') },
   ];
 
-  // Opens Google in the browser tab; whether it worked is read back from the profile (cancelled = still unlinked).
+  // Shows Google's account chooser; whether it worked is read back from the profile (cancelled = still unlinked).
   async function handleLinkGoogle() {
     if (linking) return;
     setLinking(true);
@@ -38,6 +39,7 @@ export default function AccountSecurityScreen() {
       await linkGoogleAccount(token);
       await refreshPlayerProfile();
     } catch (error) {
+      if (error instanceof GoogleCancelledError) return;
       console.log('Google link failed', error);
       Alert.alert('Could not link Google', error instanceof Error ? error.message : 'Please try again.');
     } finally {
@@ -70,6 +72,7 @@ export default function AccountSecurityScreen() {
       }
       await deleteAccount(token);
       await clearAuthToken();
+      void signOutGoogle(); // forget the Google account on this device too
       await setGuestMode(false);
       clearSocketAuth();
       // Same as control-core.tsx's logout -- resets the shared profile

@@ -50,7 +50,7 @@ Feature documentation lives elsewhere: `README.md` (overview, setup, builds), `s
 | 15 | No analytics (funnel, retention, economy sinks/sources) to tune `economy.config.json` against | client |
 | 16 | No CI and no automated tests; the money paths (wagers, festival, IAP, `grantFame`) need them first | repo |
 | 17 | Release build is not minified (R8 off by default) | `android/` via `expo-build-properties` |
-| 18 | Google sign-in is built (browser flow) but **needs the Google Cloud OAuth setup** (README "Google sign-in": consent screen published, Web client, redirect URI, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` on Railway) and a real-device test; there is still no Apple/Facebook (dropped on purpose) | `server/src/betterAuth.ts`, `src/lib/authClient.ts` |
+| 18 | Google sign-in is built (native account chooser) but **needs the Google Cloud OAuth setup** (README "Google sign-in": consent screen published, Web client, Android client with the SHA-1 of `release.jks` and later the Play App Signing key, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` on Railway, `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `.env`) and a real-device test; there is still no Apple/Facebook (dropped on purpose) | `server/src/betterAuth.ts`, `src/lib/authClient.ts` |
 | 19 | Control Core's Language row only `console.log`s (Terms of Service now opens the live page; Privacy Policy has no row of its own, only the sign-up link) | `src/app/(settings)/control-core.tsx` |
 | 20 | No i18n, and no `accessibilityLabel` anywhere | client |
 | 21 | iOS is not shippable (no `bundleIdentifier`, Google-only IAP, test AdMob iOS id). Fine for an Android-only launch | `app.json` |

@@ -303,8 +303,11 @@ and non-existent domains) are always on.
 
 ### Google sign-in (one-time setup)
 
-The code is complete and uses the browser flow (Chrome Custom Tab; no native module, no SHA-1s). Until the two
-server variables below are set, the Google button just reports "not available" and email/password is unaffected.
+The code is complete and uses the **native Google account chooser** (`@react-native-google-signin/google-signin`,
+wrapped by `src/lib/googleSignIn.ts`; no browser). The app gets a Google ID token and the server verifies it against the
+Web client ID (`signIn.social` with `idToken`). It needs a native build (not Expo Go). Until the variables below are
+set, the Google button just reports "not available" and email/password is unaffected. The old browser redirect route
+still exists on the server for builds that were installed before this change.
 
 1. Google Cloud Console -> OAuth consent screen: External, app name + support email, scopes `openid`, `email`,
    `profile` only (no Google review). Publish it ("In production"), otherwise only listed test users can sign in.
@@ -313,7 +316,14 @@ server variables below are set, the Google button just reports "not available" a
    `http://localhost:4000/api/auth/callback/google`.
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on Railway (and in `server/.env` locally). `BETTER_AUTH_URL`
    must be the real public URL, because it builds that redirect URI (a mismatch is Google's `redirect_uri_mismatch`).
-4. Existing email/password players are not auto-linked (their email is unverified, and linking on it would allow
+4. Credentials -> OAuth client ID -> **Android**: package `com.rockstylechess.app` plus the **SHA-1 of every key that
+   signs a build**: `keytool -list -v -keystore android/app/release.jks` (local release builds), the debug keystore if
+   you want debug builds to work, and, once the app exists in Play Console, the **Play App Signing** key (Setup ->
+   App signing) and the upload key. A missing SHA-1 shows up as Google's `DEVELOPER_ERROR` (code 10) and the app says
+   Google sign-in isn't available in this version.
+5. Put the **Web** client ID in the app's root `.env` as `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (same value as the server's
+   `GOOGLE_CLIENT_ID`; the ID token's audience is the Web client) and rebuild (`bash scripts/build-apk.sh`).
+6. Existing email/password players are not auto-linked (their email is unverified, and linking on it would allow
    account takeover); they sign in with their password and tap **Link Now** under Account Security.
 
 ### Push notifications (one-time setup)
@@ -380,9 +390,10 @@ All prices and payouts come from `economy.config.json` (see `server/README.md` �
 ## Progression
 
 Fame/levels/titles and the post-match Show Report: `server/README.md` → "Progression". The
-celebration sounds (`assets/sounds/level-up.wav`, `reward.wav`, `title.wav`) are synthesised
-placeholders from `node scripts/gen-celebration-sounds.mjs` — drop real audio over the same
-filenames to replace them. Haptics need `expo-haptics` (native rebuild); web has no haptics.
+celebration sounds (`level-up`, `reward`, `title`, `run-over` in `assets/sounds/`) are the real recordings:
+put a new one at `<name>_raw.wav` and run `node scripts/process-celebration-sounds.mjs` (needs ffmpeg), which trims
+the leading silence and tail, fades, converts to 16-bit/44.1 kHz and normalises loudness to a per-cue target with a
+-1 dBFS peak ceiling, writing `<name>.wav`. The old synthesiser (`gen-celebration-sounds.mjs`) is disabled. Haptics need `expo-haptics` (native rebuild); web has no haptics.
 
 ## Venues and wagers
 

@@ -4,6 +4,8 @@ import { emailOTPClient } from 'better-auth/client/plugins';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { getGoogleIdToken } from '@/lib/googleSignIn';
+
 // Baked into the client bundle at build time -- matches api.ts/socket.ts's
 // own EXPO_PUBLIC_SERVER_URL fallback so all three point at the same server.
 const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'http://localhost:4000';
@@ -89,45 +91,40 @@ export async function signInWithEmail(email: string, password: string): Promise<
   return { token };
 }
 
-// --- Google (browser flow) -----------------------------------------------------------------------------
-// Opens Google in a Chrome Custom Tab through expoClient; on return it holds the session as a cookie. The rest of
-// the app (api.ts, socket.ts, authStorage.ts) works on a bearer token instead, and the bearer plugin accepts the
-// signed session cookie value as one, so that value is lifted out here and the cookie is dropped again -- one
-// source of truth, and logout only has to clear authStorage.
-const COOKIE_STORAGE_KEY = 'rockstylechess_cookie'; // `${storagePrefix}_cookie`, see expoClient
+// --- Google (native account chooser) --------------------------------------------------------------------
+// googleSignIn.ts shows Google's own account sheet and returns an ID token; the server checks it (signature, audience,
+// expiry) and answers like any other sign-in, with the session in the `set-auth-token` header.
+export { GoogleCancelledError } from '@/lib/googleSignIn';
 
-function takeSessionToken(): string | null {
-  const cookie = authClient.getCookie();
-  const token = cookie.match(/session_token=([^;]+)/)?.[1] ?? null;
-  syncStorage.setItem(COOKIE_STORAGE_KEY, '{}');
-  return token;
-}
+const GOOGLE_LINK_HINT =
+  "Couldn't sign in with Google. If you already have an account with this email, sign in with your password and link Google in Account Security.";
 
 export async function signInWithGoogle(): Promise<{ token: string }> {
-  if (Platform.OS === 'web') throw new Error('Google sign-in is available in the mobile app.');
-  syncStorage.setItem(COOKIE_STORAGE_KEY, '{}'); // never send a stale cookie into a fresh sign-in
-  const { error } = await authClient.signIn.social({ provider: 'google', callbackURL: '/' });
-  if (error) throw new Error("Google sign-in isn't available right now. Please try again later.");
-  const token = takeSessionToken();
-  // No session after the tab closed: cancelled, refused, or the email already belongs to a password account.
-  if (!token) {
-    throw new Error(
-      "Couldn't sign in with Google. If you already have an account with this email, sign in with your password and link Google in Account Security.",
-    );
-  }
+  const idToken = await getGoogleIdToken();
+  let token: string | null = null;
+  const { error } = await authClient.signIn.social(
+    { provider: 'google', idToken: { token: idToken } },
+    { onSuccess: (ctx) => { token = extractToken(ctx.response.headers); } },
+  );
+  // Refused: typically the email already belongs to a password account (those are linked from Account Security).
+  if (error || !token) throw new Error(error?.status === 401 || error?.status === 403 ? GOOGLE_LINK_HINT : "Google sign-in isn't available right now. Please try again later.");
   return { token };
 }
 
-/** Link Google to the account behind `token` (signed in with a password). Resolves once the tab has closed; re-read the profile for the result. */
+/** Link Google to the account behind `token` (signed in with a password); re-read the profile afterwards for the result. */
 export async function linkGoogleAccount(token: string): Promise<void> {
-  if (Platform.OS === 'web') throw new Error('Linking Google is available in the mobile app.');
-  syncStorage.setItem(COOKIE_STORAGE_KEY, '{}');
+  const idToken = await getGoogleIdToken();
   const { error } = await authClient.linkSocial(
-    { provider: 'google', callbackURL: '/' },
+    { provider: 'google', idToken: { token: idToken } },
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  syncStorage.setItem(COOKIE_STORAGE_KEY, '{}');
-  if (error) throw new Error("Couldn't start Google linking. Please try again later.");
+  if (error) {
+    throw new Error(
+      error.status === 401 || error.status === 403
+        ? 'That Google account has a different email from this account, or is already linked to another one.'
+        : "Couldn't link Google. Please try again later.",
+    );
+  }
 }
 
 // --- Email codes (verify + password reset) -------------------------------------------------------------

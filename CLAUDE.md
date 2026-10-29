@@ -144,7 +144,10 @@ move fields; anything ambiguous (reset, puzzle retry, non-forward replay
 scrub) falls back to `resyncFromBoard`, which snaps instantly instead of
 animating. Dragging reuses the same persistent piece (no separate ghost
 component) via a `draggingIdSV` shared value read directly in the
-`useAnimatedStyle` worklet. Per-move-kind travel timing, captures fading
+`useAnimatedStyle` worklet; only the dragged piece is handed the real
+`dragX`/`dragY` (the other 31 get a never-written shared value), so a finger
+move re-runs one worklet, not 32. Taps and drags go through ONE board-wide
+gesture that derives the square from the touch position. Per-move-kind travel timing, captures fading
 out, and check/checkmate flourishes are all keyed off `lastMoveSound`
 (`src/lib/chessBoardSnapshot.ts`'s `classifyMoveSound`), which also drives
 which sound effect plays — animation and audio are driven by the same value
@@ -277,6 +280,15 @@ ids are the default until real ones are set — a Play Store build must not ship
 them. "Remove Ads" is a non-consumable entitlement (`ads_removed`, acknowledge-only
 verify path). Full detail: root `README.md` → "Ads", `server/README.md` → "Ads".
 
+### Google sign-in — `src/lib/googleSignIn.ts` / `src/lib/authClient.ts`
+
+Native account chooser (`@react-native-google-signin/google-signin`), not a browser. The SDK is imported ONLY by
+`src/lib/googleSignIn.ts` (`googleSignIn.web.ts` is the web stub, same rule as `src/lib/ads`). It returns a Google ID
+token; `signInWithGoogle` / `linkGoogleAccount` in `authClient.ts` send it to better-auth (`signIn.social` /
+`linkSocial` with `idToken`), whose audience check is the server's `GOOGLE_CLIENT_ID` (the Web client). Account
+rules (verified email, no auto-link of password accounts, welcome bonus) live server-side and are unchanged. Setup
+(Android OAuth client + SHA-1s): root `README.md` -> "Google sign-in".
+
 ### Push notifications — `server/src/push.ts` / `src/lib/pushNotifications/`
 
 Expo Push Service (Android first). `src/lib/pushNotifications/index.ts` is the only file that imports
@@ -315,9 +327,9 @@ Details: root `README.md` → "Crash reporting", `server/README.md` → "Crash r
 ### Sound — `src/lib/soundEffects.ts` / `src/lib/backgroundMusic.ts`
 
 Six short gameplay SFX (move/capture/castle/check/checkmate/illegal) plus
-three celebration cues (level-up/reward/title, played by
+four celebration cues (level-up/reward/title/run-over, played by
 `src/lib/celebration.ts`), each a pre-instantiated `expo-audio` `AudioPlayer`
-in `soundEffects.ts` (eager, no pooling — chess is turn-sequential). Menu
+in `soundEffects.ts` (eager, no pooling — chess is turn-sequential). The celebration wavs are produced from `*_raw.wav` by `scripts/process-celebration-sounds.mjs` — edit the raw, rerun, don't hand-edit the output. Menu
 music (three tracks played in a fixed cycle) is lazily created instead.
 Both toggle off a persisted preference; the root layout
 (`src/app/_layout.tsx`) starts/stops menu music by exact route (not route

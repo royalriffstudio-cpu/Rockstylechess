@@ -119,8 +119,8 @@ match, puzzle, replay, and cosmetic-preview board in the app. Key mechanics:
 ## 4. Audio Integration
 
 - **Sound effects** (`src/lib/soundEffects.ts`): six gameplay cues — `move`,
-  `capture`, `castle`, `check`, `checkmate`, `illegal` — plus three celebration
-  cues (`level-up`, `reward`, `title`, played by `src/lib/celebration.ts` with
+  `capture`, `castle`, `check`, `checkmate`, `illegal` — plus four celebration
+  cues (`level-up`, `reward`, `title`, `run-over` (a lost Festival run), played by `src/lib/celebration.ts` with
   haptics). Each has its own
   pre-instantiated `expo-audio` `AudioPlayer` (eager, one per cue — chess is
   turn-sequential, so no pooling/overlap handling is needed). `playSound(kind)`

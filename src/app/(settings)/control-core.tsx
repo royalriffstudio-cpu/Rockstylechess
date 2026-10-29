@@ -14,6 +14,7 @@ import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { usePushPreferences } from '@/hooks/usePushPreferences';
 import { initAds, isPrivacyOptionsRequired, openPrivacyOptions } from '@/lib/ads';
 import { loadMusicPreference, setMusicEnabled } from '@/lib/backgroundMusic';
+import { signOutGoogle } from '@/lib/googleSignIn';
 import { clearAuthToken } from '@/lib/authStorage';
 import { setGuestMode } from '@/lib/guestMode';
 import { openPushSettings } from '@/lib/pushNotifications';
@@ -114,6 +115,7 @@ export default function ControlCoreScreen() {
     // Needs the auth token, so before it is cleared: stops this phone buzzing for the account that just left.
     await unregisterThisDevice();
     await clearAuthToken();
+    void signOutGoogle(); // forget the Google account on this device too
     // Clear the explicit-guest latch too, so the next launch shows the
     // sign-in gate rather than silently dropping back into guest mode.
     await setGuestMode(false);

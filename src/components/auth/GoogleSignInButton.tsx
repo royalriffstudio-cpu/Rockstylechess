@@ -7,7 +7,7 @@ import { RockButton } from '@/components/ui';
 import { Colors } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { getMyProfile } from '@/lib/api';
-import { signInWithGoogle } from '@/lib/authClient';
+import { GoogleCancelledError, signInWithGoogle } from '@/lib/authClient';
 import { setAuthToken } from '@/lib/authStorage';
 import { setGuestMode } from '@/lib/guestMode';
 import { reauthenticateSocket } from '@/lib/socket';
@@ -40,7 +40,7 @@ export function GoogleSignInButton() {
       refreshPlayerProfile();
       router.replace(needsOnboarding ? '/pick-rockstar' : '/home');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
+      if (!(error instanceof GoogleCancelledError)) setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
     } finally {
       setBusy(false);
     }
@@ -49,7 +49,7 @@ export function GoogleSignInButton() {
   return (
     <View className="gap-sm">
       <RockButton
-        label={busy ? 'Opening Google...' : 'Continue with Google'}
+        label={busy ? 'Signing in...' : 'Continue with Google'}
         variant="secondary"
         disabled={busy}
         icon={<MaterialCommunityIcons name="google" size={20} color={Colors.textPrimary} />}

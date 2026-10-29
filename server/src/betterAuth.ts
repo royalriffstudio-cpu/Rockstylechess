@@ -25,7 +25,8 @@ if (!BETTER_AUTH_SECRET) {
 const TEST_ACCOUNT_CHIPS = 100_000;
 const TEST_ACCOUNT_GEMS = 100_000;
 
-// "Continue with Google" (browser flow through @better-auth/expo). The provider only exists when both values are
+// "Continue with Google". The app signs in natively (src/lib/googleSignIn.ts) and posts a Google ID token whose audience is
+// the Web client ID below; the browser redirect flow through @better-auth/expo still works for older builds. The provider only exists when both values are
 // set, so a server without them (local dev, CI) behaves exactly as before and the sign-in route just errors.
 // The redirect URI to register in Google Cloud is `${BETTER_AUTH_URL}/api/auth/callback/google`. Existing
 // email/password accounts are deliberately NOT auto-linked (better-auth refuses while their email is unverified);
