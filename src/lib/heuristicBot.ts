@@ -130,8 +130,29 @@ function evaluate(chess: Chess): number {
   return chess.turn() === 'w' ? whiteScore : -whiteScore;
 }
 
-function orderedMoves(chess: Chess) {
-  return chess.moves({ verbose: true }).sort((a, b) => Number(b.isCapture()) - Number(a.isCapture()));
+// The search works on plain SAN strings (chess.moves() / chess.move(san)), never
+// on chess.js's verbose Move objects: building those recomputes every legal
+// move plus the before/after FEN of each, which measured ~20x slower than the
+// plain list (5.7 ms vs 0.28 ms for 51 moves) and would be paid at every node.
+function isCaptureSan(san: string): boolean {
+  return san.includes('x');
+}
+
+// Captures first (stable, so quiet moves keep chess.js's own order).
+function orderedMoves(chess: Chess): string[] {
+  const captures: string[] = [];
+  const quiet: string[] = [];
+  for (const san of chess.moves()) (isCaptureSan(san) ? captures : quiet).push(san);
+  return captures.concat(quiet);
+}
+
+// Value of the piece a capture SAN takes ("Nxe5", "exd6", "bxa8=Q+"): whatever
+// stands on the destination square, or a pawn for en passant (empty square).
+const SAN_DESTINATION = /([a-h][1-8])(?:=[QRBN])?[+#]?$/;
+function capturedValue(chess: Chess, san: string): number {
+  const match = SAN_DESTINATION.exec(san);
+  const victim = match ? chess.get(match[1] as Parameters<Chess['get']>[0]) : undefined;
+  return PIECE_VALUES[victim?.type ?? 'p'];
 }
 
 interface SearchState {
@@ -140,11 +161,10 @@ interface SearchState {
   aborted: boolean;
 }
 
-// Checking every node would cost more than it saves (Date.now() isn't free
-// at that frequency); checking too rarely risks overshooting the budget by a
-// visible amount. Every 32 nodes is a reasonable middle ground.
-const DEADLINE_CHECK_INTERVAL = 32;
-
+// The deadline is checked at every node. A node costs a move generation
+// (~0.3 ms on desktop, several times that on a budget phone), which dwarfs
+// Date.now(); checking only every N nodes let a slow device overshoot the
+// budget by N nodes' worth -- over a second at N = 32.
 // A plain fixed-depth search that stops dead at a leaf mid-capture-sequence
 // suffers the classic "horizon effect": it happily grabs a piece that gets
 // recaptured one ply past where it stopped looking, because the static eval
@@ -159,9 +179,7 @@ const QUIESCENCE_MAX_PLY = 4;
 
 function quiescence(chess: Chess, alpha: number, beta: number, state: SearchState, qDepth: number): number {
   state.nodeCount += 1;
-  if (!state.aborted && state.nodeCount % DEADLINE_CHECK_INTERVAL === 0 && Date.now() > state.deadline) {
-    state.aborted = true;
-  }
+  if (!state.aborted && Date.now() > state.deadline) state.aborted = true;
   const standPat = evaluate(chess);
   if (state.aborted || qDepth <= 0) return standPat;
   if (standPat >= beta) return beta;
@@ -170,12 +188,13 @@ function quiescence(chess: Chess, alpha: number, beta: number, state: SearchStat
   // MVV ordering (highest-value victim first) so the strongest refutation of
   // a bad capture is found early and prunes the rest via the beta cutoff.
   const captures = chess
-    .moves({ verbose: true })
-    .filter((move) => move.isCapture())
-    .sort((a, b) => PIECE_VALUES[b.captured ?? 'p'] - PIECE_VALUES[a.captured ?? 'p']);
+    .moves()
+    .filter(isCaptureSan)
+    .map((san) => ({ san, value: capturedValue(chess, san) }))
+    .sort((a, b) => b.value - a.value);
 
-  for (const move of captures) {
-    chess.move({ from: move.from, to: move.to, promotion: move.promotion ?? 'q' });
+  for (const { san } of captures) {
+    chess.move(san);
     const score = -quiescence(chess, -beta, -alpha, state, qDepth - 1);
     chess.undo();
     if (state.aborted) break;
@@ -187,9 +206,7 @@ function quiescence(chess: Chess, alpha: number, beta: number, state: SearchStat
 
 function negamax(chess: Chess, depth: number, alpha: number, beta: number, state: SearchState): number {
   state.nodeCount += 1;
-  if (!state.aborted && state.nodeCount % DEADLINE_CHECK_INTERVAL === 0 && Date.now() > state.deadline) {
-    state.aborted = true;
-  }
+  if (!state.aborted && Date.now() > state.deadline) state.aborted = true;
   // Once aborted, every remaining node takes the cheap static-eval fast path
   // (skipping quiescence too) so the search unwinds quickly instead of
   // completing its full depth.
@@ -210,8 +227,8 @@ function negamax(chess: Chess, depth: number, alpha: number, beta: number, state
   if (chess.isDraw()) return 0;
 
   let best = -Infinity;
-  for (const move of moves) {
-    chess.move({ from: move.from, to: move.to, promotion: move.promotion ?? 'q' });
+  for (const san of moves) {
+    chess.move(san);
     const score = -negamax(chess, depth - 1, -beta, -alpha, state);
     chess.undo();
     if (score > best) best = score;
@@ -221,15 +238,21 @@ function negamax(chess: Chess, depth: number, alpha: number, beta: number, state
   return best;
 }
 
-type ScoredMove = { move: ReturnType<typeof orderedMoves>[number]; score: number };
+type ScoredMove = { san: string; score: number };
+
+// Resolves a SAN to the engine's from/to/promotion (once, for the chosen move only).
+function toEngineMove(chess: Chess, san: string): EngineMove {
+  const move = chess.move(san);
+  chess.undo();
+  return { from: move.from, to: move.to, promotion: (move.promotion as EngineMove['promotion']) ?? 'q' };
+}
 
 export function pickHeuristicMove(chess: Chess, maxDepth = HEURISTIC_MAX_SEARCH_DEPTH): EngineMove | null {
   let moves = orderedMoves(chess);
   if (moves.length === 0) return null;
   // Forced move -- searching it would just burn the time budget for nothing.
   if (moves.length === 1) {
-    const only = moves[0];
-    return { from: only.from, to: only.to, promotion: (only.promotion as EngineMove['promotion']) ?? 'q' };
+    return toEngineMove(chess, moves[0]);
   }
 
   const state: SearchState = { deadline: Date.now() + SEARCH_TIME_BUDGET_MS, nodeCount: 0, aborted: false };
@@ -245,8 +268,8 @@ export function pickHeuristicMove(chess: Chess, maxDepth = HEURISTIC_MAX_SEARCH_
     let roundBest = -Infinity;
     const roundScored: ScoredMove[] = [];
 
-    for (const move of moves) {
-      chess.move({ from: move.from, to: move.to, promotion: move.promotion ?? 'q' });
+    for (const san of moves) {
+      chess.move(san);
       // Full (-Infinity, Infinity) window for every root move, deliberately
       // *not* narrowed by a sibling's already-found score -- root moves feed
       // the tied-move randomization below, which needs each one's real
@@ -256,7 +279,7 @@ export function pickHeuristicMove(chess: Chess, maxDepth = HEURISTIC_MAX_SEARCH_
       // root treats every candidate to a full search.
       const score = -negamax(chess, depth - 1, -Infinity, Infinity, state);
       chess.undo();
-      roundScored.push({ move, score });
+      roundScored.push({ san, score });
       if (score > roundBest) roundBest = score;
     }
 
@@ -271,12 +294,12 @@ export function pickHeuristicMove(chess: Chess, maxDepth = HEURISTIC_MAX_SEARCH_
     // Best-first ordering for the next, deeper round -- improves alpha-beta
     // pruning and raises the odds that round also finishes before the
     // deadline.
-    moves = [...roundScored].sort((a, b) => b.score - a.score).map((s) => s.move);
+    moves = [...roundScored].sort((a, b) => b.score - a.score).map((s) => s.san);
   }
 
   // Randomize among near-tied top moves so this bot doesn't always play the
   // exact same reply in a given position.
   const tied = scored.filter((s) => bestScore - s.score <= TIE_TOLERANCE_CP);
   const chosen = tied[Math.floor(Math.random() * tied.length)];
-  return { from: chosen.move.from, to: chosen.move.to, promotion: (chosen.move.promotion as EngineMove['promotion']) ?? 'q' };
+  return toEngineMove(chess, chosen.san);
 }

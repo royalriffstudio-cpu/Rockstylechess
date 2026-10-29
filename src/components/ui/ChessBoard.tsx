@@ -45,6 +45,8 @@ const STARTING_BOARD: string[][] = [
   ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
 ];
 
+const EMPTY_DRAGGABLE: number[] = new Array<number>(64).fill(0);
+
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
 /** Minimal shape ChessBoard needs from a theme -- BoardTheme (constants/boardThemes.ts) satisfies this directly. */
@@ -67,6 +69,10 @@ function squareAt(rowIndex: number, colIndex: number): string {
 // The 64 square ids, built once -- the 8x8 render map indexes this instead of
 // rebuilding `"e4"` strings on every board render.
 const SQUARE_IDS: string[][] = Array.from({ length: 8 }, (_, r) => Array.from({ length: 8 }, (_, c) => squareAt(r, c)));
+/** Canonical square for a flat `row * 8 + col` index (what the board gesture worklets pass to JS). */
+function squareAtIndex(index: number): string {
+  return SQUARE_IDS[index >> 3][index & 7];
+}
 
 // Static frame-gradient inputs, hoisted so the board's render doesn't
 // reallocate these array/object literals every time it re-renders.
@@ -411,11 +417,31 @@ export const ChessBoard = memo(function ChessBoard({
   // so BoardPiece's drag/non-drag render branch switches on the UI thread
   // with no cross-thread latency -- see handleGrab/bakeDraggedPosition below.
   const draggingIdSV = useSharedValue(-1);
+  // The same id as draggingIdSV, mirrored into React state, and a shared value
+  // that is never written. A piece's animated style re-runs whenever ANY shared
+  // value it reads changes, and the drag position changes on every finger
+  // move: if all 32 pieces read it, all 32 worklets run per frame. So only the
+  // piece being dragged is handed the real dragX/dragY (see PieceLayer); the
+  // other 31 get idleDragSV and stay quiet. The piece keeps its identity (same
+  // mounted view and Image) -- unlike a separate overlay, which would mount a
+  // second copy of the heavy piece SVG and risk a blank frame while it decodes.
+  const [draggedId, setDraggedId] = useState(-1);
+  const idleDragSV = useSharedValue(0);
   // true for the exact span of an active pan gesture (set in the Pan worklet's
   // onStart, cleared in onEnd/onFinalize). bakeDraggedPosition reads this to
   // know "a finger is still down" -- a reconcile pass triggered mid-gesture
   // (e.g. the selection commit from onGrab) must NOT bake/clear a live drag.
   const gestureActiveSV = useSharedValue(false);
+  // Read by the single board-wide gesture (below) on the UI thread, so a turn
+  // change or a flip only writes a shared value instead of rebuilding any
+  // gesture: draggableSV[row * 8 + col] is 1 when the canonical square holds
+  // a piece the side to move may pick up.
+  const draggableSV = useSharedValue<number[]>(EMPTY_DRAGGABLE);
+  const flippedSV = useSharedValue(flipped);
+  // Per-gesture scratch: the square under the finger at touch-down (-1 off
+  // board) and whether this pan actually picked a piece up.
+  const downIndexSV = useSharedValue(-1);
+  const grabbedSV = useSharedValue(false);
 
   // Held in a ref so the 64 Square gesture objects don't rebuild every time a
   // selection changes onSquarePress's identity -- rebuilding a Gesture while
@@ -511,6 +537,7 @@ export const ChessBoard = memo(function ChessBoard({
     dragX.value = 0;
     dragY.value = 0;
     draggingIdSV.value = -1;
+    setDraggedId(-1);
     return draggedId;
   }, [draggingIdSV, gestureActiveSV, dragX, dragY, squareSize]);
 
@@ -636,11 +663,10 @@ export const ChessBoard = memo(function ChessBoard({
     setGridSize(Math.min(event.nativeEvent.layout.width, event.nativeEvent.layout.height));
   }, []);
 
-  // Read onSquarePress from a ref so these three keep a stable identity across
-  // selections -- otherwise each 64 Square's composedGesture useMemo (which
-  // lists them as deps) rebuilds every selection, including mid-pan, which can
-  // make RNGH resolve a release against a stale closure. They now only rebuild
-  // on interactive / canDrag / squareSize / square changes.
+  // Read onSquarePress from a ref so these keep a stable identity across
+  // selections -- otherwise the board gesture (which lists them as deps)
+  // rebuilds every selection, including mid-pan, which can make RNGH resolve a
+  // release against a stale closure.
   const handleTapSquare = useCallback((square: string) => {
     onSquarePressRef.current?.(square);
   }, []);
@@ -650,7 +676,10 @@ export const ChessBoard = memo(function ChessBoard({
       dragX.value = 0;
       dragY.value = 0;
       const livePiece = livePiecesRef.current.find((p) => p.square === square);
-      if (livePiece) draggingIdSV.value = livePiece.id;
+      if (livePiece) {
+        draggingIdSV.value = livePiece.id;
+        setDraggedId(livePiece.id);
+      }
       onSquarePressRef.current?.(square);
     },
     [dragX, dragY, draggingIdSV],
@@ -681,6 +710,113 @@ export const ChessBoard = memo(function ChessBoard({
     },
     [settleDraggedPieceHome, bakeDraggedPosition, flipped],
   );
+
+  const handleTapIndex = useCallback((index: number) => handleTapSquare(squareAtIndex(index)), [handleTapSquare]);
+  const handleGrabIndex = useCallback((index: number) => handleGrab(squareAtIndex(index)), [handleGrab]);
+  const handleDropIndex = useCallback(
+    (index: number, deltaRow: number, deltaCol: number) => handleDrop(squareAtIndex(index), deltaRow, deltaCol),
+    [handleDrop],
+  );
+
+  // Which squares hold a piece the side to move may pick up. Layout effect so
+  // it is in place in the same commit as the board it describes.
+  useLayoutEffect(() => {
+    const next = new Array<number>(64).fill(0);
+    if (interactive) {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = board[r][c];
+          if (piece === '') continue;
+          const isWhitePiece = piece === piece.toUpperCase();
+          if (!turn || isWhitePiece === (turn === 'w')) next[r * 8 + c] = 1;
+        }
+      }
+    }
+    draggableSV.value = next;
+    flippedSV.value = flipped;
+  }, [board, turn, interactive, flipped, draggableSV, flippedSV]);
+
+  // ONE tap + pan handler for the whole board; the square comes from the touch
+  // position. It used to be 64 per-square handlers whose `canDrag` flipped on
+  // about half of them every turn, rebuilding ~32 gestures in the same frame
+  // the move animation started. Now nothing here depends on the position: only
+  // `interactive` and the (ref-backed, stable) callbacks rebuild it.
+  const boardGesture = useMemo(() => {
+    const indexAt = (x: number, y: number): number => {
+      'worklet';
+      const size = squareSizeShared.value;
+      if (size <= 0) return -1;
+      const dispCol = Math.floor(x / size);
+      const dispRow = Math.floor(y / size);
+      if (dispCol < 0 || dispCol > 7 || dispRow < 0 || dispRow > 7) return -1;
+      const isFlipped = flippedSV.value;
+      return (isFlipped ? 7 - dispRow : dispRow) * 8 + (isFlipped ? 7 - dispCol : dispCol);
+    };
+
+    const tap = Gesture.Tap()
+      .enabled(interactive)
+      .onBegin((event) => {
+        downIndexSV.value = indexAt(event.x, event.y);
+      })
+      .onEnd((_event, success) => {
+        // The square the finger went DOWN on, not where it lifted.
+        if (success && downIndexSV.value >= 0) runOnJS(handleTapIndex)(downIndexSV.value);
+      });
+
+    const pan = Gesture.Pan()
+      .enabled(interactive)
+      .maxPointers(1)
+      .minDistance(4)
+      .onBegin((event) => {
+        downIndexSV.value = indexAt(event.x, event.y);
+      })
+      .onStart(() => {
+        const index = downIndexSV.value;
+        if (index < 0 || draggableSV.value[index] !== 1) {
+          grabbedSV.value = false; // a swipe from an empty / opponent square does nothing
+          return;
+        }
+        grabbedSV.value = true;
+        gestureActiveSV.value = true;
+        runOnJS(handleGrabIndex)(index);
+      })
+      .onUpdate((event) => {
+        if (!grabbedSV.value) return;
+        dragX.value = event.translationX;
+        dragY.value = event.translationY;
+      })
+      .onEnd((event) => {
+        if (!grabbedSV.value) return;
+        gestureActiveSV.value = false;
+        const size = squareSizeShared.value;
+        const deltaCol = Math.round(event.translationX / size);
+        const deltaRow = Math.round(event.translationY / size);
+        // Deliberately doesn't reset dragX/dragY/draggingIdSV here -- see
+        // bakeDraggedPosition's comment for why that handoff happens on the JS
+        // thread instead, synchronous with whatever state update follows.
+        runOnJS(handleDropIndex)(downIndexSV.value, deltaRow, deltaCol);
+      })
+      // Covers a cancelled / interrupted pan (no onEnd) so the flags can't stick.
+      .onFinalize(() => {
+        gestureActiveSV.value = false;
+        grabbedSV.value = false;
+      });
+
+    return Gesture.Race(pan, tap);
+  }, [
+    interactive,
+    squareSizeShared,
+    flippedSV,
+    draggableSV,
+    downIndexSV,
+    grabbedSV,
+    gestureActiveSV,
+    dragX,
+    dragY,
+    handleTapIndex,
+    handleGrabIndex,
+    handleDropIndex,
+  ]);
 
   return (
     <View style={[styles.boardWrap, style]}>
@@ -719,6 +855,7 @@ export const ChessBoard = memo(function ChessBoard({
             {/* Sized to the exact 8x8 so the sheen and the drag ghost share the
                 grid's coordinate space -- the leftover pixels from flooring sit
                 outside this box, against the frame. */}
+            <GestureDetector gesture={boardGesture}>
             <View style={boardSize > 0 ? { width: boardSize, height: boardSize } : undefined}>
             {/* `board` is iterated in canonical order (rank 8 first, file a
                 first) so `square`/`isLight`/labels stay canonical; when flipped,
@@ -730,14 +867,10 @@ export const ChessBoard = memo(function ChessBoard({
                   {rowPieces.map((piece, colIndex) => {
                     const square = SQUARE_IDS[rowIndex][colIndex];
                     const isLight = (rowIndex + colIndex) % 2 === 0;
-                    const isWhitePiece = piece !== '' && piece === piece.toUpperCase();
-                    const canDrag =
-                      interactive && piece !== '' && (!turn || isWhitePiece === (turn === 'w'));
 
                     return (
                       <Square
                         key={colIndex}
-                        square={square}
                         squareColor={
                           // Screen-fixed: the per-rank tones were sampled with a
                           // top-of-screen light (matching the frame bevel/glow),
@@ -755,14 +888,6 @@ export const ChessBoard = memo(function ChessBoard({
                         showFileLabel={rowIndex === (flipped ? 0 : 7)}
                         fileLabel={FILES[colIndex]}
                         squareSize={squareSize}
-                        interactive={interactive}
-                        canDrag={canDrag}
-                        dragX={dragX}
-                        dragY={dragY}
-                        gestureActiveSV={gestureActiveSV}
-                        onTapSquare={handleTapSquare}
-                        onGrab={handleGrab}
-                        onDrop={handleDrop}
                       />
                     );
                   })}
@@ -799,6 +924,8 @@ export const ChessBoard = memo(function ChessBoard({
                     squareSizeShared={squareSizeShared}
                     pieceSprites={pieceSprites}
                     draggingIdSV={draggingIdSV}
+                    draggedId={draggedId}
+                    idleDragSV={idleDragSV}
                     dragX={dragX}
                     dragY={dragY}
                   />
@@ -818,6 +945,7 @@ export const ChessBoard = memo(function ChessBoard({
               </>
             ) : null}
             </View>
+            </GestureDetector>
           </View>
         </LinearGradient>
       </View>
@@ -858,7 +986,6 @@ function GlowRing({ color, large = false }: { color: string; large?: boolean }) 
 }
 
 interface SquareProps {
-  square: string;
   /** Measured per-rank tone for this square; see BoardSquares in the theme. */
   squareColor: string;
   isLight: boolean;
@@ -872,23 +999,13 @@ interface SquareProps {
   showFileLabel: boolean;
   fileLabel: string;
   squareSize: number;
-  interactive: boolean;
-  canDrag: boolean;
-  dragX: SharedValue<number>;
-  dragY: SharedValue<number>;
-  gestureActiveSV: SharedValue<boolean>;
-  onTapSquare: (square: string) => void;
-  onGrab: (square: string) => void;
-  onDrop: (square: string, deltaRow: number, deltaCol: number) => void;
 }
 
-// Purely a visual/gesture surface -- tint, labels, legal-move dots, gesture
-// hit-target. Renders no piece of its own any more (see PieceLayer/
-// BoardPiece below): gesture ownership deliberately stays here, keyed by
-// stable grid position, rather than moving onto a piece that's animating
-// away from its square mid-drag.
+// Purely visual -- tint, labels, legal-move dots. It renders no piece of its
+// own (see PieceLayer/BoardPiece below) and owns no gesture: the whole board
+// shares one tap + pan handler in ChessBoard that derives the square from the
+// touch position, so a turn change re-renders nothing here.
 const Square = memo(function Square({
-  square,
   squareColor,
   isLight,
   isSelected,
@@ -901,80 +1018,30 @@ const Square = memo(function Square({
   showFileLabel,
   fileLabel,
   squareSize,
-  interactive,
-  canDrag,
-  dragX,
-  dragY,
-  gestureActiveSV,
-  onTapSquare,
-  onGrab,
-  onDrop,
 }: SquareProps) {
   const labelColor = isLight ? withOpacity(Colors.boardEdge, 0.75) : withOpacity(Colors.chrome, 0.65);
 
-  // Rebuilt only when one of these actually changes (canDrag flips as a piece
-  // moves on/off the square, squareSize on a board resize) -- not on every
-  // ChessBoard render, and never mid-pan (the callbacks are ref-backed and
-  // stable), which used to let a selection commit swap the gesture object out
-  // from under an in-flight drag.
-  const composedGesture = useMemo(() => {
-    const tap = Gesture.Tap()
-      .enabled(interactive)
-      .onEnd((_event, success) => {
-        if (success) runOnJS(onTapSquare)(square);
-      });
-
-    const pan = Gesture.Pan()
-      .enabled(canDrag)
-      .minDistance(4)
-      .onStart(() => {
-        gestureActiveSV.value = true;
-        runOnJS(onGrab)(square);
-      })
-      .onUpdate((event) => {
-        dragX.value = event.translationX;
-        dragY.value = event.translationY;
-      })
-      .onEnd((event) => {
-        gestureActiveSV.value = false;
-        const deltaCol = Math.round(event.translationX / squareSize);
-        const deltaRow = Math.round(event.translationY / squareSize);
-        // Deliberately doesn't reset dragX/dragY/draggingIdSV here -- see
-        // bakeDraggedPosition's comment for why that handoff happens on the JS
-        // thread instead, synchronous with whatever state update follows.
-        runOnJS(onDrop)(square, deltaRow, deltaCol);
-      })
-      // Covers a cancelled / interrupted pan (no onEnd) so the flag can't stick.
-      .onFinalize(() => {
-        gestureActiveSV.value = false;
-      });
-
-    return Gesture.Race(pan, tap);
-  }, [interactive, canDrag, squareSize, square, dragX, dragY, gestureActiveSV, onTapSquare, onGrab, onDrop]);
-
   return (
-    <GestureDetector gesture={composedGesture}>
-      <View
-        style={[
-          styles.square,
-          { width: squareSize, height: squareSize, backgroundColor: squareColor },
-        ]}
-      >
-        {isLastMove ? <View style={[StyleSheet.absoluteFill, styles.lastMoveTint]} /> : null}
-        {isSelected ? <View style={[StyleSheet.absoluteFill, styles.selectedTint]} /> : null}
-        {isCheck ? <View style={[StyleSheet.absoluteFill, styles.checkTint]} /> : null}
+    <View
+      style={[
+        styles.square,
+        { width: squareSize, height: squareSize, backgroundColor: squareColor },
+      ]}
+    >
+      {isLastMove ? <View style={[StyleSheet.absoluteFill, styles.lastMoveTint]} /> : null}
+      {isSelected ? <View style={[StyleSheet.absoluteFill, styles.selectedTint]} /> : null}
+      {isCheck ? <View style={[StyleSheet.absoluteFill, styles.checkTint]} /> : null}
 
-        {showRankLabel ? (
-          <Text style={[styles.rankLabel, { color: labelColor }]}>{rankLabel}</Text>
-        ) : null}
-        {showFileLabel ? (
-          <Text style={[styles.fileLabel, { color: labelColor }]}>{fileLabel}</Text>
-        ) : null}
+      {showRankLabel ? (
+        <Text style={[styles.rankLabel, { color: labelColor }]}>{rankLabel}</Text>
+      ) : null}
+      {showFileLabel ? (
+        <Text style={[styles.fileLabel, { color: labelColor }]}>{fileLabel}</Text>
+      ) : null}
 
-        {isCapture ? <View style={styles.captureRing} /> : null}
-        {isLegalTarget && !isCapture ? <View style={styles.moveDot} /> : null}
-      </View>
-    </GestureDetector>
+      {isCapture ? <View style={styles.captureRing} /> : null}
+      {isLegalTarget && !isCapture ? <View style={styles.moveDot} /> : null}
+    </View>
   );
 });
 
@@ -988,6 +1055,8 @@ function PieceLayer({
   squareSizeShared,
   pieceSprites,
   draggingIdSV,
+  draggedId,
+  idleDragSV,
   dragX,
   dragY,
 }: {
@@ -997,6 +1066,8 @@ function PieceLayer({
   squareSizeShared: SharedValue<number>;
   pieceSprites: PieceSpriteMap;
   draggingIdSV: SharedValue<number>;
+  draggedId: number;
+  idleDragSV: SharedValue<number>;
   dragX: SharedValue<number>;
   dragY: SharedValue<number>;
 }) {
@@ -1015,8 +1086,9 @@ function PieceLayer({
             squareSizeShared={squareSizeShared}
             pieceSprites={pieceSprites}
             draggingIdSV={draggingIdSV}
-            dragX={dragX}
-            dragY={dragY}
+            // Only the dragged piece follows the finger; see draggedId above.
+            dragX={piece.id === draggedId ? dragX : idleDragSV}
+            dragY={piece.id === draggedId ? dragY : idleDragSV}
           />
         );
       })}
@@ -1067,8 +1139,6 @@ const BoardPiece = memo(function BoardPiece({
       // chess.com) so the hand holding it doesn't cover the piece or the
       // destination square.
       return {
-        width: s,
-        height: s,
         zIndex: 50,
         transform: [
           { translateX: position.col.value * s + dragX.value },
@@ -1078,8 +1148,6 @@ const BoardPiece = memo(function BoardPiece({
       };
     }
     return {
-      width: s,
-      height: s,
       zIndex: 10,
       transform: [
         { translateX: position.col.value * s },
@@ -1090,7 +1158,7 @@ const BoardPiece = memo(function BoardPiece({
   });
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.boardPieceBase, { left: 0, top: 0 }, animatedStyle]}>
+    <Animated.View pointerEvents="none" style={[styles.boardPieceBase, { left: 0, top: 0, width: squareSize, height: squareSize }, animatedStyle]}>
       <PieceGlyph piece={type} squareSize={squareSize} pieceSprites={pieceSprites} />
     </Animated.View>
   );
@@ -1131,8 +1199,6 @@ const DyingPieceGhost = memo(function DyingPieceGhost({
   const animatedStyle = useAnimatedStyle(() => {
     const s = squareSizeShared.value;
     return {
-      width: s,
-      height: s,
       zIndex: 5,
       opacity: 1 - progress.value,
       transform: [
@@ -1144,7 +1210,7 @@ const DyingPieceGhost = memo(function DyingPieceGhost({
   });
 
   return (
-    <Animated.View pointerEvents="none" style={[styles.boardPieceBase, { left: 0, top: 0 }, animatedStyle]}>
+    <Animated.View pointerEvents="none" style={[styles.boardPieceBase, { left: 0, top: 0, width: squareSize, height: squareSize }, animatedStyle]}>
       <PieceGlyph piece={type} squareSize={squareSize} pieceSprites={pieceSprites} />
     </Animated.View>
   );
@@ -1180,8 +1246,6 @@ function CheckPulse({
   const animatedStyle = useAnimatedStyle(() => {
     const s = squareSizeShared.value;
     return {
-      width: s,
-      height: s,
       opacity: 0.25 + progress.value * 0.45,
       transform: [{ translateX: col * s }, { translateY: row * s }, { scale: 1 + progress.value * 0.12 }],
     };

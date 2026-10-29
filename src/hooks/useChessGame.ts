@@ -301,10 +301,31 @@ export function useChessGame({
     ledger.lastMove = pickVerboseLastMove(move);
   }
 
+  // Legal moves per origin square for the CURRENT position, filled lazily and
+  // thrown away with the position (`snapshot` is a new object on every
+  // refresh()). Verbose move lists are expensive in chess.js (every move also
+  // recomputes the before/after FEN), and a tap used to build one for the
+  // highlight and another for the promotion check; now each square is built at
+  // most once per position and every later question is a lookup.
+  const legalMoves = useMemo(() => {
+    const bySquare = new Map<Square, Move[]>();
+    return {
+      from(square: Square): Move[] {
+        let moves = bySquare.get(square);
+        if (!moves) {
+          moves = chessRef.current.moves({ square, verbose: true });
+          bySquare.set(square, moves);
+        }
+        return moves;
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
+
   const legalTargets = useMemo(() => {
     if (!selectedSquare) return NO_TARGETS;
-    return chessRef.current.moves({ square: selectedSquare, verbose: true }).map((move) => move.to);
-  }, [selectedSquare, snapshot]);
+    return legalMoves.from(selectedSquare).map((move) => move.to);
+  }, [selectedSquare, legalMoves]);
 
   function refresh(source: LastMoveSource = null, puzzleStatus: PuzzleStatus = 'playing') {
     setSnapshot(buildSnapshot(chessRef.current, ledgerRef.current, source, puzzleStatus));
@@ -406,7 +427,7 @@ export function useChessGame({
   // (the player must still choose the piece). chess.js emits one verbose move
   // per promotion option, all sharing the same `to`.
   function isPromotionMove(from: Square, to: Square): boolean {
-    return chessRef.current.moves({ square: from, verbose: true }).some((m) => m.to === to && Boolean(m.promotion));
+    return legalMoves.from(from).some((m) => m.to === to && Boolean(m.promotion));
   }
 
   function handleSquarePress(square: Square) {

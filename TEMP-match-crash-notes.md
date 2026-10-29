@@ -40,6 +40,13 @@ Fix ready to try: `scripts/rasterize-pieces.mjs` (committed) already renders eve
 missing and must be generated). Point `src/components/ui/pieceSprites.ts` (and the prewarm) at
 the PNGs. The SVGs stay in the repo as the source files. **Needs the user's OK** (see suspect 5).
 
+## Layout-per-frame fix (2026-10-24, applied, NOT yet tested on device)
+Piece, dying-piece and check-pulse animated styles no longer return width/height (plain style from
+`squareSize` instead; only transform/opacity/zIndex animate), and `package.json` sets
+`reanimated.staticFeatureFlags.ANDROID_SYNCHRONOUSLY_UPDATE_UI_PROPS = true` so those updates skip
+layout on Android. The flag is compiled in, so it needs a native rebuild (`scripts/build-apk.sh`,
+not just a JS reload). Test on the phone with the same deep link; check `Davey` / `Resource deadlock`.
+
 ## Other suspects (none confirmed)
 1. The board is laid out in two passes since commit 6726d5d (2026-10-16, "Enlarge match board,
    height-cap it"): full width first, then capped to the measured space, so 32 heavy SVG pieces
