@@ -213,6 +213,24 @@ IAP packs, analysis, welcome bonus, venue stakes) is in the root `economy.config
 chip-pack arbitrage, days-to-earn). Never hardcode a price or reward in a screen or
 catalog file — read it from `economy.generated.ts`. Details: `server/README.md` → "Economy".
 
+### Progression — `server/src/db/progression.ts`
+
+Fame (XP), level, level rewards and titles are granted in ONE place, `grantFame` (one
+transaction; every reward protected by a primary-key conflict). Never write `xp`/`level`
+anywhere else. Its summary is stored as a `progression_events` row, pushed live as the
+socket event `progression:update` (online) or returned by `/me/bot-matches/:id/finish` (bots), and
+rendered by the app's Show Report and global `ProgressionOverlay`. All numbers are in
+`economy.config.json` (`fame`, `levels`). Details: `server/README.md` → "Progression".
+
+### The Tour and bot matches — `server/src/db/tour.ts`, `server/src/db/botSessions.ts`
+
+The campaign (6 chapters x 5 gigs + boss bots, the Encore finale) is defined in
+`economy.config.json` (`tour`, `bots`) and evaluated by `server/src/tour.ts`; `applyTour`
+pays it. It only ever consumes VERIFIED events: online matches from the authoritative
+PGN, bot matches via a server-issued session whose PGN the server replays
+(`finishBotSession`), puzzles. Never re-add a route that pays from a client-claimed
+result; bot rewards must go through `botSessions.ts`. Details: `server/README.md` → "The Tour".
+
 ### Wagers — `server/src/db/wagers.ts`
 
 Online matches at venues with a buy-in (Club and up) are played for chips: both buy-ins

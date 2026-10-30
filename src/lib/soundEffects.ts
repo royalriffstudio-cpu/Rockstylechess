@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 import type { MoveSoundKind } from './chessBoardSnapshot';
 
-type SoundKind = MoveSoundKind | 'illegal';
+type SoundKind = MoveSoundKind | 'illegal' | 'levelUp' | 'reward' | 'title';
 
 const SOUND_SOURCES: Record<SoundKind, number> = {
   move: require('../../assets/sounds/move.wav'),
@@ -13,6 +13,11 @@ const SOUND_SOURCES: Record<SoundKind, number> = {
   check: require('../../assets/sounds/check.wav'),
   checkmate: require('../../assets/sounds/checkmate.wav'),
   illegal: require('../../assets/sounds/illegal.wav'),
+  // Placeholder celebration cues (scripts/gen-celebration-sounds.mjs) -- swap the
+  // wav files for real audio with no code change.
+  levelUp: require('../../assets/sounds/level-up.wav'),
+  reward: require('../../assets/sounds/reward.wav'),
+  title: require('../../assets/sounds/title.wav'),
 };
 
 // Eagerly instantiated once at module load on every real platform (native,

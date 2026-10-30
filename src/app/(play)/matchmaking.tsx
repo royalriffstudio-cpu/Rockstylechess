@@ -88,6 +88,8 @@ export default function MatchmakingScreen() {
           opponentAvatarId: payload.opponent.avatarId ?? undefined,
           opponentCountry: payload.opponent.country ?? undefined,
           opponentUserId: payload.opponent.userId ?? undefined,
+          opponentRating: payload.opponent.rating != null ? String(payload.opponent.rating) : undefined,
+          opponentTitle: payload.opponent.title ?? undefined,
           clockW: String(payload.clocks.w),
           clockB: String(payload.clocks.b),
           incrementMs: String(payload.incrementMs),

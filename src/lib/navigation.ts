@@ -19,6 +19,7 @@ const PARENT: Record<string, Href> = {
   '/bots': '/home',
   '/puzzles': '/home',
   '/tournaments': '/home',
+  '/tour': '/home',
   '/game-room': '/home',
   '/puzzle-match': '/puzzles',
   '/replay': '/iron-id',

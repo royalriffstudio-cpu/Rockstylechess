@@ -66,11 +66,130 @@ export const ECONOMY = {
       "stockfish-lite": 120,
       "stockfish-strong": 200
     },
-    "botDrawFraction": 0.1,
-    "xp": {
+    "botDrawFraction": 0.1
+  },
+  "fame": {
+    "online": {
       "win": 500,
       "draw": 50,
       "loss": 0
+    },
+    "botWin": {
+      "easy": 100,
+      "medium": 200,
+      "stockfish-basic": 300,
+      "stockfish-lite": 400,
+      "stockfish-strong": 500
+    },
+    "botDrawFraction": 0.1,
+    "dailyBotFameCap": 2000,
+    "openingNight": 2,
+    "hotStreak": [
+      {
+        "minStreak": 3,
+        "mult": 1.2
+      },
+      {
+        "minStreak": 5,
+        "mult": 1.5
+      }
+    ]
+  },
+  "levels": {
+    "titles": [
+      {
+        "id": "roadie",
+        "name": "Roadie",
+        "minLevel": 1
+      },
+      {
+        "id": "opening-act",
+        "name": "Opening Act",
+        "minLevel": 3
+      },
+      {
+        "id": "support-act",
+        "name": "Support Act",
+        "minLevel": 6
+      },
+      {
+        "id": "local-hero",
+        "name": "Local Hero",
+        "minLevel": 10
+      },
+      {
+        "id": "club-headliner",
+        "name": "Club Headliner",
+        "minLevel": 15
+      },
+      {
+        "id": "arena-act",
+        "name": "Arena Act",
+        "minLevel": 20
+      },
+      {
+        "id": "stadium-star",
+        "name": "Stadium Star",
+        "minLevel": 30
+      },
+      {
+        "id": "main-stage-icon",
+        "name": "Main Stage Icon",
+        "minLevel": 40
+      },
+      {
+        "id": "living-legend",
+        "name": "Living Legend",
+        "minLevel": 50
+      }
+    ],
+    "chipsPerLevel": [
+      {
+        "from": 2,
+        "to": 10,
+        "chips": 150
+      },
+      {
+        "from": 11,
+        "to": 50,
+        "chips": 100
+      }
+    ],
+    "milestones": {
+      "5": {
+        "gems": 5
+      },
+      "10": {
+        "gems": 15
+      },
+      "15": {
+        "gems": 10,
+        "chips": 200
+      },
+      "20": {
+        "gems": 25
+      },
+      "25": {
+        "gems": 15,
+        "chips": 200
+      },
+      "30": {
+        "gems": 40
+      },
+      "35": {
+        "gems": 20,
+        "chips": 200
+      },
+      "40": {
+        "gems": 60
+      },
+      "45": {
+        "gems": 25,
+        "chips": 200
+      },
+      "50": {
+        "gems": 100
+      }
     }
   },
   "dailyBonus": [
@@ -292,7 +411,422 @@ export const ECONOMY = {
     "onlineWinRate": 0.5,
     "onlineDrawRate": 0.1,
     "botMixWinChips": 45,
+    "botMixWinFame": 200,
+    "openingNightRate": 0.9,
     "botWinRate": 0.6
+  },
+  "bots": [
+    {
+      "id": "roadie-rick",
+      "name": "Roadie Rick",
+      "emoji": "🧢",
+      "difficulty": "easy"
+    },
+    {
+      "id": "valkyrie-riff",
+      "name": "Valkyrie Riff",
+      "emoji": "⚡",
+      "difficulty": "medium"
+    },
+    {
+      "id": "metal-head",
+      "name": "Metal Head",
+      "emoji": "🤘",
+      "difficulty": "stockfish-basic"
+    },
+    {
+      "id": "the-reaper",
+      "name": "The Reaper",
+      "emoji": "💀",
+      "difficulty": "stockfish-lite"
+    },
+    {
+      "id": "old-school-roy",
+      "name": "Old School Roy",
+      "emoji": "🕶️",
+      "difficulty": "medium"
+    },
+    {
+      "id": "king-axl",
+      "name": "King Axl",
+      "emoji": "👑",
+      "difficulty": "stockfish-strong"
+    }
+  ],
+  "tour": {
+    "minBotPlies": 6,
+    "perfectBonusGems": 5,
+    "chapters": [
+      {
+        "id": "garage",
+        "name": "The Garage",
+        "venue": "garage",
+        "tagline": "Plug in and make some noise.",
+        "bossBotId": "roadie-rick",
+        "bossReward": {
+          "chips": 500,
+          "gems": 5
+        },
+        "title": {
+          "id": "garage-graduate",
+          "name": "Garage Graduate"
+        },
+        "gigs": [
+          {
+            "id": "g1-plug-in",
+            "title": "Plug In",
+            "description": "Win a game against any bot.",
+            "kind": "win_bot",
+            "target": 1,
+            "chips": 50,
+            "minRank": 0
+          },
+          {
+            "id": "g1-stage-left",
+            "title": "Stage Left",
+            "description": "Win a game playing Black.",
+            "kind": "win_color",
+            "target": 1,
+            "chips": 50,
+            "color": "b"
+          },
+          {
+            "id": "g1-smash-hit",
+            "title": "Smash Hit",
+            "description": "Capture 10 pieces in a single win.",
+            "kind": "capture_game",
+            "target": 10,
+            "chips": 75
+          },
+          {
+            "id": "g1-warm-up",
+            "title": "Warm-Up Act",
+            "description": "Solve 5 puzzles.",
+            "kind": "puzzles",
+            "target": 5,
+            "chips": 75
+          },
+          {
+            "id": "g1-first-night",
+            "title": "First Night",
+            "description": "Play 3 online matches.",
+            "kind": "online_games",
+            "target": 3,
+            "chips": 100
+          }
+        ]
+      },
+      {
+        "id": "club",
+        "name": "The Club",
+        "venue": "club",
+        "tagline": "Small room, big crowd.",
+        "bossBotId": "valkyrie-riff",
+        "bossReward": {
+          "chips": 1000,
+          "gems": 10
+        },
+        "title": {
+          "id": "club-crusher",
+          "name": "Club Crusher"
+        },
+        "gigs": [
+          {
+            "id": "g2-quick-set",
+            "title": "Quick Set",
+            "description": "Win a game in 25 moves or fewer.",
+            "kind": "win_moves",
+            "target": 1,
+            "chips": 75,
+            "maxMoves": 25
+          },
+          {
+            "id": "g2-clean-sweep",
+            "title": "Clean Sweep",
+            "description": "Win without losing your queen.",
+            "kind": "win_no_queen_loss",
+            "target": 1,
+            "chips": 75
+          },
+          {
+            "id": "g2-crowd-pleaser",
+            "title": "Crowd Pleaser",
+            "description": "Beat 3 bots of Amateur strength or better.",
+            "kind": "win_bot",
+            "target": 3,
+            "chips": 100,
+            "minRank": 1
+          },
+          {
+            "id": "g2-knight-fall",
+            "title": "Knight Fall",
+            "description": "Deliver checkmate with a knight.",
+            "kind": "mate_piece",
+            "target": 1,
+            "chips": 150,
+            "piece": "n"
+          },
+          {
+            "id": "g2-regular",
+            "title": "Club Regular",
+            "description": "Win 3 online matches.",
+            "kind": "online_wins",
+            "target": 3,
+            "chips": 100
+          }
+        ]
+      },
+      {
+        "id": "arena",
+        "name": "The Arena",
+        "venue": "arena",
+        "tagline": "The lights get brighter.",
+        "bossBotId": "metal-head",
+        "bossReward": {
+          "chips": 1500,
+          "gems": 15
+        },
+        "title": {
+          "id": "arena-breaker",
+          "name": "Arena Breaker"
+        },
+        "gigs": [
+          {
+            "id": "g3-skilled",
+            "title": "Beat the Skilled",
+            "description": "Win a game against a Skilled bot or tougher.",
+            "kind": "win_bot",
+            "target": 1,
+            "chips": 100,
+            "minRank": 2
+          },
+          {
+            "id": "g3-clean-sweep",
+            "title": "Spotless",
+            "description": "Win a game against Amateur or tougher without losing your queen.",
+            "kind": "win_no_queen_loss",
+            "target": 1,
+            "chips": 100,
+            "minRank": 1
+          },
+          {
+            "id": "g3-online-rush",
+            "title": "Online Rush",
+            "description": "Win 5 online matches.",
+            "kind": "online_wins",
+            "target": 5,
+            "chips": 150
+          },
+          {
+            "id": "g3-puzzle-rush",
+            "title": "Puzzle Rush",
+            "description": "Solve 15 puzzles.",
+            "kind": "puzzles",
+            "target": 15,
+            "chips": 150
+          },
+          {
+            "id": "g3-black-belt",
+            "title": "Black Belt",
+            "description": "Win 3 games playing Black.",
+            "kind": "win_color",
+            "target": 3,
+            "chips": 150,
+            "color": "b"
+          }
+        ]
+      },
+      {
+        "id": "stadium",
+        "name": "The Stadium",
+        "venue": "stadium",
+        "tagline": "Fifty thousand voices.",
+        "bossBotId": "the-reaper",
+        "bossReward": {
+          "chips": 2500,
+          "gems": 25
+        },
+        "title": {
+          "id": "stadium-slayer",
+          "name": "Stadium Slayer"
+        },
+        "gigs": [
+          {
+            "id": "g4-high-stakes",
+            "title": "High Stakes",
+            "description": "Win a wagered online match.",
+            "kind": "wager_wins",
+            "target": 1,
+            "chips": 200
+          },
+          {
+            "id": "g4-rising-star",
+            "title": "Rising Star",
+            "description": "Reach a rating of 1300.",
+            "kind": "rating",
+            "target": 1300,
+            "chips": 200
+          },
+          {
+            "id": "g4-in-a-hurry",
+            "title": "Mate in a Hurry",
+            "description": "Win in 30 moves or fewer against a Skilled bot or tougher.",
+            "kind": "win_moves",
+            "target": 1,
+            "chips": 200,
+            "maxMoves": 30,
+            "minRank": 2
+          },
+          {
+            "id": "g4-veteran",
+            "title": "Veteran",
+            "description": "Play 10 online matches.",
+            "kind": "online_games",
+            "target": 10,
+            "chips": 200
+          },
+          {
+            "id": "g4-tactician",
+            "title": "Tactician",
+            "description": "Solve 30 puzzles.",
+            "kind": "puzzles",
+            "target": 30,
+            "chips": 200
+          }
+        ]
+      },
+      {
+        "id": "mainstage",
+        "name": "Main Stage",
+        "venue": "mainstage",
+        "tagline": "Headliner territory.",
+        "bossBotId": "king-axl",
+        "bossReward": {
+          "chips": 4000,
+          "gems": 40
+        },
+        "title": {
+          "id": "festival-king",
+          "name": "Festival King"
+        },
+        "gigs": [
+          {
+            "id": "g5-big-money",
+            "title": "Big Money",
+            "description": "Win 3 wagered online matches.",
+            "kind": "wager_wins",
+            "target": 3,
+            "chips": 300
+          },
+          {
+            "id": "g5-rating",
+            "title": "Main Stage Rating",
+            "description": "Reach a rating of 1500.",
+            "kind": "rating",
+            "target": 1500,
+            "chips": 300
+          },
+          {
+            "id": "g5-marathon",
+            "title": "Marathon",
+            "description": "Win a game lasting 60 moves or more.",
+            "kind": "win_marathon",
+            "target": 1,
+            "chips": 300,
+            "minMoves": 60
+          },
+          {
+            "id": "g5-giant-slayer",
+            "title": "Giant Slayer",
+            "description": "Beat 3 bots of Expert strength or better.",
+            "kind": "win_bot",
+            "target": 3,
+            "chips": 300,
+            "minRank": 3
+          },
+          {
+            "id": "g5-flawless",
+            "title": "Flawless",
+            "description": "Win against an Expert bot or tougher without losing your queen.",
+            "kind": "win_no_queen_loss",
+            "target": 1,
+            "chips": 300,
+            "minRank": 3
+          }
+        ]
+      },
+      {
+        "id": "world-tour",
+        "name": "World Tour",
+        "venue": "world-tour",
+        "tagline": "The whole world is listening.",
+        "bossBotId": null,
+        "encore": [
+          "roadie-rick",
+          "valkyrie-riff",
+          "metal-head",
+          "the-reaper",
+          "king-axl"
+        ],
+        "bossReward": {
+          "chips": 8000,
+          "gems": 80
+        },
+        "title": {
+          "id": "world-tour-legend",
+          "name": "World Tour Legend"
+        },
+        "gigs": [
+          {
+            "id": "g6-legend-rating",
+            "title": "Legend",
+            "description": "Reach a rating of 1800.",
+            "kind": "rating",
+            "target": 1800,
+            "chips": 500
+          },
+          {
+            "id": "g6-high-roller",
+            "title": "High Roller",
+            "description": "Win 5 wagered online matches.",
+            "kind": "wager_wins",
+            "target": 5,
+            "chips": 500
+          },
+          {
+            "id": "g6-crowd-favourite",
+            "title": "Crowd Favourite",
+            "description": "Win 25 online matches.",
+            "kind": "online_wins",
+            "target": 25,
+            "chips": 500
+          },
+          {
+            "id": "g6-axl-slayer",
+            "title": "Axl Slayer",
+            "description": "Beat the strongest bot 5 times.",
+            "kind": "win_bot",
+            "target": 5,
+            "chips": 500,
+            "minRank": 4
+          },
+          {
+            "id": "g6-grand-tactician",
+            "title": "Grand Tactician",
+            "description": "Solve 100 puzzles.",
+            "kind": "puzzles",
+            "target": 100,
+            "chips": 500
+          }
+        ]
+      }
+    ]
+  },
+  "weeklyQuests": {
+    "win-weekly": 400,
+    "online-weekly": 300,
+    "puzzles-weekly": 300,
+    "minLevel": 5
   }
 } as const;
 
@@ -333,6 +867,206 @@ export const COSMETIC_PRICES: Record<string, { gems: number; chips: number | nul
   "crimson-reaper": {
     "gems": 750,
     "chips": 30000
+  }
+};
+
+// Per-level reward (chips/gems) credited once when a player reaches the level.
+export const LEVEL_REWARDS: Record<number, { chips: number; gems: number }> = {
+  "2": {
+    "chips": 150,
+    "gems": 0
+  },
+  "3": {
+    "chips": 150,
+    "gems": 0
+  },
+  "4": {
+    "chips": 150,
+    "gems": 0
+  },
+  "5": {
+    "chips": 150,
+    "gems": 5
+  },
+  "6": {
+    "chips": 150,
+    "gems": 0
+  },
+  "7": {
+    "chips": 150,
+    "gems": 0
+  },
+  "8": {
+    "chips": 150,
+    "gems": 0
+  },
+  "9": {
+    "chips": 150,
+    "gems": 0
+  },
+  "10": {
+    "chips": 150,
+    "gems": 15
+  },
+  "11": {
+    "chips": 100,
+    "gems": 0
+  },
+  "12": {
+    "chips": 100,
+    "gems": 0
+  },
+  "13": {
+    "chips": 100,
+    "gems": 0
+  },
+  "14": {
+    "chips": 100,
+    "gems": 0
+  },
+  "15": {
+    "chips": 300,
+    "gems": 10
+  },
+  "16": {
+    "chips": 100,
+    "gems": 0
+  },
+  "17": {
+    "chips": 100,
+    "gems": 0
+  },
+  "18": {
+    "chips": 100,
+    "gems": 0
+  },
+  "19": {
+    "chips": 100,
+    "gems": 0
+  },
+  "20": {
+    "chips": 100,
+    "gems": 25
+  },
+  "21": {
+    "chips": 100,
+    "gems": 0
+  },
+  "22": {
+    "chips": 100,
+    "gems": 0
+  },
+  "23": {
+    "chips": 100,
+    "gems": 0
+  },
+  "24": {
+    "chips": 100,
+    "gems": 0
+  },
+  "25": {
+    "chips": 300,
+    "gems": 15
+  },
+  "26": {
+    "chips": 100,
+    "gems": 0
+  },
+  "27": {
+    "chips": 100,
+    "gems": 0
+  },
+  "28": {
+    "chips": 100,
+    "gems": 0
+  },
+  "29": {
+    "chips": 100,
+    "gems": 0
+  },
+  "30": {
+    "chips": 100,
+    "gems": 40
+  },
+  "31": {
+    "chips": 100,
+    "gems": 0
+  },
+  "32": {
+    "chips": 100,
+    "gems": 0
+  },
+  "33": {
+    "chips": 100,
+    "gems": 0
+  },
+  "34": {
+    "chips": 100,
+    "gems": 0
+  },
+  "35": {
+    "chips": 300,
+    "gems": 20
+  },
+  "36": {
+    "chips": 100,
+    "gems": 0
+  },
+  "37": {
+    "chips": 100,
+    "gems": 0
+  },
+  "38": {
+    "chips": 100,
+    "gems": 0
+  },
+  "39": {
+    "chips": 100,
+    "gems": 0
+  },
+  "40": {
+    "chips": 100,
+    "gems": 60
+  },
+  "41": {
+    "chips": 100,
+    "gems": 0
+  },
+  "42": {
+    "chips": 100,
+    "gems": 0
+  },
+  "43": {
+    "chips": 100,
+    "gems": 0
+  },
+  "44": {
+    "chips": 100,
+    "gems": 0
+  },
+  "45": {
+    "chips": 300,
+    "gems": 25
+  },
+  "46": {
+    "chips": 100,
+    "gems": 0
+  },
+  "47": {
+    "chips": 100,
+    "gems": 0
+  },
+  "48": {
+    "chips": 100,
+    "gems": 0
+  },
+  "49": {
+    "chips": 100,
+    "gems": 0
+  },
+  "50": {
+    "chips": 100,
+    "gems": 100
   }
 };
 

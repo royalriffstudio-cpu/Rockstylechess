@@ -9,6 +9,8 @@ import { SubPageHeader } from '@/components/layout';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { claimQuest, getQuestsStatus, type QuestStatus } from '@/lib/api';
+import { celebrate } from '@/lib/celebration';
+import { ECONOMY } from '@/lib/economy.generated';
 import { getAuthToken } from '@/lib/authStorage';
 
 // Server doesn't send UI colors (theme stays a client concern) -- keyed by
@@ -18,14 +20,22 @@ const ACCENT_BY_QUEST_ID: Record<string, string> = {
   'capture-pieces': Colors.cyan,
   'solve-puzzles': Colors.cyan,
   'checkmate-opponent': Colors.gold,
+  'win-weekly': Colors.emberLight,
+  'online-weekly': Colors.cyan,
+  'puzzles-weekly': Colors.cyan,
 };
+
+// Weekly quests unlock at this level (server/src/questCatalog.ts, economy.config.json).
+const WEEKLY_MIN_LEVEL = ECONOMY.weeklyQuests.minLevel;
 
 type QuestTab = 'daily' | 'weekly';
 
 export default function QuestsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { status: profileStatus, gems, refresh } = usePlayerProfile();
+  const { status: profileStatus, profile, gems, refresh } = usePlayerProfile();
+  const level = profile?.level ?? 1;
+  const [weekly, setWeekly] = useState<QuestStatus[] | null>(null);
   const [activeTab, setActiveTab] = useState<QuestTab>('daily');
   const [quests, setQuests] = useState<QuestStatus[] | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -48,6 +58,25 @@ export default function QuestsScreen() {
     };
   }, [profileStatus]);
 
+  // Weekly quests only exist (server-side) from level 5 up.
+  useEffect(() => {
+    if (profileStatus !== 'ready' || activeTab !== 'weekly' || level < WEEKLY_MIN_LEVEL) return;
+    let cancelled = false;
+    (async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+      try {
+        const { quests: fetched } = await getQuestsStatus(token, 'weekly');
+        if (!cancelled) setWeekly(fetched);
+      } catch (error) {
+        console.log('Failed to load weekly quests', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profileStatus, activeTab, level]);
+
   async function handleClaim(questId: string) {
     if (claimingId) return;
     setClaimingId(questId);
@@ -55,7 +84,9 @@ export default function QuestsScreen() {
       const token = await getAuthToken();
       if (!token) return;
       await claimQuest(token, questId);
+      celebrate('reward'); // claim moment: coin sound + haptic
       setQuests((prev) => prev?.map((q) => (q.id === questId ? { ...q, claimed: true } : q)) ?? prev);
+      setWeekly((prev) => prev?.map((q) => (q.id === questId ? { ...q, claimed: true } : q)) ?? prev);
       refresh();
     } catch (error) {
       console.log('Failed to claim quest', error);
@@ -98,16 +129,30 @@ export default function QuestsScreen() {
             ))}
           </ScrollView>
         )
-      ) : (
+      ) : profileStatus === 'guest' ? (
+        <View className="flex-1 items-center justify-center gap-md px-xl">
+          <Text className="text-center font-body-base text-body-base text-text-muted">Sign in to take on weekly challenges.</Text>
+          <RockButton label="Sign In" variant="primary" onPress={() => router.push('/sign-in')} />
+        </View>
+      ) : level < WEEKLY_MIN_LEVEL ? (
         <View className="flex-1 items-center justify-center px-xl" style={{ paddingBottom: 96 + insets.bottom }}>
           <View className="mb-6 h-32 w-32 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.2) }}>
             <AppIcon name="lock" size={64} color={Colors.textMuted} />
           </View>
           <Text className="text-center font-headline-lg text-headline-lg uppercase tracking-wide text-text-primary">Weekly Challenges</Text>
           <Text className="mt-2 text-center font-body-base text-body-base text-text-muted" style={{ maxWidth: 280 }}>
-            Unlock higher tiers of rewards by reaching Level 10. The rock gods demand a stronger performance.
+            Bigger weekly goals unlock at Level {WEEKLY_MIN_LEVEL}. You are Level {level}. Win matches to earn Fame and climb.
           </Text>
         </View>
+      ) : !weekly ? (
+        <ActivityIndicator color={Colors.cyan} style={{ marginTop: 32 }} />
+      ) : (
+        <ScrollView contentContainerClassName="gap-md px-margin-mobile" contentContainerStyle={{ paddingBottom: 60 + insets.bottom }}>
+          <Text className="text-center font-caption text-caption text-text-muted">Resets every Monday (UTC)</Text>
+          {weekly.map((quest) => (
+            <QuestRow key={quest.id} quest={quest} accent={ACCENT_BY_QUEST_ID[quest.id] ?? Colors.cyan} claiming={claimingId === quest.id} onClaim={() => handleClaim(quest.id)} />
+          ))}
+        </ScrollView>
       )}
     </View>
   );

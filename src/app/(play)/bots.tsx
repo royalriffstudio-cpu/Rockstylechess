@@ -8,6 +8,7 @@ import { AppIcon, CurrencyIcon, CurrencyPill, PlayerAvatar, RockCard } from '@/c
 import { BoardAssetPrewarm } from '@/components/ui/BoardAssetPrewarm';
 import { MatchOptionsModal } from '@/components/ui/MatchOptionsModal';
 import { SubPageHeader } from '@/components/layout';
+import { BOSS_BY_BOT_ID, BOT_PORTRAITS } from '@/constants/bots';
 import { Colors, withOpacity } from '@/constants/theme';
 import { getVenue } from '@/constants/venues';
 import type { BotDifficulty } from '@/hooks/useChessGame';
@@ -74,6 +75,7 @@ export default function BotsGalleryScreen() {
         mode: 'bot',
         difficulty: bot.difficulty,
         botName: bot.name,
+        botId: bot.id,
         botEmoji: bot.emoji,
         color,
         duration,
@@ -96,7 +98,7 @@ export default function BotsGalleryScreen() {
             Pick Your Opponent
           </Text>
           <Text className="mt-1.5 font-body-sm text-text-muted" style={{ fontSize: 12 }}>
-            Challenge bots of varying difficulties to earn XP.
+            Beat bots to earn chips and Fame. Bosses unlock new chapters of The Tour.
           </Text>
         </View>
 
@@ -132,15 +134,24 @@ export default function BotsGalleryScreen() {
             <View className="flex-row items-center justify-between gap-md">
               <View className="flex-1 flex-row items-center gap-md">
                 <View>
-                  <PlayerAvatar emoji={bot.locked ? '🔒' : bot.emoji} size="small" />
+                  {!bot.locked && BOT_PORTRAITS[bot.id] ? <PlayerAvatar source={BOT_PORTRAITS[bot.id]} size="small" /> : <PlayerAvatar emoji={bot.locked ? '🔒' : bot.emoji} size="small" />}
                   <View className="absolute -bottom-1 -right-1 rounded-full p-0.5" style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: Colors.chromeDark }}>
                     <AppIcon name="smart_toy" size={10} color={Colors.textMuted} />
                   </View>
                 </View>
                 <View className="flex-1 gap-1">
-                  <Text className="font-heading-md" numberOfLines={1} style={{ fontSize: 15, color: bot.locked ? Colors.textMuted : Colors.textPrimary }}>
-                    {bot.name}
-                  </Text>
+                  <View className="flex-row items-center gap-xs">
+                    <Text className="font-heading-md flex-shrink" numberOfLines={1} style={{ fontSize: 15, color: bot.locked ? Colors.textMuted : Colors.textPrimary }}>
+                      {bot.name}
+                    </Text>
+                    {BOSS_BY_BOT_ID[bot.id] ? (
+                      <View className="rounded-full px-sm" style={{ paddingVertical: 1, backgroundColor: withOpacity(Colors.gold, 0.14), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.6) }}>
+                        <Text className="font-heading-md" style={{ fontSize: 8, letterSpacing: 1, color: Colors.gold }}>
+                          BOSS · {BOSS_BY_BOT_ID[bot.id].chapterName.toUpperCase()}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                   {bot.locked ? (
                     <View className="flex-row items-center gap-1 self-start rounded-full px-sm" style={{ paddingVertical: 3, backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: withOpacity(Colors.emberLight, 0.5) }}>
                       <CurrencyIcon type="gems" size={11} color={Colors.emberLight} />

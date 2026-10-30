@@ -80,6 +80,24 @@ files without adding `/play` to the URL/deep-link path.
   of piece type. The slot is *always* rendered at its full height, even empty: if
   it only appeared with the first capture, the row would grow then and the board
   would jump (and, when height-capped, resize) mid-game.
+- `tour.tsx` — **The Tour** (campaign): one painted road (`assets/progression/map`) with a
+  badge at each chapter's stop (`TOUR_MAP_NODES` in `src/constants/emblems.ts`, measured from
+  the markers painted into the art); tapping a stop shows its five gigs and boss bot below; everything shown is the server's `GET /me/tour` (`useTour`, refetched on
+  focus). "Challenge" starts an ordinary bot match against the boss (`botId` param); the
+  server recognises the boss when the finished game is verified. World Tour is the Encore
+  gauntlet (five bosses in a row). Bot matches now start a **server-issued session**
+  (`match.tsx` → `POST /me/bot-matches`) and finish by submitting the PGN; guests and
+  failed calls simply play unrewarded (the result screen says why).
+- **Show Report** (`result-placeholder.tsx` + `src/components/progression/ShowReport.tsx`):
+  after every match the result card shows the server's progression report instead of the old
+  hardcoded "710 -> 726": Fame earned (with Opening Night / Hot Streak / daily-cap pills), the
+  level bar visibly filling (and wrapping on a level-up), the REAL rating change and tier,
+  the daily goals the match moved, and the next goal. Online reports arrive as the socket
+  event `progression:update` (cached in `src/lib/progression.ts`), bot reports from the
+  `/me/match-reward` reply; the match header's rank lines are real (title + rating, bot
+  strength label). Level up / new title take over the screen via the global
+  `ProgressionOverlay` (mounted in `_layout.tsx`), 2.8 s after the report on this route and
+  never during `/match` or `/puzzle-match`.
 - **Wagers:** `home.tsx` and `setup.tsx` share `useVenueEntry` (`src/hooks/`): locked venues
   explain themselves (sign in / rating / chips) and "Play Now" on a venue with a buy-in asks
   for confirmation first; the default venue is Garage. `matchmaking.tsx` handles the server's

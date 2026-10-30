@@ -5,6 +5,15 @@ import { db } from './client.js';
 import { playerProfiles, quests, userQuestProgress } from './schema/index.js';
 import { utcDayStart } from './utcDay.js';
 
+// Daily quests reset at 00:00 UTC; weekly ones on Monday 00:00 UTC.
+export type QuestType = 'daily' | 'weekly';
+export function questPeriodStart(type: QuestType, now = new Date()): Date {
+  const day = utcDayStart(now);
+  if (type === 'daily') return day;
+  const sinceMonday = (day.getUTCDay() + 6) % 7;
+  return new Date(day.getTime() - sinceMonday * 86_400_000);
+}
+
 export type { QuestMetric } from '../questCatalog.js';
 
 export interface QuestStatusEntry {
@@ -18,15 +27,15 @@ export interface QuestStatusEntry {
   claimed: boolean;
 }
 
-export async function getQuestsStatus(userId: string): Promise<QuestStatusEntry[]> {
+export async function getQuestsStatus(userId: string, type: QuestType = 'daily'): Promise<QuestStatusEntry[]> {
   const [profile] = await db.select({ level: playerProfiles.level }).from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
   const level = profile?.level ?? 1;
-  const periodStart = utcDayStart(new Date());
+  const periodStart = questPeriodStart(type);
 
   const dailyQuests = await db
     .select()
     .from(quests)
-    .where(and(eq(quests.type, 'daily'), lte(quests.minLevel, level)));
+    .where(and(eq(quests.type, type), lte(quests.minLevel, level)));
 
   const progressRows = await db
     .select()
@@ -58,14 +67,16 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 // quest's own target -- never overshoots. `level` is passed in rather than
 // re-queried per metric since callers already have it (a match/puzzle report
 // touches 1-3 metrics per call).
-async function incrementMetric(tx: Tx, userId: string, metric: QuestMetric, amount: number, periodStart: Date, level: number): Promise<void> {
+async function incrementMetric(tx: Tx, userId: string, metric: QuestMetric, amount: number, now: Date, level: number): Promise<void> {
   if (amount <= 0) return;
+  // Every quest on this metric, daily AND weekly, each against its own period.
   const matchingQuests = await tx
     .select()
     .from(quests)
-    .where(and(eq(quests.type, 'daily'), eq(quests.metric, metric), lte(quests.minLevel, level)));
+    .where(and(eq(quests.metric, metric), lte(quests.minLevel, level)));
 
   for (const quest of matchingQuests) {
+    const periodStart = questPeriodStart(quest.type, now);
     await tx
       .insert(userQuestProgress)
       .values({ userId, questId: quest.id, periodStart, progress: Math.min(amount, quest.target) })
@@ -80,6 +91,8 @@ export interface MatchQuestReport {
   won: boolean;
   checkmate: boolean;
   capturedCount: number;
+  // Online (rated, server-hosted) matches only -- feeds "play N online matches".
+  onlineGame?: boolean;
 }
 
 // Shared by POST /me/quests/report-match (bot/local, client-reported -- same
@@ -88,15 +101,16 @@ export interface MatchQuestReport {
 // from the authoritative PGN, called directly in-process rather than over
 // HTTP). No row lock -- same accepted double-request race window documented
 // in dailyBonus.ts's claimDailyBonus.
-export async function reportMatchForQuests(userId: string, { won, checkmate, capturedCount }: MatchQuestReport): Promise<void> {
+export async function reportMatchForQuests(userId: string, { won, checkmate, capturedCount, onlineGame }: MatchQuestReport): Promise<void> {
   await db.transaction(async (tx) => {
     const [profile] = await tx.select({ level: playerProfiles.level }).from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
     const level = profile?.level ?? 1;
-    const periodStart = utcDayStart(new Date());
+    const now = new Date();
 
-    if (won) await incrementMetric(tx, userId, 'wins', 1, periodStart, level);
-    if (won && checkmate) await incrementMetric(tx, userId, 'checkmates', 1, periodStart, level);
-    if (capturedCount > 0) await incrementMetric(tx, userId, 'captures', capturedCount, periodStart, level);
+    if (won) await incrementMetric(tx, userId, 'wins', 1, now, level);
+    if (won && checkmate) await incrementMetric(tx, userId, 'checkmates', 1, now, level);
+    if (capturedCount > 0) await incrementMetric(tx, userId, 'captures', capturedCount, now, level);
+    if (onlineGame) await incrementMetric(tx, userId, 'online_games', 1, now, level);
   });
 }
 
@@ -104,7 +118,7 @@ export async function reportPuzzleSolvedForQuests(userId: string): Promise<void>
   await db.transaction(async (tx) => {
     const [profile] = await tx.select({ level: playerProfiles.level }).from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
     const level = profile?.level ?? 1;
-    await incrementMetric(tx, userId, 'puzzles_solved', 1, utcDayStart(new Date()), level);
+    await incrementMetric(tx, userId, 'puzzles_solved', 1, new Date(), level);
   });
 }
 
@@ -121,7 +135,7 @@ export async function claimQuest(userId: string, questId: string): Promise<Claim
     const [quest] = await tx.select().from(quests).where(eq(quests.id, questId)).limit(1);
     if (!quest) return { status: 'not-found' as const };
 
-    const periodStart = utcDayStart(new Date());
+    const periodStart = questPeriodStart(quest.type);
     const [progressRow] = await tx
       .select()
       .from(userQuestProgress)

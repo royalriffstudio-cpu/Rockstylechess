@@ -22,6 +22,9 @@ export interface QueuedPlayer {
   // Same null-for-guests-and-not-yet-onboarded, server-looked-up-only rule
   // as avatarId above.
   country: string | null;
+  // Public standing shown on the opponent's match header (null for guests).
+  rating: number | null;
+  title: string | null;
   // The duration this player queued with. On a pairing, the player who was
   // ALREADY waiting (returned as `opponent` from joinQueue below) sets the
   // match's actual duration -- simplest reasonable tie-break given queues

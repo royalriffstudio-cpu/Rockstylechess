@@ -70,3 +70,6 @@ src/lib/stockfishEngineAssets.ts
 # manual upload to Play Console, not app content, kept out of the app bundle
 # (assets/) entirely so they can never accidentally ship in the binary.
 /store-assets/
+
+# Gemini API key for asset generation (never commit)
+.env.gemini

@@ -47,9 +47,8 @@ export function getLevelProgress(xp: number): LevelProgress {
 }
 
 // Server-only mutation helper -- never exposed client-side. Callers pass
-// the profile's current xp and the amount being granted; both match-reward
-// code paths (persistMatchResult.ts, POST /me/match-reward) use this so
-// level can never drift from what the new xp total implies.
+// the profile's current xp and the amount being granted. (Fame is now granted by
+// db/progression.ts's grantFame, which keeps level in step with xp itself.)
 export function applyXpGain(currentXp: number, xpGained: number): { xp: number; level: number } {
   const xp = Math.max(0, currentXp) + Math.max(0, xpGained);
   return { xp, level: levelForXp(xp) };

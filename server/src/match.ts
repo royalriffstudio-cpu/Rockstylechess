@@ -16,6 +16,8 @@ export interface MatchPlayer {
   displayName: string;
   avatarId: string | null;
   country: string | null;
+  rating: number | null;
+  title: string | null;
 }
 
 // Server-authoritative chess clock. Kept as its own field, deliberately
@@ -133,6 +135,8 @@ export function createMatch(
         displayName: white.displayName,
         avatarId: white.avatarId,
         country: white.country,
+        rating: white.rating,
+        title: white.title,
       },
       b: {
         socketId: black.socketId,
@@ -141,6 +145,8 @@ export function createMatch(
         displayName: black.displayName,
         avatarId: black.avatarId,
         country: black.country,
+        rating: black.rating,
+        title: black.title,
       },
     },
     createdAt: new Date(),

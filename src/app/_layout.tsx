@@ -15,6 +15,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableFreeze } from 'react-native-screens';
 
 import { ChallengeModals } from '@/components/friends/ChallengeModals';
+import { ProgressionOverlay } from '@/components/progression/ProgressionOverlay';
 import { BottomNav, bottomNavTabForRoute } from '@/components/ui';
 import { SplashReveal } from '@/components/ui/SplashReveal';
 import { Colors } from '@/constants/theme';
@@ -152,6 +153,7 @@ export default function RootLayout() {
                 />
                 {navTab ? <BottomNav activeTab={navTab} /> : null}
                 <ChallengeModals />
+                <ProgressionOverlay />
               </ChallengesProvider>
             </FriendsProvider>
           </PlayerProfileProvider>

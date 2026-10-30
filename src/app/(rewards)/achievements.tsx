@@ -10,6 +10,7 @@ import { AppIcon, CurrencyIcon, CurrencyPill, RockButton, SectionLabel } from '@
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { claimAchievement, getAchievementsStatus, type AchievementStatus } from '@/lib/api';
+import { celebrate } from '@/lib/celebration';
 import { getAuthToken } from '@/lib/authStorage';
 
 // The server sends the catalog data (title/description/icon/target/reward),
@@ -67,6 +68,7 @@ export default function AchievementsScreen() {
       const token = await getAuthToken();
       if (!token) return;
       await claimAchievement(token, achievementId);
+      celebrate('title'); // a bigger one-time reward: heavier cue than a daily claim
       setAchievements((prev) => prev?.map((a) => (a.id === achievementId ? { ...a, claimed: true } : a)) ?? prev);
       refresh();
     } catch (error) {

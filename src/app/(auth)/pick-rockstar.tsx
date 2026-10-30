@@ -81,11 +81,6 @@ export default function PickRockstarScreen() {
             RockStyle Chess
           </Text>
         </View>
-        <View className="rounded-full px-md py-xs" style={{ borderWidth: 1, borderColor: Colors.chromeDark, backgroundColor: withOpacity(Colors.bgBase, 0.5) }}>
-          <Text className="font-section-header" style={{ fontSize: 13, color: Colors.emberLight }}>
-            XP: 2400
-          </Text>
-        </View>
       </View>
 
       <KeyboardAwareScrollView contentContainerClassName="items-center gap-xl px-lg py-xl" contentContainerStyle={{ paddingBottom: 32 + insets.bottom }} showsVerticalScrollIndicator={false}>

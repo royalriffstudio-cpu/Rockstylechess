@@ -8,6 +8,9 @@ Shared, reusable UI building blocks — not full screens.
   `RewardedAdButton` (one rewarded-ad reward: handles guest/sign-in, daily-cap and
   not-ready states and the redeem retry; built on `RockButton`).
   Import from `@/components/ui`.
+- `progression/` — the Fame/level moments: `Emblem` (`TitleEmblem` / `TierEmblem`: painted badges from `assets/progression/emblems`, cut out of the generated green-screen originals by `scripts/cutout-green.py`), `ShowReport` (the post-match report card section)
+  and `ProgressionOverlay` (global Level Up / New Title celebration, queued from
+  `src/lib/progression.ts`, with sound + haptics via `src/lib/celebration.ts`).
 - `layout/` — headers, modal chrome (not built yet — `BottomNav` lives in
   `ui/` since it's a reusable primitive on its own, not page layout)
 - `StockfishEngine.tsx` — headless, no themed visual surface, so it lives

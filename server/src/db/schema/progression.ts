@@ -1,4 +1,4 @@
-import { boolean, integer, pgEnum, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 
 import { users } from './users.js';
 
@@ -7,7 +7,7 @@ export const rewardTypeEnum = pgEnum('reward_type', ['chips', 'gems', 'xp']);
 // What real gameplay event a quest's progress is driven by -- lets increment
 // logic stay generic ("on event X, bump every quest whose metric is X")
 // instead of hardcoding quest ids into game-event code. See db/quests.ts.
-export const questMetricEnum = pgEnum('quest_metric', ['wins', 'captures', 'puzzles_solved', 'checkmates']);
+export const questMetricEnum = pgEnum('quest_metric', ['wins', 'captures', 'puzzles_solved', 'checkmates', 'online_games']);
 
 // Achievements are permanent, one-time unlocks (unlike quests' daily/weekly
 // reset), so their metric set is wider -- it covers lifetime/watermark
@@ -160,4 +160,123 @@ export const userCards = pgTable(
     obtainedAt: timestamp('obtained_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.cardId] })],
+);
+
+// ---- Fame / level progression (see db/progression.ts) ----------------------
+
+// One row per user per UTC day: what the daily rules need to remember. `botFame`
+// counts toward the daily bot-Fame cap (grind guard); `firstWinDone` is the
+// "Opening Night" x2 bonus (first win of the day, any source).
+export const dailyProgress = pgTable(
+  'daily_progress',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    dayStart: timestamp('day_start', { withTimezone: true }).notNull(),
+    botFame: integer('bot_fame').notNull().default(0),
+    firstWinDone: boolean('first_win_done').notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.dayStart] })],
+);
+
+// A level reward is paid exactly once per (user, level): the insert's primary
+// key is the idempotency guard (ON CONFLICT DO NOTHING; credit only if inserted).
+export const levelRewardsGranted = pgTable(
+  'level_rewards_granted',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    level: integer('level').notNull(),
+    chips: integer('chips').notNull().default(0),
+    gems: integer('gems').notNull().default(0),
+    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.level] })],
+);
+
+// Titles a player has earned (catalog in economy.config.json `levels.titles`).
+export const userTitles = pgTable(
+  'user_titles',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    titleId: varchar('title_id', { length: 40 }).notNull(),
+    unlockedAt: timestamp('unlocked_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.titleId] })],
+);
+
+// The persisted "what just happened" after a match (Fame earned, level-ups,
+// rewards, titles, rating change). The live push (socket) can be missed by an
+// offline or backgrounded player, so every event is stored first; the client
+// shows celebrations for unseen events and marks them seen.
+export const progressionEvents = pgTable(
+  'progression_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(), // 'online' | 'bot'
+    matchId: text('match_id'),
+    payload: jsonb('payload').notNull(),
+    // True when something worth a celebration happened (level up / new title),
+    // so the unseen query can be a cheap indexed filter.
+    celebratory: boolean('celebratory').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    seenAt: timestamp('seen_at', { withTimezone: true }),
+  },
+  (t) => [index('progression_events_unseen_idx').on(t.userId, t.celebratory, t.seenAt)],
+);
+
+// ---- The Tour (campaign) and verified bot matches (see db/tour.ts, db/botSessions.ts) ----
+
+// One row per (player, gig). `progress` counts toward the gig's target (or is a
+// high-water mark for rating/capture gigs); `completedAt` is set once, when the gig
+// pays out. Boss gigs use the id `boss-<chapterId>`, perfect-chapter bonuses
+// `perfect-<chapterId>`.
+export const tourProgress = pgTable(
+  'tour_progress',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    gigId: varchar('gig_id', { length: 60 }).notNull(),
+    progress: integer('progress').notNull().default(0),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.gigId] })],
+);
+
+// Per-player Tour state that is not a plain counter: the Encore gauntlet (the
+// World Tour finale) is a streak of boss wins that any boss loss resets.
+export const tourState = pgTable('tour_state', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  encoreProgress: integer('encore_progress').notNull().default(0),
+});
+
+// A bot match the SERVER knows about. Bot games are played on the device, so the
+// only way to stop "POST me a win" farming is to make the server issue the match
+// first (it records which bot and which colour) and verify the finished game's PGN
+// before paying anything. One session = one reward, claimed atomically.
+export const botSessions = pgTable(
+  'bot_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    botId: varchar('bot_id', { length: 40 }).notNull(),
+    difficulty: varchar('difficulty', { length: 40 }).notNull(),
+    color: varchar('color', { length: 1 }).notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    result: varchar('result', { length: 20 }),
+  },
+  (t) => [index('bot_sessions_user_idx').on(t.userId, t.finishedAt)],
 );

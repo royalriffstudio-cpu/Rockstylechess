@@ -115,6 +115,71 @@ const legendDays = (t.legendary.gems * R) / base;
 check('Common takes 2-5 casual days', commonDays >= 2 && commonDays <= 5, commonDays.toFixed(1));
 check('Legendary takes 20-35 casual days', legendDays >= 20 && legendDays <= 35, legendDays.toFixed(1));
 
+
+// ---- fame / levels -------------------------------------------------------
+const fame = cfg.fame;
+const botFames = ['easy', 'medium', 'stockfish-basic', 'stockfish-lite', 'stockfish-strong'].map((b) => fame.botWin[b]);
+check('bot Fame rises with difficulty', botFames.every((v, i) => i === 0 || v > botFames[i - 1]));
+check('no bot win pays more Fame than an online win', botFames.every((v) => v <= fame.online.win));
+check('daily bot Fame cap is a few strong-bot wins, not unlimited', fame.dailyBotFameCap >= fame.botWin['stockfish-strong'] && fame.dailyBotFameCap <= 6 * fame.online.win);
+check('hot-streak steps increase', fame.hotStreak.every((s, i) => i === 0 || (s.minStreak > fame.hotStreak[i - 1].minStreak && s.mult > fame.hotStreak[i - 1].mult)));
+check('Opening Night is a x2-x3 bonus', fame.openingNight >= 2 && fame.openingNight <= 3);
+const titles = cfg.levels.titles;
+check('level titles start at level 1 and strictly increase', titles[0].minLevel === 1 && titles.every((t, i) => i === 0 || t.minLevel > titles[i - 1].minLevel));
+check('title ids unique', new Set(titles.map((t) => t.id)).size === titles.length);
+
+// Level rewards, expanded the same way gen-economy does.
+const levelRewards = {};
+for (const r of cfg.levels.chipsPerLevel) for (let l = r.from; l <= r.to; l++) levelRewards[l] = { chips: r.chips, gems: 0 };
+for (const [l, e] of Object.entries(cfg.levels.milestones)) { const b = levelRewards[l] ?? { chips: 0, gems: 0 }; levelRewards[l] = { chips: b.chips + (e.chips ?? 0), gems: b.gems + (e.gems ?? 0) }; }
+const rewardTo = (n) => Object.entries(levelRewards).filter(([l]) => Number(l) <= n).reduce((a, [, r]) => ({ chips: a.chips + r.chips, gems: a.gems + r.gems }), { chips: 0, gems: 0 });
+const xpFor = (L) => (L <= 1 ? 0 : 300 * L * L);
+const fameDay = m.onlineGamesPerDay * (m.onlineWinRate * fame.online.win + m.onlineDrawRate * fame.online.draw) + m.openingNightRate * (fame.openingNight - 1) * fame.online.win + m.botGamesPerDay * m.botWinRate * m.botMixWinFame;
+console.log(`\nFame model (ESTIMATE): ~${fameDay.toFixed(0)} Fame/day for a casual player`);
+const daysTo = (L) => xpFor(L) / fameDay;
+for (const L of [2, 5, 10, 20, 30, 50]) {
+  const r = rewardTo(L);
+  console.log(`  level ${String(L).padStart(2)}: ${xpFor(L).toLocaleString().padStart(8)} Fame -> ${daysTo(L).toFixed(1).padStart(6)} days   (rewards so far: ${r.chips.toLocaleString()} chips + ${r.gems} gems)`);
+}
+check('level 2 arrives on the first or second day (hook)', daysTo(2) <= 2, daysTo(2).toFixed(1));
+check('level 5 within the first week', daysTo(5) <= 7, daysTo(5).toFixed(1));
+check('level 10 in about 2-5 weeks', daysTo(10) >= 14 && daysTo(10) <= 35, daysTo(10).toFixed(1));
+check('level 50 takes over a year', daysTo(50) >= 365, daysTo(50).toFixed(0));
+const r10 = rewardTo(10);
+check('chips from levels 1-10 are under 10% of the income earned meanwhile', r10.chips < 0.1 * base * daysTo(10), `${r10.chips} vs ${(0.1 * base * daysTo(10)).toFixed(0)}`);
+const r50 = rewardTo(50);
+check('all 50 levels of gems stay well under the achievement gem pool', r50.gems < 920, String(r50.gems));
+
+
+// ---- The Tour ------------------------------------------------------------
+const tour = cfg.tour;
+const rankOf = { easy: 0, medium: 1, 'stockfish-basic': 2, 'stockfish-lite': 3, 'stockfish-strong': 4 };
+const botsById = Object.fromEntries(cfg.bots.map((b) => [b.id, b]));
+const GIG_KINDS = ['win_bot', 'win_color', 'capture_game', 'puzzles', 'online_games', 'online_wins', 'wager_wins', 'win_moves', 'win_marathon', 'win_no_queen_loss', 'mate_piece', 'rating'];
+check('6 bots with unique ids', cfg.bots.length === 6 && new Set(cfg.bots.map((b) => b.id)).size === 6);
+check('bot difficulties are valid', cfg.bots.every((b) => b.difficulty in rankOf));
+check('6 chapters, one per venue, in ladder order', tour.chapters.map((c) => c.venue).join() === Object.keys(cfg.venues).join(), tour.chapters.map((c) => c.venue).join());
+check('every chapter has 5 gigs', tour.chapters.every((c) => c.gigs.length === 5));
+const gigIds = tour.chapters.flatMap((c) => c.gigs.map((g) => g.id));
+check('gig ids unique', new Set(gigIds).size === gigIds.length);
+check('every gig kind is known', tour.chapters.every((c) => c.gigs.every((g) => GIG_KINDS.includes(g.kind))));
+check('every gig has a positive target and reward', tour.chapters.every((c) => c.gigs.every((g) => g.target > 0 && g.chips > 0)));
+const bossChapters = tour.chapters.filter((c) => c.bossBotId);
+check('boss bots exist and get stronger chapter by chapter', bossChapters.every((c, i) => botsById[c.bossBotId] && (i === 0 || rankOf[botsById[c.bossBotId].difficulty] > rankOf[botsById[bossChapters[i - 1].bossBotId].difficulty])), bossChapters.map((c) => c.bossBotId).join());
+check('the last chapter is the Encore gauntlet of every boss in order', tour.chapters[5].bossBotId === null && tour.chapters[5].encore.join() === bossChapters.map((c) => c.bossBotId).join());
+check('boss rewards and gig rewards grow with the chapter', tour.chapters.every((c, i) => i === 0 || (c.bossReward.chips > tour.chapters[i - 1].bossReward.chips && c.gigs.reduce((s, g) => s + g.chips, 0) > tour.chapters[i - 1].gigs.reduce((s, g) => s + g.chips, 0))));
+check('chapter titles unique and do not clash with level titles', new Set([...tour.chapters.map((c) => c.title.id), ...cfg.levels.titles.map((t) => t.id)]).size === tour.chapters.length + cfg.levels.titles.length);
+check('rating gigs line up with venue rating gates (the gate is the goal)', tour.chapters.flatMap((c) => c.gigs).filter((g) => g.kind === 'rating').every((g) => Object.values(cfg.venues).some((v) => v.minRating === g.target)));
+const tourChips = tour.chapters.reduce((s, c) => s + c.gigs.reduce((a, g) => a + g.chips, 0) + c.bossReward.chips, 0);
+const tourGems = tour.chapters.reduce((s, c) => s + c.bossReward.gems + tour.perfectBonusGems, 0);
+console.log(`\nTour totals (one-time): ${tourChips.toLocaleString()} chips + ${tourGems} gems = about ${(tourChips / base).toFixed(0)} casual days of chip income`);
+check('the whole Tour is worth under 35% of 90 days of chip income', tourChips < 0.35 * base * 90, `${tourChips} vs ${(0.35 * base * 90).toFixed(0)}`);
+check('Tour gems stay under the achievement gem pool', tourGems < 920, String(tourGems));
+const wk = cfg.weeklyQuests;
+const weeklyChips = wk['win-weekly'] + wk['online-weekly'] + wk['puzzles-weekly'];
+check('weekly quests pay under 20% of a week of income', weeklyChips < 0.2 * base * 7, `${weeklyChips} vs ${(0.2 * base * 7).toFixed(0)}`);
+check('weekly quests unlock after the first hook levels', wk.minLevel >= 3 && wk.minLevel <= 10);
+
 // achievements (one-time) -- read from the server catalog
 const ach = [...read('server/src/achievementCatalog.ts').matchAll(/rewardType: '(chips|gems)', rewardAmount: ([\d_]+)/g)];
 const achChips = ach.filter((a) => a[1] === 'chips').reduce((s, a) => s + Number(a[2].replace(/_/g, '')), 0);

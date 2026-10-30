@@ -79,10 +79,10 @@ documented here either, only in code comments): `playerProfiles.level`/
 case, since the raw formula would otherwise require 300 XP just to *start*
 at level 1). `levelForXp`/`getLevelProgress` invert it and derive a
 progress-bar-ready breakdown; `applyXpGain` is the only place XP is ever
-granted, used by both match-reward paths (`db/persistMatchResult.ts` for
-online matches, `POST /me/match-reward` for bot/local) so `level` can never
-drift from what the current `xp` implies. Reward amounts live next to the
-chips ones in `matchRewards.ts` (`MATCH_XP_REWARDS`). The curve itself is
+granted (via `db/progression.ts`'s `grantFame`, used by `db/persistMatchResult.ts` for
+online matches and `db/botSessions.ts` for verified bot matches) so `level` can never
+drift from what the current `xp` implies. Fame amounts live in `economy.config.json`
+(`fame`). The curve itself is
 mirrored read-only in `src/lib/leveling.ts` on the client (display math
 only, no mutation helper) -- keep both files in sync if it changes.
 
@@ -114,13 +114,70 @@ Rules: **1 gem = 40 chips** everywhere. One tier ladder for all cosmetics (Commo
 4,000 chips, Rare 250 / 10,000, Epic 450 / 18,000, Legendary 750 / 30,000; Hall of Fame
 900 / 1,350 / 1,800 gems only + rating gate). No chip pack may give more chips per dollar
 than gems give chip-equivalent. Online win 200 / draw 40 / loss 0; bot wins pay by
-difficulty (20 / 40 / 80 / 120 / 200, `POST /me/match-reward` takes `difficulty`);
+difficulty (20 / 40 / 80 / 120 / 200; the server knows the difficulty from the bot session);
 welcome bonus 4,000 (one Common); analysis 200 chips or 5 gems. After a price change
 re-seed: `seed:cosmetics`, `seed:spin`, `seed:quests` (`:remote` for Neon). Venue buy-ins,
 prizes and rating gates in the config are REAL since the wagers phase (next section).
-Known open gap:
-`POST /me/match-reward` is still client-reported (no server match record), so payouts
-describe an honest player.
+Bot payouts are
+server-verified (see "The Tour and verified bot matches"); puzzle reports are still
+client-reported.
+
+## Progression (Fame, levels, titles)
+
+"XP" is now **Fame**; the curve is unchanged (`300 x L^2`, `src/leveling.ts`) but everything
+that grants it goes through ONE transaction, `grantFame` in `src/db/progression.ts`
+(`economy.config.json` -> `fame`, `levels`):
+
+- **How much:** online win 500 / draw 50; **bot wins by difficulty** 100 / 200 / 300 / 400 /
+  500 (draw = 10%), with a **daily bot-Fame cap** (2,000 of base Fame, per UTC day; online is
+  never capped); **Opening Night** x2 on the first win of the UTC day (any source); **Hot
+  Streak** x1.2 at a 3-win streak and x1.5 at 5+ (online wins). A draw no longer breaks a win
+  streak (only a loss resets it). Multipliers apply to Fame only, never to chips.
+- **What it unlocks:** each level pays a small fixed chips/gems reward exactly once
+  (`level_rewards_granted` primary key, table in `economy.config.json`, expanded by
+  `gen-economy.mjs` into `LEVEL_REWARDS`), and crossing a title threshold unlocks and
+  auto-equips a title (`user_titles`, `player_profiles.equipped_title_id`; first grant also
+  backfills titles for existing players, level rewards are NOT retroactive).
+- **What the app is told:** `grantFame` returns (and stores in `progression_events`) a summary
+  `{fame{base,gained,openingNight,hotStreak,capped}, xp/level before+after, rewards, titles,
+  rating{before,after,delta,tier*}, goals}`. Online matches push it as the socket event
+  `progression:update` (from `persistMatchResult`), bot matches get it in the
+  `POST /me/bot-matches/:id/finish` reply (`progression`, which includes the `goals` the
+  match moved and the Tour update). Celebrations (level up / new title) that the player missed are
+  replayed from `GET /me/progression/unseen` until `POST /me/progression/:id/seen`.
+  `queue:matched` opponents carry `rating` and `title` for the match header.
+- Pass-and-play ('local') no longer pays or counts; `persistMatchResult` skips the flat chip
+  reward for wagered matches, as before. The daily-progress rows live in `daily_progress`.
+
+## The Tour (campaign) and verified bot matches
+
+**The Tour** is six chapters (one per venue). Each has 5 *gigs* (goals any match can move:
+win as Black, capture 10 in a win, play 3 online games, reach rating 1300, ...) and a *boss
+bot*; beating the boss completes the chapter, unlocks the next one, pays a bigger reward and
+a chapter title. Chapter 6 is "The Encore": beat all five bosses in a row (any boss loss
+resets it). Finishing all 5 gigs of a chapter adds a "perfect" gem bonus. Everything (gig
+text, targets, rewards, titles, the bot roster) is in `economy.config.json` (`tour`, `bots`);
+`src/tour.ts` is the pure rule set (`gigDelta`), `src/db/tour.ts` persists and pays it
+(`applyTour`, one transaction per event, advisory-locked per player, every row completes
+once). Gigs only progress in chapters the player has unlocked. It reads **verified** events
+only: online matches (from the authoritative PGN in `persistMatchResult`), bot matches
+(below) and puzzle reports. `GET /me/tour` is the read model; the update also rides in the
+Show Report (`progression.tour`).
+
+**Bot matches are server-issued** (`src/db/botSessions.ts`): `POST /me/bot-matches {botId,
+color}` creates a session, `POST /me/bot-matches/:id/finish {pgn, endedBy}` claims it
+atomically, replays the PGN with chess.js (`src/matchAnalysis.ts`; an illegal move rejects
+it), reads the result from the position (a win must be a real checkmate; only a *loss* is
+believed on a claim), requires at least 6 plies and a plausible duration, then pays chips,
+Fame, quests, achievements and the Tour from those verified facts. This replaced
+`POST /me/match-reward` and `POST /me/quests/report-match`, which anyone signed in could call
+in a loop. It cannot prove the opponent was really the engine, so bot rewards stay modest
+and rating/wagers stay online-only. Puzzle reports (`/me/quests/report-puzzle-solved`)
+are still client-reported (minimum 4 s between reports).
+
+**Weekly quests ("Tour Dates")**: three quests (win 10, play 5 online, solve 20 puzzles)
+that unlock at level 5 and reset Monday 00:00 UTC (`questPeriodStart` in `db/quests.ts`);
+`GET /me/quests?type=weekly`. Seed with `npm run seed:quests`. Migration `0015`.
 
 ## Wagers (chips at stake on online venues)
 

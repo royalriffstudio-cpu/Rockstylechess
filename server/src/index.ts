@@ -20,6 +20,7 @@ import { db } from './db/client.js';
 import { persistMessage } from './db/directMessages.js';
 import { areFriends, friendIdsOf } from './db/friends.js';
 import { insertNotification } from './db/notifications.js';
+import { titleById } from './db/progression.js';
 import { persistMatchResult } from './db/persistMatchResult.js';
 import {
   escrowWager,
@@ -93,19 +94,31 @@ function resolveDuration(value: unknown): Duration {
 // trusting the socket payload is what makes a friend challenge show the
 // opponent's real stage name instead of the hardcoded 'AXL_CHESS' literal
 // every play emit currently sends.
-async function getPlayerIdentity(
-  userId: string | null,
-): Promise<{ displayName: string | null; avatarId: string | null; country: string | null }> {
-  if (!userId) return { displayName: null, avatarId: null, country: null };
+async function getPlayerIdentity(userId: string | null): Promise<{
+  displayName: string | null;
+  avatarId: string | null;
+  country: string | null;
+  rating: number | null;
+  title: string | null;
+}> {
+  if (!userId) return { displayName: null, avatarId: null, country: null, rating: null, title: null };
   const [row] = await db
     .select({
       displayName: playerProfiles.displayName,
       avatarId: playerProfiles.avatarId,
       country: playerProfiles.country,
+      rating: playerProfiles.rating,
+      equippedTitleId: playerProfiles.equippedTitleId,
     })
     .from(playerProfiles)
     .where(eq(playerProfiles.userId, userId));
-  return { displayName: row?.displayName ?? null, avatarId: row?.avatarId ?? null, country: row?.country ?? null };
+  return {
+    displayName: row?.displayName ?? null,
+    avatarId: row?.avatarId ?? null,
+    country: row?.country ?? null,
+    rating: row?.rating ?? null,
+    title: titleById(row?.equippedTitleId)?.name ?? null,
+  };
 }
 
 const app = express();
@@ -183,6 +196,8 @@ async function buildChallengePlayer(
     displayName: identity.displayName || 'PLAYER',
     avatarId: identity.avatarId,
     country: identity.country,
+      rating: identity.rating,
+      title: identity.title,
     duration: '5m',
   };
 }
@@ -415,7 +430,7 @@ function notifyMatched(match: MatchState): void {
     io.to(me.socketId).emit('queue:matched', {
       matchId: match.id,
       color,
-      opponent: { userId: opp.userId, displayName: opp.displayName, avatarId: opp.avatarId, country: opp.country },
+      opponent: { userId: opp.userId, displayName: opp.displayName, avatarId: opp.avatarId, country: opp.country, rating: opp.rating, title: opp.title },
       fen: match.chess.fen(),
       clocks: match.clock.remainingMs,
       incrementMs: match.clock.incrementMs,
@@ -598,6 +613,8 @@ io.on('connection', (socket: Socket) => {
         displayName: identity.displayName || payload.displayName || 'PLAYER',
         avatarId: identity.avatarId,
         country: identity.country,
+      rating: identity.rating,
+      title: identity.title,
         duration: resolveDuration(payload.duration),
       };
 
@@ -636,6 +653,8 @@ io.on('connection', (socket: Socket) => {
       displayName: identity.displayName || payload.displayName || 'PLAYER',
       avatarId: identity.avatarId,
       country: identity.country,
+      rating: identity.rating,
+      title: identity.title,
       duration: resolveDuration(payload.duration),
     };
     socket.emit('room:created', { code: createRoom(player) });
@@ -654,6 +673,8 @@ io.on('connection', (socket: Socket) => {
       displayName: identity.displayName || payload.displayName || 'PLAYER',
       avatarId: identity.avatarId,
       country: identity.country,
+      rating: identity.rating,
+      title: identity.title,
       // The joiner's own duration is irrelevant -- the room creator's
       // (result.opponent below) is what createMatch actually uses, since
       // they're the one who set the room up in the first place.
@@ -850,6 +871,8 @@ io.on('connection', (socket: Socket) => {
         displayName: match.players[opponentColor(color)].displayName,
         avatarId: match.players[opponentColor(color)].avatarId,
         country: match.players[opponentColor(color)].country,
+        rating: match.players[opponentColor(color)].rating,
+        title: match.players[opponentColor(color)].title,
       },
       fen: match.chess.fen(),
       // A live snapshot, not the possibly-stale anchor -- the clock kept

@@ -8,7 +8,6 @@ export type MatchOutcome = 'win' | 'loss' | 'draw';
 // drift from the server's. Display only (result-placeholder.tsx count-up).
 export const MATCH_CHIP_REWARDS: Record<MatchOutcome, number> = { ...ECONOMY.matchRewards.online };
 
-export const MATCH_XP_REWARDS: Record<MatchOutcome, number> = { ...ECONOMY.matchRewards.xp };
 
 // Bot matches pay by difficulty; mirrors server/src/matchRewards.ts's botChipReward.
 export function botChipReward(difficulty: keyof typeof ECONOMY.matchRewards.botWin, outcome: MatchOutcome): number {

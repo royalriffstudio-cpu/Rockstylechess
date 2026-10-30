@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type ImageSourcePropType,
   type LayoutChangeEvent,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,20 +35,22 @@ import { getPieceSprites, type PieceSpriteMap } from '@/components/ui/pieceSprit
 import { getBoardTheme } from '@/constants/boardThemes';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
+import { BOT_PORTRAITS, BOT_TIER_LABEL } from '@/constants/bots';
 import { formatChips, getVenue, getVenueIntensity } from '@/constants/venues';
 import { useChessClock, type ClockTimes } from '@/hooks/useChessClock';
 import { useChessGame, type BotDifficulty, type ChessGameResult, type GameMode } from '@/hooks/useChessGame';
 import { useMatchChat } from '@/hooks/useMatchChat';
 import { useMatchReplay } from '@/hooks/useMatchReplay';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-import { claimMatchReward, reportMatchOutcome } from '@/lib/api';
+import { finishBotMatch, startBotMatch, type BotFinishReason } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
 import { capturedPoints, materialLead } from '@/lib/pieceValues';
 import { getSocket } from '@/lib/socket';
 import type { EngineMove, StockfishConfig } from '@/lib/botEngine';
 import { setPendingLocalReplay, type LocalMatchReplay } from '@/lib/localMatchReplayStore';
-import { botChipReward, MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
+import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
 import { DURATION_MS, isDuration, isVenueTier } from '@/lib/onlineMatch';
+import { ensureProgressionListener, putReport, titleName } from '@/lib/progression';
 import { ensureWagerListener } from '@/lib/wagerResult';
 
 
@@ -109,11 +112,6 @@ const MIN_BOARD_SIZE = 200;
 // piece dragged inward from the a/h files.
 const BOARD_SIDE_BLEED = 4;
 
-// Navigation params: bots.tsx passes mode=bot + difficulty (which of the
-// four bot engines to use) + color (the "Play As" pick); matchmaking.tsx
-// passes mode=online + matchId/color/fen/opponentName once the server has
-// paired a real opponent; the PvP/"Iron Duel" flow otherwise defaults to
-// local pass-and-play. `color=b` also flips the board (see flipBoard below).
 export default function MatchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -128,6 +126,7 @@ export default function MatchScreen() {
     opponentCountry,
     opponentUserId,
     botName,
+    botId,
     botEmoji,
     clockW: clockWParam,
     clockB: clockBParam,
@@ -136,6 +135,8 @@ export default function MatchScreen() {
     venueTier: venueTierParam,
     buyIn: buyInParam,
     prize: prizeParam,
+    opponentRating: opponentRatingParam,
+    opponentTitle: opponentTitleParam,
   } = useLocalSearchParams<{
     mode?: string;
     difficulty?: string;
@@ -147,6 +148,8 @@ export default function MatchScreen() {
     opponentCountry?: string;
     opponentUserId?: string;
     botName?: string;
+    // Which roster bot this is (the server validates it and issues the match -- see botSessions.ts).
+    botId?: string;
     botEmoji?: string;
     clockW?: string;
     clockB?: string;
@@ -162,6 +165,9 @@ export default function MatchScreen() {
     // (0 / absent = unwagered).
     buyIn?: string;
     prize?: string;
+    // Online only: the opponent's public standing from queue:matched.
+    opponentRating?: string;
+    opponentTitle?: string;
   }>();
   const mode: GameMode = modeParam === 'bot' ? 'bot' : modeParam === 'online' ? 'online' : 'local';
   const difficulty: BotDifficulty =
@@ -221,6 +227,21 @@ export default function MatchScreen() {
   // ~900ms hold. This latches the moment ANY ending fires so the clock freezes.
   const [matchEnded, setMatchEnded] = useState(false);
   const { profile, refresh: refreshPlayerProfile } = usePlayerProfile();
+  // Header rank lines are REAL: an online opponent shows their equipped title and
+  // rating, a bot its strength label, you your own title and rating. (They used to
+  // be the hardcoded "GRANDMASTER (2150)" / "PRO (2145)" for everyone.)
+  const opponentRank =
+    mode === 'online'
+      ? [opponentTitleParam?.toUpperCase(), opponentRatingParam ? opponentRatingParam : null].filter(Boolean).join(' · ') || 'GUEST'
+      : mode === 'bot'
+        ? `BOT · ${BOT_TIER_LABEL[difficulty]}`
+        : 'PLAYER 2';
+  const myRank =
+    mode === 'local'
+      ? 'PLAYER 1'
+      : profile
+        ? [titleName(profile.equippedTitleId)?.toUpperCase(), mode === 'online' ? String(profile.rating) : null].filter(Boolean).join(' · ') || `LVL ${profile.level}`
+        : 'GUEST';
   const boardTheme = getBoardTheme(profile?.equippedBoardId);
   const pieceSprites = getPieceSprites(profile?.equippedPieceId);
   // Atmosphere only -- never feeds boardTheme/pieceSprites above, which stay
@@ -290,40 +311,35 @@ export default function MatchScreen() {
     }
     console.log('Game over', outcome, reason);
 
-    // Online pays the flat online table; bot/local pays by bot strength (server
-    // does the same math in POST /me/match-reward -- this is the display value).
-    const chipsGranted = mode === 'online' ? MATCH_CHIP_REWARDS[outcome] : botChipReward(difficulty, outcome);
-    if (mode !== 'online') {
-      // Bot/local matches never reach the server otherwise (pure
-      // client-side chess.js) -- this is the only point a reward gets
-      // persisted for those modes. Online matches are already credited
-      // authoritatively server-side, inside persistMatchResult.ts, at the
-      // same moment this fires -- calling the claim endpoint here too
-      // would double-credit.
+    // Online pays the flat online table (display value; the server credits it). Bot
+    // matches pay what the SERVER verifies: it issued the match at the start and
+    // replays the finished PGN before paying anything (db/botSessions.ts), so this
+    // starts at 0 and becomes whatever the server says. Pass-and-play pays nothing.
+    let chipsGranted = mode === 'online' ? MATCH_CHIP_REWARDS[outcome] : 0;
+    let noReward: string | undefined;
+    // Bot matches get their Show Report from the server's reply (online ones arrive
+    // over the socket as `progression:update`, keyed by the match id).
+    const reportKey = `bot-${Date.now()}`;
+    if (mode === 'bot') {
       const token = await getAuthToken();
-      if (token) {
+      const sessionId = botSessionRef.current;
+      const pgn = game.getReplayData()?.pgn;
+      if (token && sessionId && pgn) {
+        // How the game ended, as the server needs it: a conclusive position settles itself
+        // (the server reads checkmate/draws from the PGN); otherwise only a loss is believed.
+        const endedBy: BotFinishReason =
+          result.type === 'resignation' ? 'resign' : result.type === 'timeout' ? (result.winner === playerColor ? 'bot-timeout' : 'timeout') : 'game';
         try {
-          await claimMatchReward(token, outcome, difficulty);
+          const finished = await finishBotMatch(token, sessionId, pgn, endedBy);
+          if (finished.noResult) noReward = finished.reason ?? 'unverified';
+          if (finished.progression) putReport(reportKey, finished.progression);
+          chipsGranted = finished.chipsGranted ?? 0;
         } catch (error) {
-          console.log('Failed to claim match reward', error);
+          console.log('Failed to finish bot match', error);
+          noReward = 'offline';
         }
-        try {
-          const capturedCount =
-            playerColor === 'w' ? game.capturedByWhite.length : game.capturedByBlack.length;
-          const opponentCapturedCount =
-            playerColor === 'w' ? game.capturedByBlack.length : game.capturedByWhite.length;
-          await reportMatchOutcome(token, {
-            won: outcome === 'win',
-            checkmate: outcome === 'win' && reason === 'checkmate',
-            capturedCount,
-            opponentCapturedCount,
-            color: playerColor,
-            moveCount: game.moveCount,
-            isBot: mode === 'bot',
-          });
-        } catch (error) {
-          console.log('Failed to report match outcome', error);
-        }
+      } else if (!token) {
+        noReward = 'guest';
       }
     }
 
@@ -368,6 +384,10 @@ export default function MatchScreen() {
           outcome,
           reason,
           chipsGranted: String(chipsGranted),
+          matchMode: mode,
+          ...(noReward ? { noReward } : {}),
+          // Where the Show Report comes from: the online match id (socket push) or a bot report key.
+          ...(mode === 'online' && matchId ? { reportKey: matchId } : mode === 'bot' ? { reportKey } : {}),
           venueTier,
           // A wagered match shows the server's settlement instead of the flat
           // reward (see wagerResult.ts / result-placeholder.tsx).
@@ -415,10 +435,34 @@ export default function MatchScreen() {
   // both setPlyIndex calls into one render, so there's no visible flash of
   // move 0.
   const wasPeekActiveRef = useRef(peekActive);
+  // Bot matches are issued by the server first (so a win can be verified later).
+  // Guests, or a failed call, simply play unrewarded.
+  const botSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (mode !== 'bot' || !botId) return;
+    let cancelled = false;
+    (async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+      try {
+        const { sessionId } = await startBotMatch(token, botId, playerColor);
+        if (!cancelled) botSessionRef.current = sessionId;
+      } catch (error) {
+        console.log('Failed to start bot match', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, botId, playerColor]);
+
   // Make sure the shared wager:settled listener is attached for the whole online
   // match, so the settlement is cached even if it lands after we navigate away.
   useEffect(() => {
-    if (mode === 'online') ensureWagerListener();
+    if (mode === 'online') {
+      ensureWagerListener();
+      ensureProgressionListener();
+    }
   }, [mode]);
 
   useEffect(() => {
@@ -614,8 +658,9 @@ export default function MatchScreen() {
           name={opponentDisplayName}
           avatarId={opponentAvatarKey}
           avatarEmoji={opponentAvatarEmoji}
+          avatarSource={mode === 'bot' && botId ? BOT_PORTRAITS[botId] : undefined}
           countryCode={mode === 'online' ? (opponentCountry ?? null) : null}
-          rank="GRANDMASTER (2150)"
+          rank={opponentRank}
           getRemaining={clock.getRemaining}
           color={opponentColor}
           accent={Colors.crimson}
@@ -678,7 +723,7 @@ export default function MatchScreen() {
           name={profile?.displayName ?? 'AXL_CHESS'}
           avatarId={profile?.avatarId ?? null}
           countryCode={profile?.country ?? null}
-          rank="PRO (2145)"
+          rank={myRank}
           getRemaining={clock.getRemaining}
           color={playerColor}
           accent={Colors.cyan}
@@ -772,6 +817,7 @@ const PlayerRow = memo(function PlayerRow({
   name,
   avatarId,
   avatarEmoji,
+  avatarSource,
   countryCode = null,
   rank,
   getRemaining,
@@ -786,6 +832,8 @@ const PlayerRow = memo(function PlayerRow({
   name: string;
   avatarId?: string | null;
   avatarEmoji?: string;
+  /** A bundled portrait (a roster bot's painted face); wins over the emoji. */
+  avatarSource?: ImageSourcePropType;
   countryCode?: string | null;
   rank: string;
   getRemaining: (color: 'w' | 'b') => number;
@@ -810,7 +858,7 @@ const PlayerRow = memo(function PlayerRow({
     // whether or not anything has been captured yet.
     <View className="flex-row items-start justify-between gap-sm px-sm py-xs">
       <View className="flex-shrink flex-row items-start gap-sm">
-        <PlayerAvatar avatarId={avatarId} emoji={avatarEmoji} size="small" />
+        <PlayerAvatar avatarId={avatarId} emoji={avatarEmoji} source={avatarSource} size="small" />
         <View className="flex-shrink">
           <View className="flex-row items-center gap-1">
             <CountryFlag code={countryCode} size={12} />

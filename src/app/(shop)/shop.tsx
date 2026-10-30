@@ -5,7 +5,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Purchase, PurchaseError } from 'react-native-iap';
 
-import { AppIcon, CurrencyIcon, ProgressBar, RewardedAdButton, RockButton, RockCard } from '@/components/ui';
+import { AppIcon, CurrencyIcon, RewardedAdButton, RockButton, RockCard } from '@/components/ui';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
 import {
   ALL_IAP_ANDROID_PRODUCT_IDS,
@@ -263,12 +263,14 @@ export default function RockShopScreen() {
         <Text className="flex-1 text-center font-display-hero text-headline-lg uppercase text-text-primary" style={{ fontSize: 16 }}>
           Rock Shop
         </Text>
+        {/* Real level (this used to be a hardcoded "2,400 XP"); an empty slot keeps
+            the title centred for guests. */}
         <View
           className="flex-row items-center gap-1 rounded-full px-md py-1"
-          style={{ backgroundColor: withOpacity(Colors.gold, 0.1), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.3) }}
+          style={{ backgroundColor: withOpacity(Colors.gold, 0.1), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.3), opacity: profile ? 1 : 0 }}
         >
           <MaterialCommunityIcons name="star-four-points" size={14} color={Colors.gold} />
-          <Text className="font-section-header text-caption text-gold">2,400 XP</Text>
+          <Text className="font-section-header text-caption text-gold">LVL {profile?.level ?? 1}</Text>
         </View>
       </View>
 
@@ -415,11 +417,10 @@ function VipBanner({ compact, onUpgrade }: { compact: boolean; onUpgrade: () => 
             <Text className="font-display-hero text-headline-lg uppercase text-gold" style={{ fontSize: 20, fontStyle: 'italic' }}>
               Backstage Pass
             </Text>
-            <Text className="font-heading-md text-caption text-cyan">Season 4: Molten Riff</Text>
+            <Text className="font-heading-md text-caption text-cyan">Coming soon</Text>
           </View>
           <RockButton label="Upgrade" variant="reward" onPress={onUpgrade} />
         </View>
-        <ProgressBar progress={0.65} label="Level 42 / 60" />
       </View>
     </RockCard>
   );

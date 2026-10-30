@@ -38,7 +38,7 @@ export async function getDailyBonusStatus(userId: string) {
 
 // No row lock here (no SELECT ... FOR UPDATE) -- a tiny double-claim window
 // exists on near-simultaneous requests from the same user. Accepted, same
-// tradeoff already made on POST /me/match-reward (chips/gems aren't
+// tradeoff already made elsewhere in the reward routes (chips/gems aren't
 // redeemable for anything real anywhere in the app). The client disables its
 // claim button for the in-flight request as the practical mitigation.
 //

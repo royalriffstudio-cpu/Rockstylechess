@@ -1,8 +1,9 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Pressable, Text, View } from 'react-native';
+import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ShowReport } from '@/components/progression/ShowReport';
 import { AppIcon, CurrencyIcon, CurrencyPill, RockButton, RockCard, VenueBackdrop } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useAdsEnabled } from '@/hooks/useAdsEnabled';
@@ -16,18 +17,10 @@ import { getAuthToken } from '@/lib/authStorage';
 import { clearPendingLocalReplay, getPendingLocalReplay } from '@/lib/localMatchReplayStore';
 import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
 import { isVenueTier, type WagerSettledPayload } from '@/lib/onlineMatch';
+import { getReport, subscribeReports } from '@/lib/progression';
 import { getWagerResult, subscribeWagerResult } from '@/lib/wagerResult';
 
 type Outcome = 'win' | 'loss' | 'draw';
-
-// ELO numbers are still sample/decorative -- rating changes aren't part of
-// this pass (chips/gems only). Route/filename kept as result-placeholder
-// per the original brief ("replaces result-placeholder.tsx, same route").
-const OUTCOME_ELO: Record<Outcome, { eloBefore: number; eloAfter: number }> = {
-  win: { eloBefore: 710, eloAfter: 726 },
-  loss: { eloBefore: 710, eloAfter: 694 },
-  draw: { eloBefore: 710, eloAfter: 710 },
-};
 
 const REASON_LABEL: Record<string, string> = {
   checkmate: 'by Checkmate',
@@ -80,6 +73,9 @@ export default function ResultScreen() {
     opponentUserId,
     opponentName,
     venueTier: venueTierParam,
+    reportKey,
+    matchMode,
+    noReward,
     wagerMatchId,
     buyIn: buyInParam,
     prize: prizeParam,
@@ -94,6 +90,12 @@ export default function ResultScreen() {
     venueTier?: string;
     // Set by match.tsx for a WAGERED online match: the settlement arrives from the
     // server as wager:settled (see lib/wagerResult.ts).
+    // Where this match's Show Report comes from (online match id or a bot report key),
+    // and which kind of match it was ('local' pass-and-play pays and counts nothing).
+    reportKey?: string;
+    matchMode?: string;
+    // Why a bot match paid nothing (guest, too short, could not be verified, offline).
+    noReward?: string;
     wagerMatchId?: string;
     buyIn?: string;
     prize?: string;
@@ -138,6 +140,26 @@ export default function ResultScreen() {
   const wagered = !!wagerMatchId;
   const buyIn = Number(buyInParam) || 0;
   const prize = Number(prizeParam) || 0;
+  const isLocalMatch = matchMode === 'local';
+
+  // The Show Report: Fame earned, level bar, real rating change, goals moved. It
+  // usually arrives within a moment of the match ending (socket push for online,
+  // the HTTP reply for bots); if it has not after 6 s say so instead of hanging.
+  const [report, setReport] = useState(() => (reportKey ? getReport(reportKey) : undefined));
+  const [reportTimedOut, setReportTimedOut] = useState(false);
+  useEffect(() => {
+    if (!reportKey) return;
+    const cached = getReport(reportKey);
+    if (cached) setReport(cached);
+    const unsubscribe = subscribeReports((key, next) => {
+      if (key === reportKey) setReport(next);
+    });
+    const timer = setTimeout(() => setReportTimedOut(true), 6000);
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [reportKey]);
 
   const adsEnabled = useAdsEnabled();
   const leavingRef = useRef(false);
@@ -223,7 +245,6 @@ export default function ResultScreen() {
     ]);
   }
 
-  const { eloBefore, eloAfter } = OUTCOME_ELO[outcome];
   // match.tsx always passes this (the real, just-granted amount) -- the
   // reward table fallback only covers reaching this screen some other way
   // (e.g. direct navigation during development).
@@ -234,7 +255,6 @@ export default function ResultScreen() {
   const parsedChipsGranted = Number(chipsGrantedParam);
   const chips = Number.isFinite(parsedChipsGranted) ? parsedChipsGranted : MATCH_CHIP_REWARDS[outcome];
   const chipsWon = useCountUp(wagered ? Math.abs(wager?.net ?? 0) : chips);
-  const eloDelta = eloAfter - eloBefore;
   const reasonLabel = reason ? REASON_LABEL[reason] : undefined;
 
   // A wagered match that was voided (someone left in the first 3 moves) was not a
@@ -246,8 +266,14 @@ export default function ResultScreen() {
   const glowColor = isVoid ? Colors.chrome : isVictory ? Colors.gold : isDraw ? Colors.chrome : Colors.crimson;
 
   return (
-    <View className="flex-1 items-center justify-center gap-xl bg-bg-base px-xl" style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}>
+    <View className="flex-1 bg-bg-base">
       <VenueBackdrop venueTier={venueTier} />
+      {/* Scrolls only when the Show Report makes the content taller than a small
+          phone; otherwise it stays the same centred column as before. */}
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 24, paddingHorizontal: 24, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}
+        showsVerticalScrollIndicator={false}
+      >
 
       <View className="items-center gap-1">
         <Text className="font-display-hero text-display-hero uppercase tracking-widest" style={{ color: bannerColor, textShadowColor: withOpacity(bannerGlow, 0.5), textShadowRadius: 24, textShadowOffset: { width: 0, height: 0 } }}>
@@ -257,7 +283,7 @@ export default function ResultScreen() {
       </View>
 
       <RockCard glowColor={glowColor} style={{ width: '100%', maxWidth: 360, alignItems: 'center' }}>
-        <View className="flex-row items-center gap-sm">
+        <View className="flex-row items-center gap-sm" style={isLocalMatch ? { display: 'none' } : undefined}>
           <View className="h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.2), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.4) }}>
             <CurrencyIcon type="chips" size={26} />
           </View>
@@ -300,27 +326,19 @@ export default function ResultScreen() {
         ) : null}
 
         {/* A voided wager changed no rating, so the (sample) rating row is hidden. */}
-        <View className="mt-md flex-row items-center gap-sm" style={isVoid ? { display: 'none' } : undefined}>
-          <Text className="font-heading-md" style={{ fontSize: 16, color: Colors.textPrimary }}>
-            {eloBefore}
+        {noReward ? (
+          <Text className="mt-sm text-center font-caption text-caption text-text-muted">
+            {noReward === 'guest'
+              ? 'Sign in to earn chips and Fame from bot matches.'
+              : noReward === 'too-short'
+                ? 'That game was too short to count for rewards.'
+                : noReward === 'offline'
+                  ? "We couldn't reach the server, so this game wasn't counted."
+                  : "This game couldn't be verified, so it earned nothing."}
           </Text>
-          <AppIcon name="arrow_forward" size={18} color={Colors.textMuted} />
-          <Text className="font-heading-md" style={{ fontSize: 16, color: Colors.textPrimary }}>
-            {eloAfter}
-          </Text>
-          {eloDelta !== 0 ? (
-            <View
-              className="ml-xs flex-row items-center gap-1 rounded-full px-sm"
-              style={{ paddingVertical: 2, backgroundColor: withOpacity(eloDelta > 0 ? Colors.cyan : Colors.crimson, 0.12), borderWidth: 1, borderColor: withOpacity(eloDelta > 0 ? Colors.cyan : Colors.crimson, 0.4) }}
-            >
-              <AppIcon name={eloDelta > 0 ? 'trending_up' : 'trending_down'} size={12} color={eloDelta > 0 ? Colors.cyan : Colors.crimson} />
-              <Text className="font-heading-md text-caption" style={{ color: eloDelta > 0 ? Colors.cyan : Colors.crimson }}>
-                {eloDelta > 0 ? '+' : ''}
-                {eloDelta}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+        ) : null}
+        {/* A voided wager changed nothing, and pass-and-play counts for nothing. */}
+        {reportKey && !isVoid && !isLocalMatch ? <ShowReport report={report} timedOut={reportTimedOut} /> : null}
 
         {showPoints ? (
           <Text className="mt-sm font-caption text-caption text-text-muted">
@@ -376,6 +394,7 @@ export default function ResultScreen() {
           </Text>
         </Pressable>
       ) : null}
+      </ScrollView>
     </View>
   );
 }

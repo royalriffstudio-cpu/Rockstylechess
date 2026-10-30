@@ -13,6 +13,9 @@ import { getAchievementsStatus, getMyMatches, getMyProfile, type AchievementStat
 import { getAuthToken } from '@/lib/authStorage';
 import { getLevelProgress } from '@/lib/leveling';
 import { formatRelativeTime } from '@/lib/time';
+import { TierEmblem, TitleEmblem } from '@/components/progression/Emblem';
+import { tierForRating } from '@/constants/emblems';
+import { titleName } from '@/lib/progression';
 import { tierLabel } from '@/lib/tierLabel';
 
 interface SocialLink {
@@ -170,14 +173,45 @@ export default function IronIdScreen() {
                 {profile.displayName ?? 'Player'}
               </Text>
               <View className="flex-row items-center gap-xs">
-                <AppIcon name="workspace_premium" size={18} color={Colors.ember} />
+                <TierEmblem tier={tierForRating(profile.rating)} size={30} />
                 <Text className="font-heading-md text-body-base uppercase text-ember">{tierLabel(profile.rating)}</Text>
               </View>
-              <View style={{ width: '70%', marginTop: 4 }}>
-                <ProgressBar progress={levelProgress.progress} height={6} label={`${levelProgress.xpIntoLevel.toLocaleString()} / ${levelProgress.xpForNextLevel.toLocaleString()} XP`} />
+              {/* Career line: the level number, the earned title, and what the bar is counting toward. */}
+              <View className="flex-row items-center gap-xs">
+                <TitleEmblem titleId={profile.equippedTitleId} size={28} />
+                <Text className="font-heading-md uppercase tracking-wide text-gold" style={{ fontSize: 14 }}>
+                  Level {profile.level}
+                  {titleName(profile.equippedTitleId) ? `  ·  ${titleName(profile.equippedTitleId)}` : ''}
+                </Text>
+              </View>
+              <View style={{ width: '70%', marginTop: 2 }}>
+                <ProgressBar
+                  progress={levelProgress.progress}
+                  height={6}
+                  label={`${levelProgress.xpIntoLevel.toLocaleString()} / ${levelProgress.xpForNextLevel.toLocaleString()} Fame to Level ${profile.level + 1}`}
+                />
               </View>
             </View>
           </RockCard>
+
+          <Pressable onPress={() => router.push('/tour')}>
+            <RockCard variant="surface" glowColor={Colors.gold} contentPadding={12}>
+              <View className="flex-row items-center gap-md">
+                <View className="items-center justify-center rounded-md" style={{ width: 40, height: 40, backgroundColor: withOpacity(Colors.gold, 0.12), borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.4) }}>
+                  <AppIcon name="emoji_events" size={22} color={Colors.gold} />
+                </View>
+                <View className="flex-1">
+                  <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14, letterSpacing: 0.5 }}>
+                    The Tour
+                  </Text>
+                  <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+                    Gigs, boss fights and the road to the World Tour
+                  </Text>
+                </View>
+                <AppIcon name="chevron_right" size={20} color={Colors.textMuted} />
+              </View>
+            </RockCard>
+          </Pressable>
 
           {profile.friendCode ? (
             <RockCard variant="surface" contentPadding={12}>

@@ -58,6 +58,9 @@ export const playerProfiles = pgTable('player_profiles', {
   // (db/purchases.ts) -- deliberately NOT in PATCH /me/profile's whitelist.
   // Switches off interstitials; rewarded ads stay (the player opts into those).
   adsRemoved: boolean('ads_removed').notNull().default(false),
+  // The title shown under the player's name (a titleId from economy.config.json
+  // `levels.titles`). Auto-set to the newest level title when one is earned.
+  equippedTitleId: varchar('equipped_title_id', { length: 40 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

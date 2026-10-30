@@ -1,6 +1,6 @@
 import { ECONOMY } from './economy.generated.js';
 
-export type QuestMetric = 'wins' | 'captures' | 'puzzles_solved' | 'checkmates';
+export type QuestMetric = 'wins' | 'captures' | 'puzzles_solved' | 'checkmates' | 'online_games';
 
 export interface QuestSeed {
   id: string;
@@ -76,5 +76,40 @@ export const QUEST_SEED: QuestSeed[] = [
     rewardChips: ECONOMY.quests['checkmate-opponent'],
     minLevel: 1,
     metric: 'checkmates',
+  },
+  // ---- Weekly "Tour Dates": bigger goals, unlocked at ECONOMY.weeklyQuests.minLevel so
+  // level finally gates something real. Period = Monday 00:00 UTC to the next Monday. ----
+  {
+    id: 'win-weekly',
+    type: 'weekly',
+    title: 'Win 10 Games',
+    description: 'Ten wins this week. Make every night a headline show.',
+    icon: 'trophy-outline',
+    target: 10,
+    rewardChips: ECONOMY.weeklyQuests['win-weekly'],
+    minLevel: ECONOMY.weeklyQuests.minLevel,
+    metric: 'wins',
+  },
+  {
+    id: 'online-weekly',
+    type: 'weekly',
+    title: 'Play 5 Online Matches',
+    description: 'Take the stage against real players, five times this week.',
+    icon: 'sword-cross',
+    target: 5,
+    rewardChips: ECONOMY.weeklyQuests['online-weekly'],
+    minLevel: ECONOMY.weeklyQuests.minLevel,
+    metric: 'online_games',
+  },
+  {
+    id: 'puzzles-weekly',
+    type: 'weekly',
+    title: 'Solve 20 Puzzles',
+    description: 'Twenty tactics in a week keeps the fingers fast.',
+    icon: 'puzzle-outline',
+    target: 20,
+    rewardChips: ECONOMY.weeklyQuests['puzzles-weekly'],
+    minLevel: ECONOMY.weeklyQuests.minLevel,
+    metric: 'puzzles_solved',
   },
 ];

@@ -303,6 +303,13 @@ real release keystore before shipping to the Play Store.
 
 All prices and payouts come from `economy.config.json` (see `server/README.md` → "Economy"). After editing it run `node scripts/gen-economy.mjs && node scripts/gen-avatar-catalog.mjs && node scripts/check-economy.mjs`, then re-seed the server (`seed:cosmetics`, `seed:spin`, `seed:quests`). The Play Console products must use the SKU ids in the config (`chips_starter`, `chips_roadie`, `chips_headliner`, `chips_bonus`, `gems_100`, `gems_550`, `gems_1200`, `remove_ads`).
 
+## Progression
+
+Fame/levels/titles and the post-match Show Report: `server/README.md` → "Progression". The
+celebration sounds (`assets/sounds/level-up.wav`, `reward.wav`, `title.wav`) are synthesised
+placeholders from `node scripts/gen-celebration-sounds.mjs` — drop real audio over the same
+filenames to replace them. Haptics need `expo-haptics` (native rebuild); web has no haptics.
+
 ## Venues and wagers
 
 Venues from Club up are played for real chips (buy-in escrowed from both players, winner
