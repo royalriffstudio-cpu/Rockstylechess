@@ -96,7 +96,7 @@
 <header>
   <div class="brand">Royal Riff Studio</div>
   <h1>Privacy Policy</h1>
-  <div class="updated">RockStyle Chess &nbsp;•&nbsp; Effective October 17, 2026</div>
+  <div class="updated">RockStyle Chess &nbsp;•&nbsp; Effective October 25, 2026</div>
 </header>
 <nav class="crumbs"><a href="terms-of-service.html">View Terms of Service →</a>&nbsp;&nbsp;&nbsp;<a href="data-deletion.html">Delete Your Account &amp; Data →</a></nav>
 <main>
@@ -112,7 +112,9 @@ players everywhere else the App is available.</p>
 <div class="callout">
 <strong>Short version:</strong> We collect what's needed to run your account, your matches,
 and your in-game purchases. The App shows ads served by Google AdMob (see Section 2i);
-there are no analytics or crash-reporting SDKs. Where the law requires it, ads are only
+there are no analytics SDKs, and the only diagnostics tool is an anonymous crash reporter
+(Sentry, see Section 2j). Push notifications are optional and only sent if you allow them
+(Section 2k). Where the law requires it, ads are only
 requested after you consent through Google's consent form, and a one-time "Remove Ads"
 purchase turns off the ads shown between games. We never sell your personal information.
 </div>
@@ -129,6 +131,16 @@ for any privacy matter, including the requests in Section 7 below.</p>
 <ul>
   <li><strong>Email address and password</strong> — used to create and secure your account.
   Your password is never stored in plain text; it is hashed before storage.</li>
+  <li><strong>Email verification and password reset</strong> — when you sign up with an email
+  address, or ask to reset your password, we email you a 6-digit code. The code is stored only
+  until it is used or expires (10 minutes). To catch typing mistakes and throwaway addresses
+  at sign-up, our server checks the address's format and looks up whether its domain can
+  receive mail (a public DNS lookup of the domain only; nothing is sent to the address at
+  that step).</li>
+  <li><strong>Sign in with Google (optional)</strong> — if you choose "Continue with Google"
+  or link Google in Account Security, Google tells us your Google account ID, email address,
+  name and profile picture link, and that the email address is verified. We use the email to
+  identify your account; your Google password is never shared with us.</li>
   <li><strong>Display name ("stage name")</strong> and <strong>avatar selection</strong> —
   shown to other players.</li>
   <li><strong>Country (optional)</strong> — a two-letter country code you may choose during
@@ -144,6 +156,9 @@ for any privacy matter, including the requests in Section 7 below.</p>
   <li>In-game currencies ("Chips" and "Gems"), owned cosmetic items (boards, piece sets,
   avatars), unlocked bots, quest/achievement progress, daily-reward streaks, and spin-wheel
   history.</li>
+  <li>Records of in-game Chip transactions: buy-ins at staked venues and how they were
+  settled, Festival Run entries, sets and payouts, Backstage Gear and other Chip purchases —
+  so balances stay correct and disputes can be checked.</li>
   <li>Your friend code and friends list.</li>
 </ul>
 
@@ -176,6 +191,8 @@ duplicate/fraudulent credits.</p>
   <li>Before you sign in, the App generates a random, anonymous guest identifier stored only
   on your device, used solely to let you queue for a match or reconnect to one before you
   have an account.</li>
+  <li>If you allow notifications: your device's push token, its platform (Android/iOS) and
+  its time-zone offset, plus your notification settings (see Section 2k).</li>
 </ul>
 
 <h3>g. Information stored only on your device</h3>
@@ -184,8 +201,10 @@ duplicate/fraudulent credits.</p>
   <li>Your authentication token, stored in your device's secure, encrypted credential
   storage (Android/iOS Keystore via Expo SecureStore).</li>
   <li>Sound/music preferences, cached puzzle progress, how many games/puzzles you have
-  finished since the last full-screen ad (to pace ads), and the anonymous guest ID
-  mentioned above, stored in the App's local on-device storage (AsyncStorage).</li>
+  finished since the last full-screen ad (to pace ads), whether you chose to play as a guest,
+  a copy of your push token and whether you have seen the notification prompt, and the
+  anonymous guest ID mentioned above, stored in the App's local on-device storage
+  (AsyncStorage).</li>
 </ul>
 
 <h3>h. Real-time gameplay data</h3>
@@ -213,18 +232,45 @@ data it collects through the SDK — see
 apps that use its services</a>. A one-time "Remove Ads" purchase in the Shop turns off the
 full-screen ads; optional rewarded ads remain available.</p>
 
+<h3>j. Crash and error reports (Sentry)</h3>
+<p>To find and fix crashes, the App and our server send crash and error reports to Sentry
+(Functional Software, Inc.). These reports are <strong>anonymous</strong>: we do not attach
+your account ID, email address, display name, chat messages, session token or the contents of
+requests. A report contains technical information only: the error message and stack trace,
+your device model and Android version, the App version, which screen you were on and recent
+navigation steps, whether the App was in the foreground, and performance information such as
+slow or frozen frames. A small share of sessions (about 10%) also includes screen-load and
+request timings. We do not record your screen, take screenshots, or capture what you type.
+Our server sends reports of its own errors (for example a failed match settlement) the same
+way, tagged with technical identifiers such as a match ID but not with player identities.</p>
+
+<h3>k. Push notifications (optional)</h3>
+<p>The App asks your permission before sending notifications, and you can turn them off at
+any time in your device settings or by category (social, invites, match results, daily
+reminder) in Settings. If you allow them, the App registers a push token for your device with
+the Expo push service, and our server stores that token with your account, your device's
+platform and time-zone offset (used only to send the daily-reward reminder in your evening).
+To deliver a notification, our server sends the token and the notification's text to Expo,
+which passes it to Google's Firebase Cloud Messaging (Android) or Apple's push service (iOS).
+The text can include a friend's display name and the first part of a message they sent you.
+We skip a notification while the App is open on your screen. Signing in with another
+account on the same phone moves that phone's token to the new account; deleting your
+account deletes your tokens and notification settings.</p>
+
 <h2 id="information-we-do-not-collect">3. Information We Do Not Collect</h2>
 <p>To be explicit, RockStyle Chess does <strong>not</strong> contain:</p>
 <ul>
   <li>Any advertising SDK other than Google AdMob (Section 2i).</li>
   <li>Any analytics or product-usage tracking SDK (e.g. no Firebase Analytics, no Mixpanel,
   no Amplitude, no Segment).</li>
-  <li>Any crash-reporting SDK (e.g. no Sentry, no Crashlytics).</li>
-  <li>Any social-media login or tracking pixels.</li>
+  <li>Any crash-reporting SDK other than Sentry (Section 2j), and no crash report ever carries
+  your account details.</li>
+  <li>Any social-media login other than the optional Sign in with Google (Section 2a), and no
+  tracking pixels.</li>
   <li>Access to your contacts, camera, microphone, photo library, or precise location.</li>
 </ul>
 <p class="muted">This reflects the current state of the App's code. If that ever changes —
-for example, adding crash reporting to fix bugs faster — we will update this Policy first.</p>
+for example, adding a new third-party service — we will update this Policy first.</p>
 
 <h2 id="how-we-use-information">4. How We Use Information, and Our Legal Basis</h2>
 <p>Under Article 6 GDPR, we may only process your personal data where we have a valid
@@ -235,6 +281,14 @@ legal basis. Here is each purpose we use your data for, and the specific basis w
 cosmetics; matchmaking, live matches, chat, and friend/social features</td>
 <td><strong>Performance of a contract</strong> — this is the core service you sign up for
 (Art. 6(1)(b))</td></tr>
+<tr><td>Verifying your email address, sending sign-up and password-reset codes, and signing
+you in with Google if you choose to</td>
+<td><strong>Performance of a contract</strong> (Art. 6(1)(b)); checking at sign-up that an
+address can receive mail: <strong>legitimate interests</strong> in keeping accounts
+reachable and limiting throwaway sign-ups (Art. 6(1)(f))</td></tr>
+<tr><td>Sending push notifications (Section 2k)</td>
+<td><strong>Consent</strong>, given through your device's notification permission and
+withdrawable at any time in your device or App settings (Art. 6(1)(a))</td></tr>
 <tr><td>Processing and verifying in-app purchases</td>
 <td><strong>Performance of a contract</strong> (Art. 6(1)(b))</td></tr>
 <tr><td>Operating reporting/blocking tools; reviewing reports of abuse, cheating, or
@@ -250,6 +304,9 @@ everyone (Art. 6(1)(f))</td></tr>
 form (Art. 6(1)(a)); <strong>legitimate interests</strong> in funding the free game
 elsewhere (Art. 6(1)(f)). Preventing a reward from being claimed twice:
 <strong>legitimate interests</strong></td></tr>
+<tr><td>Detecting and fixing crashes and errors through anonymous crash reports (Section 2j)</td>
+<td><strong>Legitimate interests</strong> — keeping the App stable and working; the reports
+contain no account details (Art. 6(1)(f))</td></tr>
 <tr><td>Your optional country flag</td>
 <td><strong>Consent</strong> — this field is optional and only set if you choose to add it
 (Art. 6(1)(a)); you can remove it at any time in Settings</td></tr>
@@ -274,6 +331,18 @@ that a rewarded ad was watched</td><td>Collected directly by the SDK on your dev
 advertising ID, IP address, device/OS information and ad interactions. Sent to our server
 by Google when you watch a rewarded ad: your internal player ID and an ad transaction
 ID</td></tr>
+<tr><td>Sentry (Functional Software, Inc.)</td><td>Receiving and displaying anonymous crash
+and error reports so we can fix bugs</td><td>Technical crash data from your device and from
+our server: error messages, stack traces, device model, OS and App version, screen name and
+navigation steps. No account ID, email, name, chat, tokens or request contents</td></tr>
+<tr><td>Google Sign-In (only if you use it)</td><td>Signing you in with your Google
+account</td><td>The sign-in request; Google returns your Google account ID, email, name and
+profile picture link to us</td></tr>
+<tr><td>Expo push service (650 Industries, Inc.), then Google Firebase Cloud Messaging or
+Apple Push Notification service</td><td>Delivering push notifications you allowed (Section
+2k)</td><td>Your device's push token and the notification's title and text</td></tr>
+<tr><td>Resend</td><td>Sending verification and password-reset emails</td><td>Your email
+address and the email's content (the code)</td></tr>
 <tr><td>Railway</td><td>Hosts our backend application server</td><td>All server-side data
 described above, as our infrastructure provider</td></tr>
 <tr><td>Neon</td><td>Hosts our production database</td><td>All server-side data described
@@ -286,10 +355,16 @@ which case we'd notify you).</p>
 <h2 id="data-retention">6. Data Retention</h2>
 <p>We keep your account data for as long as your account exists. If you delete your
 account (Settings → Account &amp; Security → Delete Account), we permanently delete your
-profile, currencies, cosmetics, friendships, messages, purchase records, and progression
-data. Matches you played remain in your opponents' match history for accuracy, but your
-account reference on those records is removed rather than deleted outright, so their
-history and rating stay intact.</p>
+profile, currencies, cosmetics, friendships, messages, purchase records, push tokens and
+notification settings, Festival Run records, and progression data. Matches you played
+remain in your opponents' match history for accuracy, and so do the buy-in records of
+staked matches you played against them, but your account reference on those records is
+removed rather than deleted outright, so their history, balance records and rating stay
+intact. Email verification and password-reset codes are deleted once used or expired
+(10 minutes).</p>
+
+<p>Crash and error reports (Section 2j) are anonymous and are kept by Sentry for 90 days, then
+deleted automatically.</p>
 
 <h2 id="your-rights">7. Your Rights Under the GDPR</h2>
 <p>If you are in the EEA, UK, or otherwise protected by the GDPR, you have the following
@@ -357,12 +432,14 @@ before any ads are requested.</p>
 <h2 id="international-transfers">11. International Data Transfers</h2>
 <p>Our infrastructure providers host your data in the United States: Railway runs our
 backend server in its US East region (Virginia), and Neon hosts our database in AWS US East
-(Ohio). This means personal data of players in the EEA/UK is transferred outside the EEA/UK. Where we transfer personal data of EEA/UK
+(Ohio). Resend (emails) and the Expo push service (notifications) also process data in the
+United States. This means personal data of players in the EEA/UK is transferred outside the EEA/UK. Where we transfer personal data of EEA/UK
 users outside the EEA/UK, we rely on appropriate safeguards recognized under GDPR Chapter V
 — such as the European Commission's Standard Contractual Clauses (SCCs) — to the extent our
 providers offer them, or another valid transfer mechanism. You can lodge a complaint with
 your local data protection authority; in Poland this is the President of the Personal Data
-Protection Office (UODO).</p>
+Protection Office (UODO). Anonymous crash reports (Section 2j) are stored by Sentry in its
+EU region (Germany).</p>
 
 <h2 id="changes">12. Changes to This Policy</h2>
 <p>We may update this Policy as the App changes. We'll update the "Effective" date above
