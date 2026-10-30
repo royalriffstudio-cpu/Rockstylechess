@@ -2,6 +2,7 @@ import { Chess } from 'chess.js';
 import { randomUUID } from 'node:crypto';
 
 import type { QueuedPlayer } from './matchmaking.js';
+import type { BotDifficulty } from './tour.js';
 
 export type PieceColor = 'w' | 'b';
 
@@ -18,6 +19,8 @@ export interface MatchPlayer {
   country: string | null;
   rating: number | null;
   title: string | null;
+  // Wagered matches: this seat bought the Safety Net (carried into a rematch, see rematch.ts).
+  insured?: boolean;
 }
 
 // Server-authoritative chess clock. Kept as its own field, deliberately
@@ -47,12 +50,35 @@ export interface MatchWager {
   prize: number;
 }
 
+// A Festival set: the opponent is a bot the SERVER plays (serverBot.ts), so the game is
+// authoritative end to end. `players[bot.color]` is a bot seat: userId null, no socket.
+export interface MatchBot {
+  color: PieceColor;
+  botId: string;
+  difficulty: BotDifficulty;
+  thinking: boolean;
+}
+
+export interface MatchFestival {
+  runId: string;
+  tierId: string;
+  setIndex: number;
+  userId: string;
+  humanColor: PieceColor;
+}
+
 export interface MatchState {
   id: string;
+  // The base time each side started with (ms); a rematch reuses it.
+  baseMs: number;
   // Which venue queue produced this match; undefined for friend challenges and
   // game rooms (they have no venue).
   venueTier?: string;
   wager?: MatchWager;
+  // Friend challenge / private room: unrated, no rewards (see CreateMatchOptions.friendly).
+  friendly?: boolean;
+  bot?: MatchBot;
+  festival?: MatchFestival;
   chess: Chess;
   players: Record<PieceColor, MatchPlayer>;
   createdAt: Date;
@@ -110,6 +136,9 @@ export interface CreateMatchOptions {
   whiteIsA?: boolean;
   venueTier?: string;
   wager?: MatchWager;
+  // A friend challenge or a private room: played for fun. The result is kept for history and
+  // replays but moves NO rating, chips, Fame, quests, Tour or achievements (db/persistMatchResult.ts).
+  friendly?: boolean;
 }
 
 export function createMatch(
@@ -124,8 +153,10 @@ export function createMatch(
   const [white, black] = whiteIsA ? [playerA, playerB] : [playerB, playerA];
   const match: MatchState = {
     id: opts.id ?? randomUUID(),
+    baseMs,
     venueTier: opts.venueTier,
     wager: opts.wager,
+    friendly: opts.friendly,
     chess: new Chess(),
     players: {
       w: {
@@ -137,6 +168,7 @@ export function createMatch(
         country: white.country,
         rating: white.rating,
         title: white.title,
+        insured: white.insured,
       },
       b: {
         socketId: black.socketId,
@@ -147,6 +179,7 @@ export function createMatch(
         country: black.country,
         rating: black.rating,
         title: black.title,
+        insured: black.insured,
       },
     },
     createdAt: new Date(),
@@ -154,6 +187,58 @@ export function createMatch(
     // to broadcast a timeout, so index.ts (which does) arms White's deadline
     // immediately after createMatch returns, and rearms it after every move.
     clock: { remainingMs: { w: baseMs, b: baseMs }, incrementMs, turnStartedAt: Date.now(), deadlineTimer: null },
+    forfeitTimers: {},
+    moveElapsedMs: [],
+  };
+  matches.set(match.id, match);
+  return match;
+}
+
+export interface FestivalSeat {
+  socketId: string;
+  guestId: string;
+  userId: string;
+  displayName: string;
+  avatarId: string | null;
+  country: string | null;
+  rating: number | null;
+  title: string | null;
+}
+
+// The bot's clock never runs out (it is not a person); only the human is clocked.
+const BOT_CLOCK_MS = 24 * 3_600_000;
+
+export function createFestivalMatch(
+  id: string,
+  human: FestivalSeat,
+  humanColor: PieceColor,
+  bot: { botId: string; name: string; difficulty: BotDifficulty },
+  festival: { runId: string; tierId: string; setIndex: number },
+  humanClockMs: number,
+): MatchState {
+  const botColor = opponentColor(humanColor);
+  const humanSeat: MatchPlayer = { ...human };
+  const botSeat: MatchPlayer = {
+    socketId: '',
+    guestId: `bot:${bot.botId}`,
+    userId: null,
+    displayName: bot.name,
+    avatarId: null,
+    country: null,
+    rating: null,
+    title: null,
+  };
+  const remainingMs = { w: BOT_CLOCK_MS, b: BOT_CLOCK_MS } as Record<PieceColor, number>;
+  remainingMs[humanColor] = humanClockMs;
+  const match: MatchState = {
+    id,
+    baseMs: humanClockMs,
+    chess: new Chess(),
+    players: humanColor === 'w' ? { w: humanSeat, b: botSeat } : { w: botSeat, b: humanSeat },
+    bot: { color: botColor, botId: bot.botId, difficulty: bot.difficulty, thinking: false },
+    festival: { ...festival, userId: human.userId, humanColor },
+    createdAt: new Date(),
+    clock: { remainingMs, incrementMs: 0, turnStartedAt: Date.now(), deadlineTimer: null },
     forfeitTimers: {},
     moveElapsedMs: [],
   };
@@ -193,12 +278,12 @@ export function endMatch(matchId: string): void {
 }
 
 // Who sits where is decided by the client-supplied guestId for ordinary matches.
-// For a wagered match the seat must ALSO belong to the authenticated socket's
+// For a wagered (or Festival) match the seat must ALSO belong to the authenticated socket's
 // account: a guestId is only a bearer secret, and chips are riding on it.
 export function seatColor(match: MatchState, guestId: string, socketUserId: string | undefined): PieceColor | null {
   const color = colorOf(match, guestId);
   if (!color) return null;
-  if (match.wager && match.players[color].userId !== (socketUserId ?? null)) return null;
+  if ((match.wager || match.festival) && match.players[color].userId !== (socketUserId ?? null)) return null;
   return color;
 }
 

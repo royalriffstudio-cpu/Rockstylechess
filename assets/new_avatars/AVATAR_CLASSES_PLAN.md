@@ -1,5 +1,11 @@
 # Avatar Classes — Implementation Plan
 
+> **Status (2026-10-23): implemented.** Garage Band (12 free), Main Stage (41) and Hall
+> of Fame (24) are live. The current source of truth is `scripts/gen-avatar-catalog.mjs`
+> (generates `src/constants/avatarImages.generated.ts` and
+> `server/src/avatarCatalog.generated.ts`) and `server/README.md` -> "Avatar classes".
+> This file is kept as the original design brief.
+
 Hand this file to the agent working in the game repo. It explains what the avatar assets are, why they are split into classes, and how to wire them into the game.
 
 ## 1. Context

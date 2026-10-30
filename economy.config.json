@@ -313,11 +313,23 @@
     "daily-double": {
       "dailyCap": 1,
       "rewardChips": 0
+    },
+    "venue-refill": {
+      "_note": "Out-of-chips lifeline: a player whose balance is below the CHEAPEST wagered buy-in (so they can't enter any paid venue) may watch an ad for the shortfall, at most rewardChips per ad and dailyCap ads a day. Not offered to anyone who can already afford the cheapest venue, so it is a way back in, never a faucet.",
+      "dailyCap": 2,
+      "rewardChips": 100
     }
   },
   "analysis": {
     "chips": 200,
-    "gems": 5
+    "gems": 5,
+    "pack": {
+      "_note": "Review Pack: `reviews` Game Reviews bought at once at a discount, stored as credits on the player (spent by the Analyze Game button before any chips/gems). The discount is the whole incentive, so it is one fixed step; credits never expire, never convert back, and are capped at maxCredits so a pack can't be hoarded without limit.",
+      "reviews": 10,
+      "chips": 1600,
+      "gems": 40,
+      "maxCredits": 30
+    }
   },
   "iap": {
     "chipPacks": [
@@ -415,7 +427,31 @@
     "botMixWinChips": 45,
     "botMixWinFame": 200,
     "openingNightRate": 0.9,
-    "botWinRate": 0.6
+    "botWinRate": 0.6,
+    "festivalSkill": {
+      "_note": "Estimated P(win a set) by bot strength rank (easy..strongest) for three player strengths. NOT measurements; used only by check-economy.mjs to size purses. Re-tune from festival_runs data.",
+      "casual": [
+        0.92,
+        0.62,
+        0.32,
+        0.1,
+        0.01
+      ],
+      "good": [
+        0.99,
+        0.92,
+        0.72,
+        0.38,
+        0.03
+      ],
+      "strong": [
+        1.0,
+        0.99,
+        0.94,
+        0.7,
+        0.1
+      ]
+    }
   },
   "bots": [
     {
@@ -459,6 +495,17 @@
     "_note": "The Tour: six chapters (one per venue). A chapter unlocks when the previous boss is beaten. Gig kinds are evaluated in server/src/tour.ts. minRank = bot strength rank (0 easy .. 4 strongest).",
     "minBotPlies": 6,
     "perfectBonusGems": 5,
+    "backstage": {
+      "_note": "Backstage (Roadie Kit + Crowd Energy): help for a player STUCK on a chapter boss, never a shortcut. A boss loss only counts as a real attempt past minAttemptPlies (no resign-farming). After kitUnlockLosses real losses to a chapter's boss the Roadie Kit can be bought (price = kitPriceFraction of that boss reward, rounded to 10) and every crowdFreeEvery losses one kit is on the house. The kit is Take Two (rewind your last turn; the clock keeps running) + Roadie's Tip (points at the piece to move, not where). It works on the boss fight only: a kit game advances no gigs, and a kit can't be bought once the boss is beaten.",
+      "minAttemptPlies": 20,
+      "kitUnlockLosses": 2,
+      "crowdFreeEvery": 4,
+      "kitPriceFraction": 0.12,
+      "kit": {
+        "takeTwos": 1,
+        "tips": 2
+      }
+    },
     "chapters": [
       {
         "id": "garage",
@@ -830,5 +877,118 @@
     "online-weekly": 300,
     "puzzles-weekly": 300,
     "minLevel": 5
+  },
+  "festival": {
+    "_note": "Festival Run: pay an entry, beat a ladder of server-hosted bots, bank the purse between sets or push on. A draw replays the set once per run. Chips are never created: the purse is the only payout. Flat bot chips are NOT paid for set matches.",
+    "dailyRuns": {
+      "open-mic": 2,
+      "main-set": 1,
+      "headliner": 1
+    },
+    "repeatSurcharge": 0.5,
+    "staleRunMinutes": 180,
+    "tiers": [
+      {
+        "id": "open-mic",
+        "name": "Open Mic",
+        "tagline": "Three songs, one shot.",
+        "unlockChapter": "garage",
+        "entry": 250,
+        "sets": [
+          "roadie-rick",
+          "valkyrie-riff",
+          "old-school-roy"
+        ],
+        "purse": [
+          100,
+          250,
+          560
+        ],
+        "title": {
+          "id": "open-mic-hero",
+          "name": "Open Mic Hero"
+        }
+      },
+      {
+        "id": "main-set",
+        "name": "Main Set",
+        "tagline": "Real crowd, real stakes.",
+        "unlockChapter": "arena",
+        "entry": 1000,
+        "sets": [
+          "valkyrie-riff",
+          "metal-head",
+          "the-reaper"
+        ],
+        "purse": [
+          350,
+          1000,
+          2800
+        ],
+        "title": {
+          "id": "main-set-maverick",
+          "name": "Main Set Maverick"
+        }
+      },
+      {
+        "id": "headliner",
+        "name": "Headliner",
+        "tagline": "Every boss, back to back.",
+        "unlockChapter": "mainstage",
+        "entry": 3000,
+        "sets": [
+          "roadie-rick",
+          "valkyrie-riff",
+          "metal-head",
+          "the-reaper",
+          "king-axl"
+        ],
+        "purse": [
+          900,
+          1800,
+          3400,
+          5200,
+          22000
+        ],
+        "title": {
+          "id": "festival-headliner",
+          "name": "Festival Headliner"
+        }
+      }
+    ]
+  },
+  "spinExtra": {
+    "_note": "Chip-priced extra spins, on top of the free daily spin and the one ad spin. Allowed only after the free daily spin is used. Price steps up with each paid spin that UTC day (one price per allowed spin, so the cap is prices.length) and every price must stay above the wheel's full expected value (chips + gems at 40:1), so a paid spin is always a net chip sink on average. check-economy.mjs asserts it.",
+    "prices": [
+      300,
+      450,
+      600
+    ]
+  },
+  "gear": {
+    "_note": "Backstage Gear: consumables bought with chips. Nothing here touches chess strength or rating. Amp Boost = +ampBonus of BASE Fame (added on top of Opening Night / Hot Streak, never multiplied by them) on the next `charges` Fame-paying wins; Lucky Pick = a win streak of at least minStreak survives ONE loss; stock is capped; one copy of each is active at a time and the player activates it. Safety Net is not stocked: an optional add-on at a wagered venue (premium = premiumFraction of the buy-in, paid at pairing; a LOSS returns coverFraction of the buy-in; the premium is returned if the match is voided, kept on a win or a draw).",
+    "maxStock": 5,
+    "items": [
+      {
+        "id": "amp-boost",
+        "name": "Amp Boost",
+        "tagline": "Crank it to 11: +50% Fame on your next 3 wins.",
+        "chips": 150,
+        "charges": 3
+      },
+      {
+        "id": "lucky-pick",
+        "name": "Lucky Pick",
+        "tagline": "Keep a Hot Streak of 3+ through one loss.",
+        "chips": 100,
+        "charges": 1
+      }
+    ],
+    "ampBonus": 0.5,
+    "minStreak": 3,
+    "safetyNet": {
+      "premiumFraction": 0.25,
+      "coverFraction": 0.35
+    }
   }
 }

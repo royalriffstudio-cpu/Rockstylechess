@@ -3,12 +3,14 @@ import { Router } from 'express';
 
 import { asyncHandler } from './asyncHandler.js';
 import { FREE_AVATAR_IDS, getPremiumAvatar, UNLOCK_ALL_AVATARS } from './avatars.js';
-import { requireAuth } from './authMiddleware.js';
+import { requireAuth, requireVerifiedEmail } from './authMiddleware.js';
 import { BOARD_THEMES } from './boardThemes.js';
 import { isValidCountryCode } from './countryCodes.js';
 import { ADS_REQUIRE_SSV, AD_PLACEMENTS } from './adRewards.js';
 import { verifyAdMobSsv } from './adsSsv.js';
-import { chargeForAnalysis } from './db/analysisCharge.js';
+import { getPublicProfile } from './db/publicProfile.js';
+import { queueCounts, type VenueTier } from './matchmaking.js';
+import { buyAnalysisPack, chargeForAnalysis } from './db/analysisCharge.js';
 import { getAdStatus, recordVerifiedAdView, redeemAdReward } from './db/adEvents.js';
 import {
   claimAchievement,
@@ -19,6 +21,7 @@ import {
 import { deleteUserAccount } from './db/accountDeletion.js';
 import { purchaseCosmetic } from './db/cosmetics.js';
 import { getMessages, listConversations, markRead } from './db/directMessages.js';
+import { getPushPrefs, isExpoPushToken, PUSH_CATEGORIES, removePushDevice, setPushPrefs, upsertPushDevice, type PushPrefs } from './db/pushPrefs.js';
 import { blockUser, isValidReportReason, listBlocked, submitReport, unblockUser } from './db/moderation.js';
 import { creditVerifiedPurchase, grantEntitlement } from './db/purchases.js';
 import { acknowledgeAndConsume, acknowledgePurchase, verifyProductPurchase } from './googlePlay.js';
@@ -41,15 +44,19 @@ import {
   sendRequest,
 } from './db/friends.js';
 import { levelForXp } from './leveling.js';
-import { allMatches, liveClockRemaining } from './match.js';
+import { cashOut, getFestival, recoverDeadSet, startRun } from './db/festival.js';
+import { allMatches, getMatch, liveClockRemaining } from './match.js';
 import { PIECE_SETS } from './pieceSets.js';
 import { claimDailyBonus, getDailyBonusStatus } from './db/dailyBonus.js';
 import { db } from './db/client.js';
 import { ENDED_BY, finishBotSession, startBotSession } from './db/botSessions.js';
+import { activateGear, buyGear, getGear } from './db/boosts.js';
+import { redeemVenueRefill } from './db/venueRefill.js';
 import { applyTour, getTour } from './db/tour.js';
 import { getOwnedTitleIds, getUnseenCelebrations, grantFame, markProgressionSeen, TITLES } from './db/progression.js';
 import { claimQuest, getQuestsStatus, reportPuzzleSolvedForQuests } from './db/quests.js';
-import { matchParticipants, matches, playerProfiles, userCosmetics, users } from './db/schema/index.js';
+import { grantWelcomeBonus, needsEmailVerification } from './db/emailGate.js';
+import { account, matchParticipants, matches, playerProfiles, userCosmetics, users } from './db/schema/index.js';
 import { getSpinStatus, performSpin } from './db/spin.js';
 import { emitToUser, onlineAmong } from './realtime.js';
 
@@ -178,20 +185,31 @@ authRouter.get(
   '/me/profile',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const [profile] = await db
-      .select()
-      .from(playerProfiles)
-      .where(eq(playerProfiles.userId, req.userId as string))
-      .limit(1);
+    const userId = req.userId as string;
+    // Own-account facts for Account Security / the verification gate.
+    const [login] = await db.select({ email: users.email, emailVerified: users.emailVerified }).from(users).where(eq(users.id, userId)).limit(1);
+    let [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
     if (!profile) {
       res.status(404).json({ error: 'profile-not-found' });
       return;
     }
-    const owned = await db
-      .select({ itemId: userCosmetics.itemId })
-      .from(userCosmetics)
-      .where(eq(userCosmetics.userId, req.userId as string));
-    res.json({ profile: { ...profile, ownedCosmeticIds: owned.map((o) => o.itemId) } });
+    // Self-heal: a verified account whose held welcome bonus never got paid (the verify hook failed) is paid now.
+    if (profile.welcomeBonusPending && login?.emailVerified && (await grantWelcomeBonus(userId))) {
+      [profile] = await db.select().from(playerProfiles).where(eq(playerProfiles.userId, userId)).limit(1);
+    }
+    const owned = await db.select({ itemId: userCosmetics.itemId }).from(userCosmetics).where(eq(userCosmetics.userId, userId));
+    const providers = await db.select({ providerId: account.providerId }).from(account).where(eq(account.userId, userId));
+    const signInMethods = [...new Set(providers.map((p) => (p.providerId === 'credential' ? 'password' : p.providerId)))];
+    res.json({
+      profile: {
+        ...profile,
+        ownedCosmeticIds: owned.map((o) => o.itemId),
+        email: login?.email ?? null,
+        emailVerified: login?.emailVerified ?? false,
+        needsEmailVerification: await needsEmailVerification(userId),
+        signInMethods,
+      },
+    });
   }),
 );
 
@@ -339,8 +357,9 @@ authRouter.post(
   '/me/analysis/charge',
   requireAuth,
   asyncHandler(async (req, res) => {
+    // 'credit' spends one review stored from a Review Pack instead of chips/gems.
     const currency = req.body?.currency;
-    if (currency !== 'chips' && currency !== 'gems') {
+    if (currency !== 'chips' && currency !== 'gems' && currency !== 'credit') {
       res.status(400).json({ error: 'invalid-currency' });
       return;
     }
@@ -354,7 +373,35 @@ authRouter.post(
       });
       return;
     }
-    res.json({ ok: true, currency: result.currency, price: result.price, chips: result.chips, gems: result.gems });
+    res.json({ ok: true, currency: result.currency, price: result.price, chips: result.chips, gems: result.gems, credits: result.credits });
+  }),
+);
+
+// Review Pack: ten Game Reviews at once for less than ten singles, paid in chips or gems and
+// stored as credits (see db/analysisCharge.ts: buyAnalysisPack).
+authRouter.post(
+  '/me/analysis/packs/buy',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const currency = req.body?.currency;
+    if (currency !== 'chips' && currency !== 'gems') {
+      res.status(400).json({ error: 'invalid-currency' });
+      return;
+    }
+    const result = await buyAnalysisPack(req.userId as string, currency);
+    if (result.status === 'ok') {
+      res.json({ ok: true, currency: result.currency, price: result.price, reviews: result.reviews, chips: result.chips, gems: result.gems, credits: result.credits });
+      return;
+    }
+    if (result.status === 'insufficient-funds') {
+      res.status(400).json({ error: 'insufficient-funds', currency: result.currency, price: result.price, balance: result.balance });
+      return;
+    }
+    if (result.status === 'stock-full') {
+      res.status(400).json({ error: 'stock-full', credits: result.credits, maxCredits: result.maxCredits });
+      return;
+    }
+    res.status(404).json({ error: 'profile-not-found' });
   }),
 );
 
@@ -366,9 +413,9 @@ authRouter.post(
   '/me/bot-matches',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const result = await startBotSession(req.userId as string, req.body?.botId, req.body?.color);
+    const result = await startBotSession(req.userId as string, req.body?.botId, req.body?.color, req.body?.kit === true);
     if (result.status === 'ok') {
-      res.json({ ok: true, sessionId: result.sessionId });
+      res.json({ ok: true, sessionId: result.sessionId, kit: result.kit });
       return;
     }
     res.status(result.status === 'profile-not-found' ? 404 : 400).json({ error: result.status });
@@ -403,12 +450,140 @@ authRouter.post(
   }),
 );
 
+// Festival Run (db/festival.ts): the paid bot ladder. Entering and banking are plain REST;
+// the sets themselves are played over the socket (`festival:start-set` in index.ts) against a
+// bot the server runs, so the result is never client-reported.
+authRouter.get(
+  '/me/festival',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await getFestival(req.userId as string));
+  }),
+);
+
+authRouter.post(
+  '/me/festival/:tierId/enter',
+  requireAuth,
+  requireVerifiedEmail,
+  asyncHandler(async (req, res) => {
+    const result = await startRun(req.userId as string, String(req.params.tierId));
+    if (result.status === 'ok') {
+      res.json({ ok: true, run: result.run, chips: result.chips, fee: result.fee });
+      return;
+    }
+    const code = { 'unknown-tier': 404, 'profile-not-found': 404, locked: 403, 'daily-limit': 429, 'already-active': 409, 'insufficient-chips': 402 }[result.status];
+    res.status(code).json({ error: result.status, ...result });
+  }),
+);
+
+authRouter.post(
+  '/me/festival/runs/:runId/cash-out',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const runId = String(req.params.runId);
+    if (!/^[0-9a-f-]{36}$/i.test(runId)) {
+      res.status(400).json({ error: 'invalid-request' });
+      return;
+    }
+    const result = await cashOut(req.userId as string, runId);
+    if (result.status === 'ok') {
+      res.json({ ok: true, run: result.run, payout: result.payout, chips: result.chips });
+      return;
+    }
+    res.status(result.status === 'not-found' ? 404 : 409).json({ error: result.status === 'not-found' ? 'not-found' : result.reason });
+  }),
+);
+
+authRouter.post(
+  '/me/festival/runs/:runId/recover',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const runId = String(req.params.runId);
+    if (!/^[0-9a-f-]{36}$/i.test(runId)) {
+      res.status(400).json({ error: 'invalid-request' });
+      return;
+    }
+    const result = await recoverDeadSet(req.userId as string, runId, (matchId) => getMatch(matchId) !== undefined);
+    if (result.status === 'resolved') {
+      res.json({ ok: true, how: result.resolved.how, payout: result.resolved.payout, chips: result.resolved.chips, run: result.resolved.run });
+      return;
+    }
+    res.status(result.status === 'not-found' ? 404 : 409).json({ error: result.status });
+  }),
+);
+
 // The Tour (campaign): chapters, gigs, bosses and the player's progress.
 authRouter.get(
   '/me/tour',
   requireAuth,
   asyncHandler(async (req, res) => {
     res.json(await getTour(req.userId as string));
+  }),
+);
+
+// Another player's public profile (tap an opponent / friend / ranking row). Public fields only; a blocked
+// pair, or an unknown id, is a plain 404. See db/publicProfile.ts.
+authRouter.get(
+  '/users/:userId/profile',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const targetId = String(req.params.userId);
+    if (!/^[0-9a-f-]{36}$/i.test(targetId)) {
+      res.status(404).json({ error: 'not-found' });
+      return;
+    }
+    const profile = await getPublicProfile(req.userId as string, targetId);
+    if (!profile) {
+      res.status(404).json({ error: 'not-found' });
+      return;
+    }
+    res.json({ profile });
+  }),
+);
+
+// How many players are waiting per time control at a venue, for the pickers ("N searching"). Public, display only.
+authRouter.get('/queue/stats', (req, res) => {
+  const tier = req.query.venueTier;
+  const valid = ['garage', 'club', 'arena', 'stadium', 'mainstage', 'world-tour'];
+  if (typeof tier !== 'string' || !valid.includes(tier)) {
+    res.status(400).json({ error: 'bad-tier' });
+    return;
+  }
+  res.json({ venueTier: tier, waiting: queueCounts(tier as VenueTier) });
+});
+
+// Backstage Gear (consumables): the bag, buying with chips, activating one copy. See db/boosts.ts.
+authRouter.get(
+  '/me/gear',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json(await getGear(req.userId as string));
+  }),
+);
+
+authRouter.post(
+  '/me/gear/:itemId/buy',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await buyGear(req.userId as string, req.params.itemId);
+    if (result.status === 'ok') {
+      res.json({ ok: true, chips: result.chips, quantity: result.quantity });
+      return;
+    }
+    res.status(result.status === 'profile-not-found' ? 404 : 400).json({ error: result.status });
+  }),
+);
+
+authRouter.post(
+  '/me/gear/:itemId/activate',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const result = await activateGear(req.userId as string, req.params.itemId);
+    if (result.status === 'ok') {
+      res.json({ ok: true, quantity: result.quantity, activeCharges: result.activeCharges });
+      return;
+    }
+    res.status(400).json({ error: result.status });
   }),
 );
 
@@ -459,7 +634,20 @@ authRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     // `withAd`: the one extra daily spin earned by a rewarded ad.
-    const result = await performSpin(req.userId as string, { withAd: req.body?.withAd === true });
+    // `withChips`: a chip-priced extra spin (after the free one; price steps up, db/spin.ts).
+    const result = await performSpin(req.userId as string, { withAd: req.body?.withAd === true, withChips: req.body?.withChips === true });
+    if ('freeSpinAvailable' in result) {
+      res.status(409).json({ error: 'free-spin-available' });
+      return;
+    }
+    if ('paidCapReached' in result) {
+      res.status(409).json({ error: 'paid-spins-used' });
+      return;
+    }
+    if ('insufficientChips' in result) {
+      res.status(400).json({ error: 'insufficient-funds', price: result.insufficientChips });
+      return;
+    }
     if ('adBlocked' in result) {
       res.status(409).json({ error: result.adBlocked === 'not-verified' ? 'ad-not-verified' : 'ad-daily-cap-reached' });
       return;
@@ -474,6 +662,7 @@ authRouter.post(
       label: result.prize.label,
       rewardType: result.prize.rewardType,
       rewardAmount: result.prize.rewardAmount,
+      paidChips: result.paidChips,
       chips: result.chips,
       gems: result.gems,
     });
@@ -498,6 +687,22 @@ authRouter.post(
   requireAuth,
   asyncHandler(async (req, res) => {
     const userId = req.userId as string;
+    // Out-of-chips lifeline: the amount depends on the live balance, so it has its own path.
+    if (req.body?.placement === 'venue-refill') {
+      const refill = await redeemVenueRefill(userId);
+      if (refill.status === 'ok') {
+        res.json({ ok: true, chipsGranted: refill.chipsGranted, chips: refill.chips, gems: refill.gems });
+      } else if (refill.status === 'daily-cap-reached') {
+        res.status(409).json({ error: 'ad-daily-cap-reached' });
+      } else if (refill.status === 'not-verified') {
+        res.status(409).json({ error: 'ad-not-verified' });
+      } else if (refill.status === 'refill-not-needed') {
+        res.status(409).json({ error: 'refill-not-needed' });
+      } else {
+        res.status(404).json({ error: 'profile-not-found' });
+      }
+      return;
+    }
     if (req.body?.placement !== 'free-chips') {
       res.status(400).json({ error: 'invalid-placement' });
       return;
@@ -861,7 +1066,8 @@ authRouter.get(
 authRouter.get(
   '/me/live-matches',
   asyncHandler(async (_req, res) => {
-    const liveMatches = [...allMatches()].map((match) => ({
+    // Festival sets (a bot seat) are private to their player: never listed for spectating.
+    const liveMatches = [...allMatches()].filter((match) => !match.bot).map((match) => ({
       matchId: match.id,
       players: {
         w: { displayName: match.players.w.displayName, avatarId: match.players.w.avatarId, country: match.players.w.country },
@@ -963,6 +1169,7 @@ authRouter.get(
 authRouter.post(
   '/me/friends/request',
   requireAuth,
+  requireVerifiedEmail,
   asyncHandler(async (req, res) => {
     const userId = req.userId as string;
     const friendCode = typeof req.body?.friendCode === 'string' ? req.body.friendCode : undefined;
@@ -1013,6 +1220,7 @@ authRouter.post(
 authRouter.post(
   '/me/friends/:userId/accept',
   requireAuth,
+  requireVerifiedEmail,
   asyncHandler(async (req, res) => {
     const userId = req.userId as string;
     const result = await acceptRequest(userId, req.params.userId);
@@ -1207,6 +1415,64 @@ authRouter.post(
   asyncHandler(async (req, res) => {
     await markNotificationRead(req.userId as string, req.params.id);
     res.json({ ok: true });
+  }),
+);
+
+// --- Push notifications (push.ts / pushScheduler.ts) ---------------------------------------------
+// The app registers its Expo token on every launch; the upsert moves the token to whoever is signed in.
+authRouter.post(
+  '/me/push/devices',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { token, platform, tzOffsetMin } = (req.body ?? {}) as { token?: unknown; platform?: unknown; tzOffsetMin?: unknown };
+    if (!isExpoPushToken(token)) {
+      res.status(400).json({ error: 'bad-token' });
+      return;
+    }
+    const tz = typeof tzOffsetMin === 'number' && Number.isFinite(tzOffsetMin) ? Math.max(-840, Math.min(840, Math.round(tzOffsetMin))) : 0;
+    const os = typeof platform === 'string' ? platform.slice(0, 16) : 'unknown';
+    await upsertPushDevice(req.userId as string, token, os, tz);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.delete(
+  '/me/push/devices',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { token } = (req.body ?? {}) as { token?: unknown };
+    if (!isExpoPushToken(token)) {
+      res.status(400).json({ error: 'bad-token' });
+      return;
+    }
+    await removePushDevice(req.userId as string, token);
+    res.json({ ok: true });
+  }),
+);
+
+authRouter.get(
+  '/me/push/preferences',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    res.json({ preferences: await getPushPrefs(req.userId as string) });
+  }),
+);
+
+authRouter.put(
+  '/me/push/preferences',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const patch: Partial<PushPrefs> = {};
+    for (const key of PUSH_CATEGORIES) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== 'boolean') {
+        res.status(400).json({ error: 'bad-preferences' });
+        return;
+      }
+      patch[key] = body[key] as boolean;
+    }
+    res.json({ preferences: await setPushPrefs(req.userId as string, patch) });
   }),
 );
 

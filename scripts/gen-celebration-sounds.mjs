@@ -1,5 +1,5 @@
 /**
- * Generates the PLACEHOLDER celebration sounds (synthesised, no external audio):
+ * (Superseded, see the guard below.) Generates the PLACEHOLDER celebration sounds (synthesised, no external audio):
  *   assets/sounds/level-up.wav  -- rising major arpeggio + sparkle, ~1.3 s
  *   assets/sounds/reward.wav    -- two quick coin-like pings, ~0.45 s
  *   assets/sounds/title.wav     -- short regal two-note fanfare, ~0.9 s
@@ -9,6 +9,13 @@
  * Usage (repo root): node scripts/gen-celebration-sounds.mjs
  */
 import { writeFileSync } from 'node:fs';
+
+// SUPERSEDED: assets/sounds/level-up|reward|title.wav are now the real recordings, processed from the *_raw.wav
+// files by scripts/process-celebration-sounds.mjs. This synthesiser would overwrite them, so it only runs on purpose.
+if (!process.argv.includes('--force')) {
+  console.error('Refusing to overwrite the real celebration sounds. Use scripts/process-celebration-sounds.mjs, or pass --force.');
+  process.exit(1);
+}
 import { join } from 'node:path';
 
 const RATE = 44100;

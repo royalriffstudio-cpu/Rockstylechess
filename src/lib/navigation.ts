@@ -41,6 +41,7 @@ const PARENT: Record<string, Href> = {
   '/backstage-alerts': '/control-core',
   '/roadie-support': '/control-core',
   '/sign-up': '/sign-in',
+  '/forgot-password': '/sign-in',
 };
 
 // Android hardware back is swallowed on these -- either mid-onboarding (the

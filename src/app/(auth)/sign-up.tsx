@@ -1,4 +1,3 @@
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -6,15 +5,24 @@ import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { AppIcon, Checkbox, CurrencyIcon, KeyboardAwareScrollView, RockButton } from '@/components/ui';
 import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '@/constants/legal';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, withOpacity } from '@/constants/theme';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-import { signUpWithEmail } from '@/lib/authClient';
+import { getMyProfile } from '@/lib/api';
+import { EmailProblemError, signUpWithEmail } from '@/lib/authClient';
 import { ECONOMY } from '@/lib/economy.generated';
 import { setAuthToken } from '@/lib/authStorage';
 import { reauthenticateSocket } from '@/lib/socket';
+
+const EMAIL_PROBLEM_TEXT = {
+  'invalid-email': "That doesn't look like a valid email address.",
+  'email-undeliverable': "We couldn't find a mailbox for that address. Check the spelling after the @.",
+  'disposable-email': 'Temporary email addresses can\'t be used. Please use your real email.',
+  'email-typo': 'That email looks mistyped.',
+} as const;
 
 export default function SignUpScreen() {
   const router = useRouter();
@@ -26,14 +34,22 @@ export default function SignUpScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  // For a mistyped provider (gmial.com) the server hands back the corrected address to offer.
+  const [suggestion, setSuggestion] = useState<string | null>(null);
 
   async function handleCreateAccount() {
+    setSuggestion(null);
     if (!agreedToTerms) {
       setErrorMessage('You must agree to the Terms of Service and Privacy Policy to continue');
       return;
     }
     if (password !== confirmPassword) {
       setErrorMessage("Passwords don't match");
+      return;
+    }
+    // Cheap first check; the server does the real one (syntax, disposable domains, can the domain receive mail).
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
+      setErrorMessage('Enter a valid email address.');
       return;
     }
     setErrorMessage(null);
@@ -47,9 +63,26 @@ export default function SignUpScreen() {
       // every CurrencyPill reflects the real balance instead of staying in
       // its initial 'guest' state.
       refreshPlayerProfile();
-      router.replace('/pick-rockstar');
+      // A new account whose email is not verified yet is offered the code screen first (skippable); the server
+      // already mailed the code at sign-up. Anything unexpected here just continues to onboarding.
+      let needsVerification = false;
+      try {
+        needsVerification = (await getMyProfile(token)).profile.needsEmailVerification === true;
+      } catch {
+        // fall through to onboarding
+      }
+      if (needsVerification) {
+        router.replace({ pathname: '/verify-email', params: { email: email.trim().toLowerCase(), sent: '1', next: '/pick-rockstar' } });
+      } else {
+        router.replace('/pick-rockstar');
+      }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
+      if (error instanceof EmailProblemError) {
+        setErrorMessage(EMAIL_PROBLEM_TEXT[error.code]);
+        setSuggestion(error.suggestion ?? null);
+      } else {
+        setErrorMessage(error instanceof Error ? error.message : 'Something went wrong');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -96,6 +129,19 @@ export default function SignUpScreen() {
             </View>
 
             {errorMessage ? <Text className="text-center font-body-sm text-body-sm text-crimson">{errorMessage}</Text> : null}
+            {suggestion ? (
+              <Pressable
+                onPress={() => {
+                  setEmail(suggestion);
+                  setSuggestion(null);
+                  setErrorMessage(null);
+                }}
+              >
+                <Text className="text-center font-body-sm text-body-sm text-text-muted">
+                  Did you mean <Text className="font-bold text-cyan">{suggestion}</Text>? Tap to use it.
+                </Text>
+              </Pressable>
+            ) : null}
 
             <RockButton
               label={isSubmitting ? 'Creating...' : 'Create Account'}
@@ -139,10 +185,8 @@ export default function SignUpScreen() {
               <Text className="font-caption text-caption uppercase tracking-widest text-chrome-dark">Or Access Via</Text>
               <View className="h-px flex-1" style={{ backgroundColor: withOpacity(Colors.chromeDark, 0.5) }} />
             </View>
-            <View className="flex-row gap-md">
-              <SocialButton icon="google" onPress={() => console.log('Continue with Google')} />
-              <SocialButton icon="facebook" onPress={() => console.log('Continue with Facebook')} />
-              <SocialButton icon="apple" onPress={() => console.log('Continue with Apple')} />
+            <View className="w-full">
+              <GoogleSignInButton />
             </View>
             <Pressable onPress={() => router.replace('/sign-in')} className="mt-md">
               <Text className="font-body-sm text-body-sm text-text-muted">
@@ -193,17 +237,3 @@ function FormField({
   );
 }
 
-function SocialButton({ icon, onPress }: { icon: keyof typeof MaterialCommunityIcons.glyphMap; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="h-14 w-14 items-center justify-center rounded-full"
-      style={({ pressed }) => [
-        { backgroundColor: withOpacity(Colors.chromeDark, 0.3), borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) },
-        { transform: [{ scale: pressed ? 0.9 : 1 }] },
-      ]}
-    >
-      <MaterialCommunityIcons name={icon} size={22} color={Colors.textMuted} />
-    </Pressable>
-  );
-}

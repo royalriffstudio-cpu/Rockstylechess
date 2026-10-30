@@ -5,8 +5,10 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Purchase, PurchaseError } from 'react-native-iap';
 
+import { GearPanel } from '@/components/shop/GearPanel';
 import { AppIcon, CurrencyIcon, RewardedAdButton, RockButton, RockCard } from '@/components/ui';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { reportError } from '@/lib/crashReporting';
 import {
   ALL_IAP_ANDROID_PRODUCT_IDS,
   androidProductIdForPack,
@@ -72,7 +74,7 @@ const GEM_PACKS: GemPack[] = ECONOMY.iap.gemPacks.map((p) => ({
 
 const VIP_PERKS = ['+20% Chip Bonus on every win', 'Exclusive avatar skin', 'Daily Bonus x2', 'Ad-free matchmaking'];
 
-type ShopTab = 'chips' | 'gems' | 'vip';
+type ShopTab = 'chips' | 'gems' | 'gear' | 'vip';
 
 function notifyVipComingSoon() {
   Alert.alert('Coming Soon', "Backstage Pass isn't live yet -- check back soon!");
@@ -113,7 +115,7 @@ export default function RockShopScreen() {
         // on next app start.
         await finishTransaction({ purchase, isConsumable: true });
       } catch (error) {
-        console.log('Purchase verification failed', error);
+        reportError(error, { area: 'iap-verify', packId: purchase.productId });
         Alert.alert('Purchase Error', "We couldn't confirm this purchase. If you were charged, contact support and it'll be sorted out.");
       } finally {
         setPurchasingPackId(null);
@@ -122,6 +124,7 @@ export default function RockShopScreen() {
     onPurchaseError: (error: PurchaseError) => {
       setPurchasingPackId(null);
       if (error.code === 'user-cancelled') return;
+      reportError(new Error(`purchase failed: ${error.code} ${error.message}`), { area: 'iap-purchase', code: String(error.code) });
       Alert.alert('Purchase Failed', error.message || 'Something went wrong. Please try again.');
     },
   });
@@ -170,7 +173,7 @@ export default function RockShopScreen() {
     setPurchasingPackId(REMOVE_ADS_PACK_ID);
     requestPurchase({ request: { google: { skus: [REMOVE_ADS_ANDROID_PRODUCT_ID] } }, type: 'in-app' }).catch((error) => {
       setPurchasingPackId(null);
-      console.log('requestPurchase dispatch failed', error);
+      reportError(error, { area: 'iap-dispatch' });
     });
   }
 
@@ -280,6 +283,7 @@ export default function RockShopScreen() {
       >
         <ShopTabButton label="Chips" active={activeTab === 'chips'} onPress={() => setActiveTab('chips')} />
         <ShopTabButton label="Gems" active={activeTab === 'gems'} onPress={() => setActiveTab('gems')} />
+        <ShopTabButton label="Gear" active={activeTab === 'gear'} onPress={() => setActiveTab('gear')} />
         <ShopTabButton label="VIP" active={activeTab === 'vip'} onPress={() => setActiveTab('vip')} />
       </View>
 
@@ -363,6 +367,8 @@ export default function RockShopScreen() {
             </View>
           </>
         ) : null}
+
+        {activeTab === 'gear' ? <GearPanel /> : null}
 
         {activeTab === 'vip' ? (
           <>

@@ -10,6 +10,7 @@ import { SubPageHeader } from '@/components/layout';
 import { ReportPlayerModal } from '@/components/social/ReportPlayerModal';
 import { AppIcon, ConfirmModal, CountryFlag, CurrencyPill, KeyboardAwareScrollView, PlayerAvatar, RockButton, RockCard, SectionLabel } from '@/components/ui';
 import { Colors, Spacing, withOpacity } from '@/constants/theme';
+import { PlayerProfileSheet } from '@/components/social/PlayerProfileSheet';
 import { useChallenges } from '@/hooks/useChallenges';
 import { useFriends } from '@/hooks/useFriends';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
@@ -39,6 +40,8 @@ export default function FriendsScreen() {
   const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
   const [sending, setSending] = useState(false);
   const [challengeTarget, setChallengeTarget] = useState<Friend | null>(null);
+  // Tap a row to see that player's profile.
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<Friend | null>(null);
   const [menuTarget, setMenuTarget] = useState<Friend | null>(null);
   const [blockTarget, setBlockTarget] = useState<Friend | null>(null);
@@ -236,6 +239,7 @@ export default function FriendsScreen() {
                 country={r.country}
                 rating={r.rating}
                 subtitle={`Wants to be friends · ${r.rating} ELO`}
+                onPress={() => setProfileUserId(r.userId)}
                 right={
                   <View className="flex-row gap-1">
                     <RowAction
@@ -262,6 +266,7 @@ export default function FriendsScreen() {
                 country={r.country}
                 rating={r.rating}
                 subtitle="Request sent"
+                onPress={() => setProfileUserId(r.userId)}
                 right={<RowAction label="Cancel" color={Colors.chromeMid} onPress={() => void friends.declineRequest(r.userId)} />}
               />
             ))}
@@ -287,6 +292,7 @@ export default function FriendsScreen() {
                   country={f.country}
                   rating={f.rating}
                   presence={presence}
+                  onPress={() => setProfileUserId(f.userId)}
                   right={
                     <View className="flex-row items-center gap-1">
                       <RowAction
@@ -317,6 +323,8 @@ export default function FriendsScreen() {
           )}
         </View>
       </KeyboardAwareScrollView>
+
+      <PlayerProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />
 
       <Modal
         visible={challengeTarget !== null}

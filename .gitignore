@@ -73,3 +73,9 @@ src/lib/stockfishEngineAssets.ts
 
 # Gemini API key for asset generation (never commit)
 .env.gemini
+
+# Sonic Pi source files for the celebration sounds (recorded into assets/sounds/*.wav)
+/sonic-pi/
+
+# Sentry build-time secret (auth token for uploading source maps) -- never commit
+.env.sentry

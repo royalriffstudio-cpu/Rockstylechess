@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
@@ -11,7 +11,10 @@ import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { goUp } from '@/lib/navigation';
 import { getPlayerId } from '@/lib/playerId';
 import { ensureAuthenticated, getSocket } from '@/lib/socket';
-import { isDuration, isVenueTier, type QueueErrorPayload, type QueueMatchedPayload } from '@/lib/onlineMatch';
+import { DURATION_LABELS, isDuration, isVenueTier, type QueueErrorPayload, type QueueMatchedPayload } from '@/lib/onlineMatch';
+
+// How long a player searches on their picked clock before being offered the other time controls.
+const WIDEN_AFTER_SECONDS = 25;
 
 function formatElapsed(seconds: number) {
   const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -50,9 +53,15 @@ export default function MatchmakingScreen() {
   const { profile } = usePlayerProfile();
   // Set when the server refuses the join (queue:error) -- replaces the searching UI.
   const [queueError, setQueueError] = useState<QueueErrorPayload | null>(null);
-  const { venueTier: venueTierParam, duration: durationParam } = useLocalSearchParams<{ venueTier?: string; duration?: string }>();
+  const { venueTier: venueTierParam, duration: durationParam, insured: insuredParam } = useLocalSearchParams<{ venueTier?: string; duration?: string; insured?: string }>();
   const venueTier = isVenueTier(venueTierParam) ? venueTierParam : 'garage';
   const duration = isDuration(durationParam) ? durationParam : '5m';
+  // The player ticked the Safety Net on Match Setup (the server prices it and charges it at pairing).
+  const insured = insuredParam === '1';
+  // After a while with nobody on the picked clock the player may agree to also play other time controls
+  // (server/src/matchmaking.ts widenQueued). Opt-in: the search stays on the picked clock until they tap.
+  const [widened, setWidened] = useState(false);
+  const widenedRef = useRef(false);
 
   useEffect(() => {
     pulse.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.inOut(Easing.ease) }), -1, true);
@@ -112,7 +121,7 @@ export default function MatchmakingScreen() {
     function joinQueue() {
       Promise.all([ensureAuthenticated(), getPlayerId()]).then(([, guestId]) => {
         if (cancelled || errored) return;
-        socket.emit('queue:join', { guestId, displayName: 'AXL_CHESS', venueTier, duration });
+        socket.emit('queue:join', { guestId, displayName: 'AXL_CHESS', venueTier, duration, ...(insured ? { insured: true } : {}), ...(widenedRef.current ? { widen: true } : {}) });
       });
     }
 
@@ -135,7 +144,7 @@ export default function MatchmakingScreen() {
       socket.off('connect', joinQueue);
       socket.emit('queue:leave');
     };
-  }, [router, venueTier, duration]);
+  }, [router, venueTier, duration, insured]);
 
   const pulseStyle = useAnimatedStyle(() => ({
     opacity: 0.5 + pulse.value * 0.5,
@@ -192,12 +201,31 @@ export default function MatchmakingScreen() {
       </View>
 
       <View className="items-center gap-sm">
-        <Text className="font-body-base text-body-base text-text-muted">Searching for opponent...</Text>
+        <Text className="font-body-base text-body-base text-text-muted">
+          {widened ? `Searching all time controls (you picked ${duration})...` : `Searching for a ${duration} opponent...`}
+        </Text>
         <View className="flex-row items-center gap-2 rounded-full px-lg py-sm" style={{ backgroundColor: withOpacity(Colors.bgPanel, 0.8), borderTopWidth: 1, borderTopColor: withOpacity(Colors.chromeDark, 0.5) }}>
           <AppIcon name="schedule" size={16} color={Colors.textMuted} />
           <Text className="font-button-label text-button-label text-cyan">{formatElapsed(elapsed)}</Text>
         </View>
       </View>
+
+      {!widened && elapsed >= WIDEN_AFTER_SECONDS ? (
+        <View className="items-center gap-sm" style={{ maxWidth: 300 }}>
+          <Text className="text-center font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+            No one else is searching {duration} ({DURATION_LABELS[duration]}) right now. You can also play whatever clock your opponent picked. You will see it before you move.
+          </Text>
+          <RockButton
+            label="Also search other time controls"
+            variant="cyan"
+            onPress={() => {
+              widenedRef.current = true;
+              setWidened(true);
+              getSocket().emit('queue:widen');
+            }}
+          />
+        </View>
+      ) : null}
 
       <RockButton
         label="Cancel"

@@ -312,11 +312,21 @@ export const ECONOMY = {
     "daily-double": {
       "dailyCap": 1,
       "rewardChips": 0
+    },
+    "venue-refill": {
+      "dailyCap": 2,
+      "rewardChips": 100
     }
   },
   "analysis": {
     "chips": 200,
-    "gems": 5
+    "gems": 5,
+    "pack": {
+      "reviews": 10,
+      "chips": 1600,
+      "gems": 40,
+      "maxCredits": 30
+    }
   },
   "iap": {
     "chipPacks": [
@@ -456,6 +466,16 @@ export const ECONOMY = {
   "tour": {
     "minBotPlies": 6,
     "perfectBonusGems": 5,
+    "backstage": {
+      "minAttemptPlies": 20,
+      "kitUnlockLosses": 2,
+      "crowdFreeEvery": 4,
+      "kitPriceFraction": 0.12,
+      "kit": {
+        "takeTwos": 1,
+        "tips": 2
+      }
+    },
     "chapters": [
       {
         "id": "garage",
@@ -827,6 +847,116 @@ export const ECONOMY = {
     "online-weekly": 300,
     "puzzles-weekly": 300,
     "minLevel": 5
+  },
+  "festival": {
+    "dailyRuns": {
+      "open-mic": 2,
+      "main-set": 1,
+      "headliner": 1
+    },
+    "repeatSurcharge": 0.5,
+    "staleRunMinutes": 180,
+    "tiers": [
+      {
+        "id": "open-mic",
+        "name": "Open Mic",
+        "tagline": "Three songs, one shot.",
+        "unlockChapter": "garage",
+        "entry": 250,
+        "sets": [
+          "roadie-rick",
+          "valkyrie-riff",
+          "old-school-roy"
+        ],
+        "purse": [
+          100,
+          250,
+          560
+        ],
+        "title": {
+          "id": "open-mic-hero",
+          "name": "Open Mic Hero"
+        }
+      },
+      {
+        "id": "main-set",
+        "name": "Main Set",
+        "tagline": "Real crowd, real stakes.",
+        "unlockChapter": "arena",
+        "entry": 1000,
+        "sets": [
+          "valkyrie-riff",
+          "metal-head",
+          "the-reaper"
+        ],
+        "purse": [
+          350,
+          1000,
+          2800
+        ],
+        "title": {
+          "id": "main-set-maverick",
+          "name": "Main Set Maverick"
+        }
+      },
+      {
+        "id": "headliner",
+        "name": "Headliner",
+        "tagline": "Every boss, back to back.",
+        "unlockChapter": "mainstage",
+        "entry": 3000,
+        "sets": [
+          "roadie-rick",
+          "valkyrie-riff",
+          "metal-head",
+          "the-reaper",
+          "king-axl"
+        ],
+        "purse": [
+          900,
+          1800,
+          3400,
+          5200,
+          22000
+        ],
+        "title": {
+          "id": "festival-headliner",
+          "name": "Festival Headliner"
+        }
+      }
+    ]
+  },
+  "spinExtra": {
+    "prices": [
+      300,
+      450,
+      600
+    ]
+  },
+  "gear": {
+    "maxStock": 5,
+    "items": [
+      {
+        "id": "amp-boost",
+        "name": "Amp Boost",
+        "tagline": "Crank it to 11: +50% Fame on your next 3 wins.",
+        "chips": 150,
+        "charges": 3
+      },
+      {
+        "id": "lucky-pick",
+        "name": "Lucky Pick",
+        "tagline": "Keep a Hot Streak of 3+ through one loss.",
+        "chips": 100,
+        "charges": 1
+      }
+    ],
+    "ampBonus": 0.5,
+    "minStreak": 3,
+    "safetyNet": {
+      "premiumFraction": 0.25,
+      "coverFraction": 0.35
+    }
   }
 } as const;
 

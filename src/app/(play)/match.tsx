@@ -1,7 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BackHandler,
   Pressable,
@@ -35,6 +35,7 @@ import { getPieceSprites, type PieceSpriteMap } from '@/components/ui/pieceSprit
 import { getBoardTheme } from '@/constants/boardThemes';
 import { ScreenArt } from '@/constants/screenArt';
 import { Colors, Fonts, Spacing, withOpacity } from '@/constants/theme';
+import { PlayerProfileSheet } from '@/components/social/PlayerProfileSheet';
 import { BOT_PORTRAITS, BOT_TIER_LABEL } from '@/constants/bots';
 import { formatChips, getVenue, getVenueIntensity } from '@/constants/venues';
 import { useChessClock, type ClockTimes } from '@/hooks/useChessClock';
@@ -52,6 +53,9 @@ import { MATCH_CHIP_REWARDS } from '@/lib/matchRewards';
 import { DURATION_MS, isDuration, isVenueTier } from '@/lib/onlineMatch';
 import { ensureProgressionListener, putReport, titleName } from '@/lib/progression';
 import { ensureWagerListener } from '@/lib/wagerResult';
+import { ensureFestivalListener } from '@/lib/festival';
+import { addCrashBreadcrumb, reportError, setCrashTags } from '@/lib/crashReporting';
+import type { FestivalMatchInfo } from '@/lib/onlineMatch';
 
 
 // Bot/local always default to this (matches setup.tsx's own default duration
@@ -137,6 +141,12 @@ export default function MatchScreen() {
     prize: prizeParam,
     opponentRating: opponentRatingParam,
     opponentTitle: opponentTitleParam,
+    festival: festivalParam,
+    friendly: friendlyParam,
+    sessionId: sessionIdParam,
+    kitTakeTwos: kitTakeTwosParam,
+    kitTips: kitTipsParam,
+    dbg: dbgParam,
   } = useLocalSearchParams<{
     mode?: string;
     difficulty?: string;
@@ -168,7 +178,21 @@ export default function MatchScreen() {
     // Online only: the opponent's public standing from queue:matched.
     opponentRating?: string;
     opponentTitle?: string;
+    // Festival set only: the run / set / purse / bot, JSON from the server's queue:matched
+    // (lib/festival.ts). The opponent is a bot the SERVER plays.
+    festival?: string;
+    // Friend challenge / private room (queue:matched `friendly`): unrated, no rewards.
+    friendly?: string;
+    // Tour boss fight only: the bot session the Tour screen already opened (it bought the
+    // Roadie Kit with it, so it can't be opened twice) and what the kit holds.
+    sessionId?: string;
+    kitTakeTwos?: string;
+    kitTips?: string;
+    // Diagnostics only: comma list of switches that turn parts of this screen off, opened via a
+    // deep link (np pieces, ng board glow/shadow, nv backdrop+crowd, nsh header/action-bar shadows).
+    dbg?: string;
   }>();
+  const dbg = useMemo(() => new Set((dbgParam ?? '').split(',').filter(Boolean)), [dbgParam]);
   const mode: GameMode = modeParam === 'bot' ? 'bot' : modeParam === 'online' ? 'online' : 'local';
   const difficulty: BotDifficulty =
     difficultyParam === 'medium' ||
@@ -200,18 +224,29 @@ export default function MatchScreen() {
         : undefined,
     [mode, matchId, fenParam, playerColor],
   );
+  const festivalInfo = useMemo<FestivalMatchInfo | null>(() => {
+    if (!festivalParam) return null;
+    try {
+      return JSON.parse(festivalParam) as FestivalMatchInfo;
+    } catch {
+      return null;
+    }
+  }, [festivalParam]);
+  const festivalDifficulty = festivalInfo?.bot.difficulty as BotDifficulty | undefined;
   const opponentDisplayName =
     mode === 'online' ? opponentName || 'OPPONENT' : mode === 'bot' ? botName || 'STORM_KING' : 'LOCAL PLAYER';
   // Online opponents get their picked avatar badge; bots keep their roster
   // emoji, and a same-device "local" opponent falls back to the rock hand.
   // Online opponents carry a persisted avatar id (drawn with its class frame);
   // bots / local play pass nothing and fall back to their emoji.
-  const opponentAvatarKey = mode === 'online' ? (opponentAvatarId ?? null) : undefined;
-  const opponentAvatarEmoji = mode === 'bot' ? botEmoji || '🤖' : mode === 'online' ? undefined : '🤘';
+  const opponentAvatarKey = mode === 'online' && !festivalInfo ? (opponentAvatarId ?? null) : undefined;
+  const opponentAvatarEmoji = festivalInfo ? festivalInfo.bot.emoji : mode === 'bot' ? botEmoji || '🤖' : mode === 'online' ? undefined : '🤘';
   const navigatedRef = useRef(false);
   const stockfishRef = useRef<StockfishEngineHandle>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [resignVisible, setResignVisible] = useState(false);
+  // Tap the opponent to look at their profile (a sheet over the match; the game and its clock keep running).
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   // Peeking at a previous board state repurposes the MAIN board itself
   // (read-only, driven by useMatchReplay) rather than opening a separate
   // panel/sheet -- see peekActive below. historySnapshot is a frozen
@@ -231,7 +266,9 @@ export default function MatchScreen() {
   // rating, a bot its strength label, you your own title and rating. (They used to
   // be the hardcoded "GRANDMASTER (2150)" / "PRO (2145)" for everyone.)
   const opponentRank =
-    mode === 'online'
+    festivalDifficulty
+      ? `BOT · ${BOT_TIER_LABEL[festivalDifficulty] ?? festivalDifficulty}`
+      : mode === 'online'
       ? [opponentTitleParam?.toUpperCase(), opponentRatingParam ? opponentRatingParam : null].filter(Boolean).join(' · ') || 'GUEST'
       : mode === 'bot'
         ? `BOT · ${BOT_TIER_LABEL[difficulty]}`
@@ -265,9 +302,9 @@ export default function MatchScreen() {
       backgroundColor: withOpacity(Colors.bgPanel, 0.96),
       borderTopWidth: 1,
       borderTopColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.6),
-      boxShadow: `0px -2px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}`,
+      ...(dbg.has('nsh') ? {} : { boxShadow: `0px -2px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}` }),
     }),
-    [venue.accentColor, venueIntensity.glowOpacity, venueIntensity.glowRadius],
+    [venue.accentColor, venueIntensity.glowOpacity, venueIntensity.glowRadius, dbg],
   );
 
   const requestEngineMove = useCallback((fen: string, config: StockfishConfig): Promise<EngineMove | null> => {
@@ -315,7 +352,7 @@ export default function MatchScreen() {
     // matches pay what the SERVER verifies: it issued the match at the start and
     // replays the finished PGN before paying anything (db/botSessions.ts), so this
     // starts at 0 and becomes whatever the server says. Pass-and-play pays nothing.
-    let chipsGranted = mode === 'online' ? MATCH_CHIP_REWARDS[outcome] : 0;
+    let chipsGranted = mode === 'online' && !festivalInfo && friendlyParam !== '1' ? MATCH_CHIP_REWARDS[outcome] : 0;
     let noReward: string | undefined;
     // Bot matches get their Show Report from the server's reply (online ones arrive
     // over the socket as `progression:update`, keyed by the match id).
@@ -335,7 +372,7 @@ export default function MatchScreen() {
           if (finished.progression) putReport(reportKey, finished.progression);
           chipsGranted = finished.chipsGranted ?? 0;
         } catch (error) {
-          console.log('Failed to finish bot match', error);
+          reportError(error, { area: 'bot-match-finish', difficulty });
           noReward = 'offline';
         }
       } else if (!token) {
@@ -387,11 +424,19 @@ export default function MatchScreen() {
           matchMode: mode,
           ...(noReward ? { noReward } : {}),
           // Where the Show Report comes from: the online match id (socket push) or a bot report key.
-          ...(mode === 'online' && matchId ? { reportKey: matchId } : mode === 'bot' ? { reportKey } : {}),
+          ...(mode === 'online' && matchId && friendlyParam !== '1' ? { reportKey: matchId } : mode === 'bot' ? { reportKey } : {}),
+          ...(friendlyParam === '1' ? { friendly: '1' } : {}),
           venueTier,
           // A wagered match shows the server's settlement instead of the flat
           // reward (see wagerResult.ts / result-placeholder.tsx).
           ...(wagered && matchId ? { wagerMatchId: matchId, buyIn: String(buyIn), prize: String(prize) } : {}),
+          // A Festival set: the result screen shows the run (set break / purse) instead of chips.
+          ...(festivalInfo && matchId ? { festivalRunId: festivalInfo.runId, festivalMatchId: matchId } : {}),
+          // Rematch (bot games): what the result screen needs to start the same bot again. Not offered for a
+          // Roadie Kit game (single-use session bought on the Tour screen) or a Festival set (own flow).
+          ...(mode === 'bot' && botId && !sessionIdParam && !festivalInfo
+            ? { rematchBot: JSON.stringify({ botId, botName, botEmoji, difficulty, color: playerColor, duration: durationParam ?? '5m', venueTier }) }
+            : {}),
           // Piece values each side captured (display only, result screen).
           myPoints: String(capturedPoints(playerColor === 'w' ? game.capturedByWhite : game.capturedByBlack)),
           oppPoints: String(capturedPoints(playerColor === 'w' ? game.capturedByBlack : game.capturedByWhite)),
@@ -400,6 +445,9 @@ export default function MatchScreen() {
           ...(mode === 'online' && opponentUserId
             ? { opponentUserId, opponentName: opponentDisplayName }
             : {}),
+          // Rematch (online): the finished match's id names the server's rematch window (server/src/rematch.ts).
+          // Not for a Festival set, which has its own Set Break flow.
+          ...(mode === 'online' && matchId && !festivalInfo ? { rematchMatchId: matchId, opponentName: opponentDisplayName } : {}),
         },
       });
     }, 900);
@@ -440,6 +488,10 @@ export default function MatchScreen() {
   const botSessionRef = useRef<string | null>(null);
   useEffect(() => {
     if (mode !== 'bot' || !botId) return;
+    if (sessionIdParam) {
+      botSessionRef.current = sessionIdParam;
+      return;
+    }
     let cancelled = false;
     (async () => {
       const token = await getAuthToken();
@@ -448,13 +500,37 @@ export default function MatchScreen() {
         const { sessionId } = await startBotMatch(token, botId, playerColor);
         if (!cancelled) botSessionRef.current = sessionId;
       } catch (error) {
-        console.log('Failed to start bot match', error);
+        reportError(error, { area: 'bot-match-start' });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mode, botId, playerColor]);
+  }, [mode, botId, playerColor, sessionIdParam]);
+
+  // Roadie Kit (Tour boss fights): a couple of limited helps, never a win button. Take Two
+  // rewinds your last turn (the clock keeps running); Roadie's Tip points at the piece to move.
+  const kitActive = mode === 'bot' && !!sessionIdParam && (Number(kitTakeTwosParam) > 0 || Number(kitTipsParam) > 0);
+  const [takeTwosLeft, setTakeTwosLeft] = useState(() => Math.max(0, Math.floor(Number(kitTakeTwosParam) || 0)));
+  const [tipsLeft, setTipsLeft] = useState(() => Math.max(0, Math.floor(Number(kitTipsParam) || 0)));
+  const kitReady = kitActive && !peekActive && !game.isGameOver && !matchEnded && game.turn === playerColor && !game.pendingPromotion;
+  function onTakeTwo() {
+    if (takeTwosLeft > 0 && game.takeBack()) setTakeTwosLeft((n) => n - 1);
+  }
+  function onTip() {
+    if (tipsLeft > 0 && game.suggestTip()) setTipsLeft((n) => n - 1);
+  }
+
+  // Technical context for any crash report from this screen (never player identities).
+  useEffect(() => {
+    const kind = festivalInfo ? 'festival' : mode;
+    setCrashTags({ screen: 'match', matchMode: kind, difficulty: festivalDifficulty ?? (mode === 'bot' ? difficulty : undefined) });
+    addCrashBreadcrumb('match', 'match screen mounted', { mode: kind, color: playerColor });
+    return () => {
+      addCrashBreadcrumb('match', 'match screen unmounted');
+      setCrashTags({ screen: undefined, matchMode: undefined, difficulty: undefined });
+    };
+  }, [festivalInfo, festivalDifficulty, mode, difficulty, playerColor]);
 
   // Make sure the shared wager:settled listener is attached for the whole online
   // match, so the settlement is cached even if it lands after we navigate away.
@@ -462,6 +538,7 @@ export default function MatchScreen() {
     if (mode === 'online') {
       ensureWagerListener();
       ensureProgressionListener();
+      ensureFestivalListener();
     }
   }, [mode]);
 
@@ -590,26 +667,56 @@ export default function MatchScreen() {
       ? undefined
       : Math.max(MIN_BOARD_SIZE, boardAreaHeight - PEEK_NAV_HEIGHT - BOARD_VERTICAL_GAP * 2);
 
+  // Once the board size is known: the size it settled at is the first thing to check on a
+  // render-hang report from a weak GPU.
+  useEffect(() => {
+    if (boardAreaHeight !== null) addCrashBreadcrumb('match', 'board area measured', { boardAreaHeight });
+  }, [boardAreaHeight]);
+
   return (
     <View style={styles.root}>
-      <VenueBackdrop venueTier={venueTier} />
+      {dbg.has('nv') ? null : <VenueBackdrop venueTier={venueTier} />}
       <StockfishEngine ref={stockfishRef} enabled={isStockfishTier} />
-      <Image
-        source={ScreenArt.frontRowCrowd}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        style={styles.crowdImage}
-      />
+      {dbg.has('nv') ? null : (
+        <Image
+          source={ScreenArt.frontRowCrowd}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          style={styles.crowdImage}
+        />
+      )}
 
       <View className="flex-row items-center justify-between px-lg pb-sm" style={headerPad}>
         <View className="flex-row items-center" style={{ gap: Spacing.sm }}>
           {/* The wordmark gives way to the pot pill in a wagered match: both
               together would not fit a 360px header next to the menu button. */}
-          {wagered ? null : (
+          {wagered || festivalInfo ? null : (
             <Text className="font-display-hero text-cyan" style={styles.wordmark}>
               RockStyle Chess
             </Text>
           )}
+          {festivalInfo ? (
+            <>
+              <View
+                className="flex-row items-center rounded-full px-sm"
+                style={{ gap: 4, paddingVertical: 3, borderWidth: 1, backgroundColor: withOpacity(Colors.cyan, 0.12), borderColor: withOpacity(Colors.cyan, 0.6) }}
+              >
+                <MaterialCommunityIcons name="ticket-confirmation" size={11} color={Colors.cyan} />
+                <Text className="font-heading" style={{ fontSize: 9, color: Colors.cyan }}>
+                  SET {festivalInfo.setIndex + 1}/{festivalInfo.totalSets}
+                </Text>
+              </View>
+              <View
+                className="flex-row items-center rounded-full px-sm"
+                style={{ gap: 4, paddingVertical: 3, borderWidth: 1, backgroundColor: withOpacity(Colors.gold, 0.12), borderColor: withOpacity(Colors.gold, 0.6) }}
+              >
+                <MaterialCommunityIcons name="poker-chip" size={11} color={Colors.gold} />
+                <Text className="font-heading" style={{ fontSize: 9, color: Colors.gold }}>
+                  WIN BANKS {formatChips(festivalInfo.nextPurse)}
+                </Text>
+              </View>
+            </>
+          ) : (
           <View
             className="flex-row items-center rounded-full px-sm"
             style={{
@@ -618,7 +725,7 @@ export default function MatchScreen() {
               borderWidth: 1,
               backgroundColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.15),
               borderColor: withOpacity(venue.accentColor, venueIntensity.glowOpacity),
-              boxShadow: `0px 0px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}`,
+              ...(dbg.has('nsh') ? {} : { boxShadow: `0px 0px ${venueIntensity.glowRadius}px ${withOpacity(venue.accentColor, venueIntensity.glowOpacity * 0.5)}` }),
             }}
           >
             <MaterialCommunityIcons name={venue.icon} size={11} color={venue.accentColor} />
@@ -626,6 +733,7 @@ export default function MatchScreen() {
               {venue.name.toUpperCase()}
             </Text>
           </View>
+          )}
           {wagered ? (
             <View
               className="flex-row items-center rounded-full px-sm"
@@ -658,17 +766,19 @@ export default function MatchScreen() {
           name={opponentDisplayName}
           avatarId={opponentAvatarKey}
           avatarEmoji={opponentAvatarEmoji}
-          avatarSource={mode === 'bot' && botId ? BOT_PORTRAITS[botId] : undefined}
+          avatarSource={festivalInfo ? BOT_PORTRAITS[festivalInfo.bot.id] : mode === 'bot' && botId ? BOT_PORTRAITS[botId] : undefined}
           countryCode={mode === 'online' ? (opponentCountry ?? null) : null}
           rank={opponentRank}
           getRemaining={clock.getRemaining}
           color={opponentColor}
           accent={Colors.crimson}
           pulsing={game.turn === opponentColor && !clockFrozen}
+          onPressPlayer={mode === 'online' && !festivalInfo && opponentUserId ? () => setProfileUserId(opponentUserId) : undefined}
           running={!clockFrozen}
           captured={opponentColor === 'w' ? game.capturedByWhite : game.capturedByBlack}
           lead={opponentColor === 'w' ? whiteLead : blackLead}
           pieceSprites={pieceSprites}
+          hideTimer={!!festivalInfo}
         />
 
         <View style={styles.boardArea} onLayout={handleBoardAreaLayout}>
@@ -676,6 +786,10 @@ export default function MatchScreen() {
             <ChessBoard
               variant="large"
               maxSize={boardMaxSize}
+              // Pieces wait for the measured, capped size so their heavy SVGs decode once.
+              sizeFinal={boardAreaHeight !== null}
+              debugNoPieces={dbg.has('np')}
+              debugPlain={dbg.has('ng')}
               // Bled into the column's side padding; invisible until boardArea
               // has been measured, so it never flashes at an uncapped size.
               style={boardAreaHeight === null ? styles.boardBleedHidden : styles.boardBleed}
@@ -736,13 +850,20 @@ export default function MatchScreen() {
       </View>
 
       <View className="flex-row items-center gap-sm rounded-t-xl px-margin-mobile pt-md" style={actionBarPad}>
-        <ActionPillButton
-          icon="chat"
-          label="Chat"
-          onPress={openChat}
-          disabled={mode !== 'online'}
-          badgeCount={mode === 'online' ? chat.unreadCount : 0}
-        />
+        {kitActive ? (
+          <>
+            <ActionPillButton icon="rewind" label="Take 2" onPress={onTakeTwo} disabled={!kitReady || takeTwosLeft === 0 || game.ply < 2} badgeCount={takeTwosLeft} />
+            <ActionPillButton icon="lightbulb-on-outline" label="Tip" onPress={onTip} disabled={!kitReady || tipsLeft === 0} badgeCount={tipsLeft} />
+          </>
+        ) : (
+          <ActionPillButton
+            icon="chat"
+            label="Chat"
+            onPress={openChat}
+            disabled={mode !== 'online' || !!festivalInfo}
+            badgeCount={mode === 'online' ? chat.unreadCount : 0}
+          />
+        )}
         <ActionPillButton icon="flag" label="Resign" tone="danger" onPress={openResign} />
         <ActionPillButton
           icon={peekActive ? 'eye-off' : 'history'}
@@ -751,7 +872,7 @@ export default function MatchScreen() {
           active={peekActive}
           disabled={!peekActive && (game.moveCount === 0 || game.lastMove === null)}
         />
-        {mode !== 'bot' ? (
+        {mode !== 'bot' && !festivalInfo ? (
           <ActionPillButton
             icon="handshake"
             label={game.drawOfferFrom === playerColor ? 'Offered' : 'Draw'}
@@ -780,12 +901,14 @@ export default function MatchScreen() {
           variant="danger"
           icon="flag"
           title="Resign Match?"
-          message="This counts as a loss and your rating will drop. This can't be undone."
+          message={festivalInfo ? 'This set counts as lost and ends your Festival run. The purse is gone. This can\'t be undone.' : "This counts as a loss and your rating will drop. This can't be undone."}
           confirmLabel="Resign"
           onCancel={cancelResign}
           onConfirm={confirmResign}
         />
       ) : null}
+
+      <PlayerProfileSheet userId={profileUserId} fallbackName={opponentDisplayName} inMatch onClose={() => setProfileUserId(null)} />
 
       {game.pendingPromotion ? (
         <PromotionPicker
@@ -813,6 +936,17 @@ export default function MatchScreen() {
   );
 }
 
+// The avatar + name block of a player row: a Pressable only when there is a profile to open (an online,
+// signed-in opponent), otherwise the exact plain View it always was, so nothing about the layout changes.
+function ProfileTap({ onPress, className, children }: { onPress?: () => void; className: string; children: ReactNode }) {
+  if (!onPress) return <View className={className}>{children}</View>;
+  return (
+    <Pressable onPress={onPress} className={className} hitSlop={6}>
+      {children}
+    </Pressable>
+  );
+}
+
 const PlayerRow = memo(function PlayerRow({
   name,
   avatarId,
@@ -828,6 +962,8 @@ const PlayerRow = memo(function PlayerRow({
   captured = [],
   lead = 0,
   pieceSprites,
+  hideTimer = false,
+  onPressPlayer,
 }: {
   name: string;
   avatarId?: string | null;
@@ -845,6 +981,10 @@ const PlayerRow = memo(function PlayerRow({
   /** Net material lead in points; > 0 only on the side that is ahead. */
   lead?: number;
   pieceSprites: PieceSpriteMap;
+  /** A Festival bot is never clocked: show no timer for it. */
+  hideTimer?: boolean;
+  /** Tap the avatar/name to open this player's profile (online opponents only). */
+  onPressPlayer?: () => void;
 }) {
   // `captured` holds the pieces this row's player has taken -- i.e. the
   // opposite color's.
@@ -857,7 +997,8 @@ const PlayerRow = memo(function PlayerRow({
     // timer (it carries the capture slot), so top-aligning keeps all three level
     // whether or not anything has been captured yet.
     <View className="flex-row items-start justify-between gap-sm px-sm py-xs">
-      <View className="flex-shrink flex-row items-start gap-sm">
+      {/* Pressable only when there is a profile to open; same classes as the plain View, so layout is identical. */}
+      <ProfileTap onPress={onPressPlayer} className="flex-shrink flex-row items-start gap-sm">
         <PlayerAvatar avatarId={avatarId} emoji={avatarEmoji} source={avatarSource} size="small" />
         <View className="flex-shrink">
           <View className="flex-row items-center gap-1">
@@ -910,9 +1051,9 @@ const PlayerRow = memo(function PlayerRow({
           {lead > 0 ? <Text style={styles.materialLead}>+{lead}</Text> : null}
           </View>
         </View>
-      </View>
+      </ProfileTap>
 
-      <TimerPill getRemaining={getRemaining} color={color} accent={accent} pulsing={pulsing} running={running} />
+      {hideTimer ? null : <TimerPill getRemaining={getRemaining} color={color} accent={accent} pulsing={pulsing} running={running} />}
     </View>
   );
 });

@@ -65,6 +65,19 @@ function FameBar({ report }: { report: ProgressionReport }) {
   );
 }
 
+// Losing to a boss is not nothing: the crowd gets louder. Tells a stuck player how close the
+// Roadie Kit is (it is only ever offered from the Tour screen, never here).
+function BossAttemptLine({ attempt }: { attempt: NonNullable<NonNullable<ProgressionReport['tour']>['bossAttempt']> }) {
+  const text = attempt.freeKitJustEarned
+    ? 'THE CROWD HAS YOUR BACK · A FREE ROADIE KIT IS WAITING ON THE TOUR'
+    : attempt.kitJustOpened
+      ? 'THE CROWD IS LOUD · ROADIE KIT UNLOCKED ON THE TOUR'
+      : attempt.toUnlock > 0
+        ? `CROWD ENERGY ${attempt.losses} · ${attempt.toUnlock} MORE REAL ATTEMPT${attempt.toUnlock === 1 ? '' : 'S'} TO OPEN THE ROADIE KIT`
+        : `CROWD ENERGY ${attempt.losses} · ${attempt.toNextFree} MORE FOR A FREE KIT`;
+  return <Text style={[styles.tierUp, { color: Colors.ember }]}>{text}</Text>;
+}
+
 function TourLines({ tour }: { tour: NonNullable<ProgressionReport['tour']> }) {
   return (
     <View style={{ marginTop: 6, gap: 4 }}>
@@ -97,6 +110,7 @@ function TourLines({ tour }: { tour: NonNullable<ProgressionReport['tour']> }) {
           ENCORE {tour.encore.progress}/{tour.encore.total}
         </Text>
       ) : null}
+      {tour.bossAttempt ? <BossAttemptLine attempt={tour.bossAttempt} /> : null}
       {tour.bossBeaten ? (
         <Text style={[styles.tierUp, { color: Colors.gold }]}>BOSS DEFEATED · {tour.bossBeaten.chapterName.toUpperCase()} COMPLETE</Text>
       ) : null}
@@ -150,10 +164,17 @@ export function ShowReport({ report, timedOut }: ShowReportProps) {
         </View>
         <Text style={[styles.fame, report.fame.gained === 0 && { color: Colors.textMuted }]}>+{fameCount.toLocaleString('en-US')}</Text>
       </View>
-      {report.fame.openingNight || report.fame.hotStreak > 1 || report.fame.capped ? (
+      {report.fame.openingNight || report.fame.hotStreak > 1 || report.fame.capped || report.fame.ampBonus > 0 || report.fame.luckyPickSaved > 0 ? (
         <View style={styles.pills}>
           {report.fame.openingNight ? <BonusPill label="OPENING NIGHT ×2" color={Colors.cyan} /> : null}
           {report.fame.hotStreak > 1 ? <BonusPill label={`HOT STREAK ×${report.fame.hotStreak}`} color={Colors.ember} /> : null}
+          {report.fame.ampBonus > 0 ? (
+            <BonusPill
+              label={`AMP BOOST +${Math.round(report.fame.ampBonus * 100)}% · ${report.fame.ampWinsLeft} WIN${report.fame.ampWinsLeft === 1 ? '' : 'S'} LEFT`}
+              color={Colors.gold}
+            />
+          ) : null}
+          {report.fame.luckyPickSaved > 0 ? <BonusPill label={`LUCKY PICK SAVED YOUR ${report.fame.luckyPickSaved}-WIN STREAK`} color={Colors.gold} /> : null}
           {report.fame.capped ? <BonusPill label="DAILY BOT FAME CAP" color={Colors.chromeMid} /> : null}
         </View>
       ) : null}

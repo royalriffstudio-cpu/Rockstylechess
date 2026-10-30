@@ -1,6 +1,8 @@
 import { and, eq, lt, sql } from 'drizzle-orm';
 
 import { ECONOMY } from '../economy.generated.js';
+import { reportError } from '../monitoring.js';
+import { safetyNetTerms } from '../gear.js';
 import { db } from './client.js';
 import { playerProfiles, wagers } from './schema/index.js';
 
@@ -12,6 +14,11 @@ import { playerProfiles, wagers } from './schema/index.js';
 //      nothing to do and credits nothing.
 //   3. Chips are never created: payout + rake always equals the pot, and every
 //      failure path ends in a refund, never a silent loss.
+// ONE deliberate exception: the optional SAFETY NET (an add-on a player buys at pairing). Its
+// premium is paid in the same escrow transaction; a LOSS pays back `cover`, which is the only
+// chips this file ever pays that were not in the pot. The premium is returned if the match is
+// voided, kept on a win or a draw. economy.config.json -> gear.safetyNet; check-economy.mjs
+// asserts a player (or two colluding accounts) can never come out ahead on it.
 // All numbers come from economy.config.json (see ECONOMY.venues / venueRake).
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -56,21 +63,39 @@ export async function escrowWager(
   venueTier: string,
   whiteUserId: string,
   blackUserId: string,
+  insured: { white: boolean; black: boolean } = { white: false, black: false },
 ): Promise<EscrowResult> {
   const stake = stakeFor(venueTier);
   if (!stake) throw new Error(`not a wagered venue: ${venueTier}`);
+  const terms = safetyNetTerms(stake.buyIn);
+  const premiumOf = (isInsured: boolean) => (isInsured ? terms.premium : 0);
+  const premiumByUser = new Map([
+    [whiteUserId, premiumOf(insured.white)],
+    [blackUserId, premiumOf(insured.black)],
+  ]);
   try {
     await db.transaction(async (tx) => {
       for (const userId of [whiteUserId, blackUserId].sort()) {
+        const due = stake.buyIn + (premiumByUser.get(userId) ?? 0);
         const debited = await tx
           .update(playerProfiles)
-          .set({ chips: sql`${playerProfiles.chips} - ${stake.buyIn}`, updatedAt: new Date() })
-          .where(and(eq(playerProfiles.userId, userId), sql`${playerProfiles.chips} >= ${stake.buyIn}`))
+          .set({ chips: sql`${playerProfiles.chips} - ${due}`, updatedAt: new Date() })
+          .where(and(eq(playerProfiles.userId, userId), sql`${playerProfiles.chips} >= ${due}`))
           .returning({ chips: playerProfiles.chips });
         // Throwing (not returning) is what rolls the first debit back too.
         if (debited.length === 0) throw new InsufficientChips(userId);
       }
-      await tx.insert(wagers).values({ matchId, venueTier, buyIn: stake.buyIn, whiteUserId, blackUserId });
+      await tx.insert(wagers).values({
+        matchId,
+        venueTier,
+        buyIn: stake.buyIn,
+        whiteUserId,
+        blackUserId,
+        whitePremium: premiumOf(insured.white),
+        blackPremium: premiumOf(insured.black),
+        whiteCover: insured.white ? terms.cover : 0,
+        blackCover: insured.black ? terms.cover : 0,
+      });
     });
     return { status: 'ok' };
   } catch (error) {
@@ -92,8 +117,9 @@ export interface SettledWager {
   venueTier: string;
   buyIn: number;
   outcome: 'win' | 'draw' | 'void';
-  // Per participant: signed net result and the balance after settling.
-  players: Record<string, { net: number; chipsAfter: number; payout: number }>;
+  // Per participant: signed net result and the balance after settling. `premium` is what they paid
+  // for the Safety Net (0 = not insured) and `coverPaid` what it paid back on a loss.
+  players: Record<string, { net: number; chipsAfter: number; payout: number; premium: number; coverPaid: number }>;
   payout: number;
   rake: number;
   whiteUserId: string | null;
@@ -147,13 +173,27 @@ export async function settleWager(matchId: string, input: SettleInput): Promise<
     const rake = outcome === 'win' ? pot - stake.prize : 0;
 
     const players: SettledWager['players'] = {};
-    for (const userId of seats) {
+    const seated = [
+      { userId: held.whiteUserId, premium: held.whitePremium, cover: held.whiteCover },
+      { userId: held.blackUserId, premium: held.blackPremium, cover: held.blackCover },
+    ];
+    for (const { userId, premium, cover } of seated) {
       if (!userId) continue; // account deleted mid-match: nothing to credit
       let received = 0;
-      if (outcome === 'win') received = userId === input.winnerUserId ? payout : 0;
-      else received = held.buyIn; // draw and void both return the stake
+      let coverPaid = 0;
+      if (outcome === 'win') {
+        if (userId === input.winnerUserId) received = payout;
+        else {
+          coverPaid = cover; // the Safety Net: a loss gets part of the buy-in back
+          received = cover;
+        }
+      } else if (outcome === 'void') {
+        received = held.buyIn + premium; // nothing was contested: the premium goes back too
+      } else {
+        received = held.buyIn; // a real draw returns the stake; the premium was spent
+      }
       const chipsAfter = received > 0 ? await credit(tx, userId, received) : await balance(tx, userId);
-      players[userId] = { net: received - held.buyIn, chipsAfter, payout: received };
+      players[userId] = { net: received - held.buyIn - premium, chipsAfter, payout: received, premium, coverPaid };
     }
 
     await tx
@@ -196,7 +236,7 @@ export async function settleWagerWithRetry(matchId: string, input: SettleInput):
       await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
-  console.error('wager settlement failed after retries -- left for the sweeper', matchId, lastError);
+  reportError(lastError, { area: 'wager-settle-failed', matchId });
   return null;
 }
 

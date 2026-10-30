@@ -33,17 +33,22 @@ and a set of daily reward loops layered on top.
 
 **The main things a user can do**
 
-* Play chess against five computer opponents of increasing strength.
+* Play chess against six named computer opponents of increasing strength.
 * Play chess with a friend passing one phone back and forth.
-* Play rated chess online against a matched opponent, a friend by invite code,
-  or a friend by direct challenge.
+* Play rated chess online against a matched opponent, optionally for chips at
+  the higher venues, or play friendly (unrated) games with a friend by invite
+  code or direct challenge.
+* Work through **The Tour**, a six‑chapter campaign of goals and boss bots, and
+  take on **Festival Run**, a paid ladder of computer opponents with a growing
+  purse.
 * Solve chess puzzles and track progress through difficulty tiers.
 * Review finished games move by move and buy a detailed computer analysis.
 * Build a profile with an avatar, a display name, a rating, and a record.
 * Add friends, see who is online, challenge them, and message them.
 * Climb a global leaderboard.
-* Collect daily rewards, spin a prize wheel, complete quests, and unlock
-  cosmetic board and piece styles.
+* Earn Fame to level up and unlock titles; collect daily rewards, spin a prize
+  wheel, complete daily and weekly quests, and unlock cosmetic boards, piece
+  sets and avatars.
 
 ---
 
@@ -73,9 +78,11 @@ Based on how the app is actually built, the experience aims for:
 * **Speed and responsiveness.** Computer opponents are tuned so the app stays
   responsive even while the harder engines are "thinking". The board uses a
   animation system designed so pieces never flicker or jump.
-* **Casual‑friendly competition.** Online games are rated, but losing never costs
-  the player currency, and the reward loops (daily bonus, spin, quests) are
-  built around light, regular check‑ins rather than pressure.
+* **Competition at the player's chosen stakes.** Online games are rated. The
+  entry venue (The Garage) is free and a loss there costs nothing; from The Club
+  up, both players put up a chip buy‑in and the winner takes the pot, so the
+  player decides how much is at risk. The reward loops (daily bonus, spin,
+  quests) are built around light, regular check‑ins rather than pressure.
 * **Social presence.** Friends show real‑time status (online, in a game,
   offline), can be challenged directly, and can be messaged outside of games.
 
@@ -91,11 +98,13 @@ correct and complete game of chess underneath.
 
 **Play against the computer**
 
-* Five computer opponents of increasing strength, presented as named
-  characters. Two use a custom‑built chess "thinking" engine (a quick beginner
-  level and a stronger intermediate level); three use a well‑known professional
+* Six computer opponents presented as named characters, across five strength
+  levels. Three use a custom‑built chess "thinking" engine (a quick beginner
+  level and two intermediate characters); three use a well‑known professional
   chess engine set to roughly 1600, 2000, and 2800 strength (about strong
   club level up to master level).
+* Signed‑in players are rewarded for bot wins (chips and Fame by difficulty);
+  the server checks the finished game before paying.
 * Before starting, the player can choose which color to play, the time limit,
   and the venue backdrop.
 * Useful because it gives a solo player a full range of challenge, from "just
@@ -108,8 +117,11 @@ correct and complete game of chess underneath.
 
 **Online rated matches**
 
-* The player is automatically paired with another person of similar standing,
-  then plays a live game with moves appearing on both screens in real time.
+* The player is paired with the next person waiting at the same venue and time
+  control, then plays a live game with moves appearing on both screens in real
+  time. If nobody is waiting, the player can widen the search to other time
+  controls.
+* After the game, either player can offer a **rematch** (colors swap).
 * Every move is checked by the server, so a player cannot cheat by sending an
   illegal move.
 
@@ -140,7 +152,8 @@ correct and complete game of chess underneath.
 **Automatic matchmaking**
 
 * The player picks a time control and joins a queue; the app pairs them with the
-  next comparable opponent and drops both players straight into the game.
+  next player waiting on the same clock at the same venue and drops both players
+  straight into the game.
 
 **Private rooms**
 
@@ -233,9 +246,13 @@ correct and complete game of chess underneath.
 * Every online match between two accounts is saved with the result, the
   opponent, the rating change, and the full game for replay.
 
-**Levels and experience**
+**Fame, levels and titles**
 
-* Wins grant experience points that raise the player's level along a set curve.
+* Wins earn **Fame** (the game's experience points), with bonuses for the first
+  win of the day and for win streaks. Fame raises the player's level; each level
+  pays a small reward once, and milestone levels unlock titles shown next to the
+  player's name. After every match a "Show Report" shows the Fame earned, the
+  level bar filling, and the rating change.
 
 **Daily bonus**
 
@@ -252,7 +269,7 @@ correct and complete game of chess underneath.
 
 * Daily objectives tied to real gameplay (win games, capture pieces, solve
   puzzles, deliver checkmates). Completed quests can be claimed for rewards.
-  (A "Weekly" quests tab is shown as a locked placeholder.)
+  Weekly quests ("Tour Dates") unlock at level 5.
 
 **Achievements**
 
@@ -271,7 +288,9 @@ correct and complete game of chess underneath.
 **Customization ("The Forge")**
 
 * Three cosmetic catalogs: **board themes** (5), **piece sets** (4), and
-  **avatars** (12). Locked items are bought with in‑game gems or chips; owned
+  **avatars** (77, in three classes: 12 free "Garage Band" avatars, "Main
+  Stage" avatars for gems or chips, and "Hall of Fame" avatars for gems plus a
+  minimum rating). Locked items are bought with in‑game gems or chips; owned
   items can be equipped. The equipped board and pieces are what the player sees
   in every game.
 
@@ -282,14 +301,53 @@ correct and complete game of chess underneath.
 
 **Currency**
 
-* Two currencies: **chips** (earned from playing) and **gems** (premium). Both
-  are used to buy cosmetics and to pay for game analysis.
+* Two currencies: **chips** (earned from playing) and **gems** (premium; 1 gem
+  is worth 40 chips). Both can be bought with real money through Google Play.
+  They pay for cosmetics, game analysis, venue buy‑ins, Festival entries and
+  Backstage Gear.
 
 **Venues**
 
-* Six themed backdrops for matches, from "The Garage" to "World Tour". They
-  change the atmosphere of the match screen (background image, accent color,
-  glow intensity) but do not change the board or pieces.
+* Six venues, from "The Garage" to "World Tour". Each changes the atmosphere
+  of the match screen (background image, accent color, glow intensity) but not
+  the board or pieces. The Garage is free; from The Club up, online games are
+  played for a real chip buy‑in (the winner takes the pot, minus a 10% house
+  share; draws and very early exits are refunded), and the top venues also
+  require a minimum rating. An optional "Safety Net" refunds part of the buy‑in
+  on a loss.
+
+### Campaign, Festival and Shop Extras
+
+**The Tour**
+
+* A six‑chapter campaign, one chapter per venue. Each chapter has five "gigs"
+  (goals any game can advance, like winning as Black) and a boss bot; beating
+  the boss unlocks the next chapter, pays a reward and grants a title. The final
+  chapter, "The Encore", asks the player to beat all five bosses in a row.
+* A player stuck on a boss can buy a one‑game **Roadie Kit** (one take‑back and
+  one hint) after two real losses, and gets one free every few losses. It helps
+  but never wins the game, and a kit game doesn't advance gigs.
+
+**Festival Run**
+
+* Pay an entry, then beat a ladder of computer opponents one set at a time.
+  After each win the player can bank the purse or push on to a stronger opponent
+  for a bigger one; a loss forfeits it. The opponent is played by the server so
+  results can't be faked. Daily limits apply.
+
+**Backstage Gear and Review Packs**
+
+* Consumables bought with chips that never affect chess strength or rating:
+  **Amp Boost** (extra Fame for the next three wins) and **Lucky Pick** (forgives
+  one loss on a win streak). A **Review Pack** sells 10 game analyses at a
+  discount.
+
+**Ads**
+
+* Optional rewarded ads give free chips, an extra spin, a doubled daily bonus,
+  or a top‑up when the player can't afford the cheapest buy‑in. Occasional
+  full‑screen ads appear only between activities (never during a game). A
+  one‑time **Remove Ads** purchase turns those off.
 
 ---
 
@@ -303,7 +361,8 @@ present on the main screens:
 * **Home** — the lobby and starting point.
 * **Ranks** — the global leaderboard.
 * **Play** — a mode picker (center button, visually raised above the bar).
-* **Shop** — currency and VIP store, plus a way into cosmetics.
+* **Shop** — chips and gems packs, Remove Ads, Backstage Gear, plus a way into
+  cosmetics.
 * **Profile** — the player's full "Iron ID".
 
 Everything else (settings, friends, messages, puzzles, a live match, results,
@@ -331,11 +390,12 @@ swiped away by accident.
 | Screen | Purpose |
 |---|---|
 | **Home** | Lobby: venue picker, a "Play Now" hero card, a grid of shortcuts to game modes, and a daily‑rewards row. The main screen showing live account data. |
-| **Play** | A cleaner mode picker: Quick Match, Iron Duel, Play a Friend, Tournaments, Vs Bots, Puzzles, Analysis Board. |
+| **Play** | A cleaner mode picker: Quick Match, Iron Duel, Play a Friend, The Tour, Festival Run, Vs Bots, Puzzles, Analysis Board. |
+| **The Tour / Festival Run** | The campaign map with its gigs and bosses, and the paid bot ladder. |
 | **Match** | The live chess game screen. |
 | **Puzzle** | The single‑puzzle solving screen. |
 | **Matchmaking / Game Room** | Waiting screens for finding an online opponent or a private‑room partner. |
-| **Bots** | Gallery of the five computer opponents plus match options. |
+| **Bots** | Gallery of the six computer opponents plus match options. |
 | **Result** | Win / loss / draw summary after a game. |
 | **Replay** | Move‑by‑move review and paid analysis of a finished game. |
 | **Profile ("Iron ID")** | Full player profile, stats, match history, and links into social screens. |
@@ -407,7 +467,7 @@ credited when the account is created.
 **What the user sees:** A top bar with the player's identity and currency, a
 horizontal venue selector, a large hero card for the selected venue (with its
 buy‑in and prize shown and a "Play Now" button), a two‑by‑two grid of shortcuts
-(Iron Duel, Tournaments, Bots, Puzzles), and a "Daily Rewards" row (Daily Bonus,
+(Iron Duel, The Tour, Bots, Puzzles), and a "Daily Rewards" row (Daily Bonus,
 Spin to Win). Soft ambient glows sit behind everything.
 
 **What the user can do:** Pick a venue, choose a time control, start a match,
@@ -422,14 +482,14 @@ account information (currency balance in particular).
 
 **What the user sees:** A "Quick Match" card with time‑format chips (Bullet,
 Blitz, Rapid, Classical) and a "Find Match" button, then two grouped lists:
-"Competitive" (Iron Duel, Play a Friend, Tournaments) and "Casual & Training"
-(Vs Bots, Puzzles, Analysis Board).
+"Competitive" (Iron Duel, Play a Friend, The Tour, Festival Run) and "Casual &
+Training" (Vs Bots, Puzzles, Analysis Board).
 
 **What the user can do:** Start matchmaking at a chosen speed, or open any mode.
 
-**User experience:** Note that the four Quick Match speed labels are display
-names; behind the scenes the app supports three real time limits (3, 5, and 10
-minutes).
+**User experience:** Note that the four Quick Match speed labels (1+0, 3+2,
+10+0, 30+0) are display names; behind the scenes they map to the real 3‑ and
+10‑minute queues, with no increment.
 
 ### Setup (Venue & Time)
 
@@ -442,8 +502,10 @@ picker.
 **What the user can do:** Select an affordable venue and a duration, then
 proceed to matchmaking.
 
-**User experience:** Venues the player can't afford are dimmed and marked with a
-lock. The venue's buy‑in and prize are shown as part of its identity.
+**User experience:** Venues the player can't enter (not enough chips, rating
+too low, or signed out) are dimmed and explain why. Each time control shows how
+many players are searching. At a paid venue the player confirms the buy‑in and
+can add the Safety Net.
 
 ### Matchmaking
 
@@ -455,7 +517,8 @@ and a pulsing placeholder opponent avatar.
 **What the user can do:** Cancel by leaving the screen.
 
 **User experience:** If the connection briefly drops while waiting, the app
-automatically rejoins the queue so the player isn't silently stranded. When an
+automatically rejoins the queue so the player isn't silently stranded. After
+about 25 seconds the player can opt to search other time controls too. When an
 opponent is found, both players are taken straight into the game.
 
 ### Game Room (Private)
@@ -500,8 +563,10 @@ promoting a pawn, choose which piece to promote to.
 
 **User experience:** Detailed in sections 6 and 13. The clock is a real
 countdown. When the game ends, the final position is held on screen for a
-moment before the result screen takes over. The opponent rank labels shown here
-are decorative placeholders, not live ratings.
+moment before the result screen takes over. The opponent's rating and title are
+real, and tapping the opponent opens their profile. Against a Tour boss with a
+Roadie Kit, the action row shows the take‑back and hint buttons instead of
+Chat.
 
 ### Puzzle
 
@@ -527,9 +592,11 @@ outcome‑specific color with a matching glow, the specific reason underneath
 (for example "by Checkmate", "by Repetition", "by Timeout"), a count‑up of
 reward chips, and action buttons.
 
-**What the user can do:** Replay the game, buy a full analysis (confirmed
-through a prompt), or go Home. For an online opponent who is a registered
-player, an "Add Friend" option may appear.
+**What the user can do:** Offer or accept a rematch, replay the game, buy a full
+analysis (or use a stored review), or go Home. The screen also shows the Show
+Report (Fame, level, rating change, goals moved), the chip result of a wagered
+game, and after a Festival set the choice to bank the purse or play on. Tapping
+the opponent opens their profile.
 
 **User experience:** A clean, celebratory (or consoling) close to the game.
 
@@ -619,15 +686,16 @@ open any puzzle.
 
 ### Shop
 
-**Purpose:** Buy currency and VIP.
+**Purpose:** Buy currency, Remove Ads and Backstage Gear.
 
-**What the user sees:** Tabs for Chips, Gems, and VIP; packs with prices; a
-highlighted "HOT" pack; a VIP banner listing perks; and a persistent card that
-routes to the Forge.
+**What the user sees:** Tabs for Chips, Gems, Gear and VIP; packs with prices; a
+highlighted "HOT" pack; Remove Ads and a "Free Chips" ad card; the Gear bag and
+Review Pack; and a persistent card that routes to the Forge.
 
-**What the user can do:** Browse packs and the Forge link. **The purchase and
-VIP‑upgrade buttons are not yet connected to a real payment system** — this
-screen is presentation only for now.
+**What the user can do:** Buy chip and gem packs and Remove Ads through Google
+Play (verified by the server; Remove Ads can be restored), watch an ad for free
+chips, and buy or activate Gear. **The VIP tab (Backstage Pass) is "Coming
+soon".**
 
 ### Forge (Customization)
 
@@ -662,17 +730,18 @@ each day's icon reflects its reward type.
 
 **What the user sees:** A hand‑drawn segmented wheel.
 
-**What the user can do:** Spin once per day. Guests see a sign‑in prompt.
+**What the user can do:** Spin once per day for free, once more by watching an
+ad, and up to three more times for chips. Guests see a sign‑in prompt.
 
 **User experience:** The outcome is decided fairly first, then the wheel
 animates for several seconds and lands on it, with extra rotations for effect.
 
 ### Quests
 
-**Purpose:** Daily objectives.
+**Purpose:** Daily and weekly objectives.
 
 **What the user sees:** A Daily tab with quest cards and progress, and a Weekly
-tab shown as a locked placeholder.
+("Tour Dates") tab that unlocks at level 5.
 
 **What the user can do:** Claim completed quests; claimed quests get a
 struck‑through, recolored title.
@@ -688,13 +757,11 @@ gradient when unlocked) and one featured long‑form challenge card.
 
 ### Tournaments
 
-**Purpose:** Browse tournaments.
+**Purpose:** Placeholder for future tournaments.
 
-**What the user sees:** A featured tournament card with a fill‑progress bar, a
-ticket card, and an upcoming‑events list.
+**What the user sees:** A clear "Coming Soon" screen.
 
-**What the user can do:** Browse only. **The join and entry actions are not
-functional yet** — this screen is presentation only.
+**What the user can do:** Nothing yet: tournaments are not built.
 
 ### Control Core (Settings)
 
@@ -733,7 +800,9 @@ social‑account linking buttons are not active.
 **What the user sees:** A grid of support categories (FAQ, Technical, Billing,
 Report a Player) and a contact action.
 
-**What the user can do:** Browse categories. Most actions here are placeholders.
+**What the user can do:** Read the FAQ, email support about a technical or
+billing problem (the email is pre‑filled with the app version and platform), or
+report a player (a friend or a recent opponent).
 
 ---
 
@@ -823,8 +892,9 @@ completely.
 **Finding an opponent**
 
 * **Quick match / matchmaking:** the player joins a queue for a chosen time
-  control (and, from Setup, a venue tier) and is paired with the next comparable
-  player. Both are dropped straight into the game.
+  control (and, from Setup, a venue tier) and is paired with the next player
+  waiting on the same clock at that venue. Both are dropped straight into the
+  game. Paid venues hold both buy‑ins in escrow from the moment of pairing.
 * **Private room:** one player creates a room, shares a six‑character code, and
   the other joins with it.
 * **Friend challenge:** from the friends list, a player challenges an online
@@ -858,13 +928,16 @@ completely.
 **When a match ends**
 
 * Both players see the result screen with the outcome and reason.
-* For online games between two registered accounts, the result is saved: each
-  player's rating is updated, win/loss/draw and streak counts change,
-  experience and chips are granted, the full game is stored for replay, and a
+* For rated online games between two registered accounts, the result is saved:
+  each player's rating is updated, win/loss/draw and streak counts change, Fame
+  and chips are granted (at a paid venue the winner takes the pot instead of the
+  flat chip reward), the full game is stored for replay, and a
   "match ended" notification is created for each player. Saving happens after
   the result is shown, so a storage hiccup never delays or breaks the game
   itself.
-* Guest‑involved games play identically but are not saved or rated.
+* Guest‑involved games play identically but are not saved or rated. Friendly
+  games (friend challenges and private rooms) are saved for history but are
+  unrated and pay no rewards.
 
 **Spectating**
 
@@ -962,10 +1035,12 @@ The application has a **real chess clock**.
 * Tracked per account and shown on the profile. A win streak counter resets on
   any non‑win.
 
-**Levels and experience**
+**Fame, levels and titles**
 
-* Wins grant experience that raises the account level along a set curve
-  (draws give a small amount; losses give none).
+* Wins grant Fame that raises the account level along a set curve (draws give a
+  small amount; losses give none). Bot wins pay by difficulty, with a daily cap;
+  the first win of the day and win streaks pay bonuses. Each level pays a
+  one‑time reward and milestone levels unlock titles.
 
 **Match history**
 
@@ -977,15 +1052,16 @@ The application has a **real chess clock**.
 * **Daily bonus:** a seven‑day streak of escalating rewards.
 * **Spin:** one fair prize‑wheel spin per day.
 * **Quests:** daily objectives driven by real gameplay (wins, captures,
-  checkmates, puzzles solved), each claimable when complete.
+  checkmates, puzzles solved), plus weekly quests from level 5, each claimable
+  when complete.
 * **Achievements:** permanent milestone badges across many categories (win
   totals, streaks, rating targets, wins as each color, flawless wins, long and
   short games, puzzle counts, bot wins, and more).
 
 How this shapes the experience: playing regularly steadily raises the player's
 rating, level, and record, fills in achievements, and keeps daily rewards
-flowing — while a bad result never costs currency, keeping the competitive
-layer approachable.
+flowing. Losing only costs chips when the player chose a paid venue or a
+Festival entry, so the free path stays approachable.
 
 ---
 
@@ -1160,8 +1236,8 @@ notches, and the on‑screen gesture bar. See section 14.
   a tray of the pieces they have captured.
 * The active player's clock pill glows; it turns amber then red as time gets
   short.
-* (The rank/rating text on these bars during a game is a decorative placeholder,
-  not a live number.)
+* The rank text on these bars shows the opponent's real rating and title (or the
+  bot's strength label).
 
 **Game controls**
 
@@ -1239,7 +1315,8 @@ cross‑platform mobile framework. It runs in portrait orientation.
    running.
 7. The game ends; the final position holds for a moment, then the result screen
    shows the outcome, the reason, and a reward.
-8. From there, replays the game, runs an analysis, or returns Home.
+8. From there, offers a rematch, replays the game, runs an analysis, or returns
+   Home.
 
 **Returning player, online game**
 
@@ -1342,19 +1419,17 @@ The application communicates a wide range of states to the player:
 
 **Current limitations to be aware of**
 
-* **The store is not transactional yet.** Buying chips, gems, or VIP is
-  presentation only — there is no real payment integration. (Cosmetic purchases
-  inside the Forge, paid with in‑game currency, do work.)
-* **Tournaments are browse‑only.** The screen exists but joining and playing a
-  tournament is not implemented.
-* **Some secondary items are placeholders:** the language selector, social‑account
-  linking, most support actions, the weekly quests tab, the Venue and Country
-  leaderboards, the in‑game opponent rating labels, and the trophy case are
-  visual only.
-* **Venue buy‑in and prize figures are shown for flavor** — matches actually pay
-  a flat reward (a set number of chips and experience for a win, a small amount
-  for a draw, nothing for a loss) rather than the venue's advertised prize.
+* **Tournaments and the Backstage Pass (VIP) are "Coming Soon".**
+* **Some secondary items are placeholders:** the language selector, the Terms
+  row in Settings, "Forgot Password", social‑account linking (the linked
+  accounts shown are sample data), the Venue and Country leaderboards, and the
+  trophy case.
+* **No push notifications yet** — alerts appear inside the app only.
+* **Ads run on Google's test ads** until the real ad account is set up.
+* **Android only for real‑money purchases**; iOS is not prepared for release.
 * **No dedicated tablet or desktop layout** — the product is designed for phones.
+* A known stability problem on some low‑end Android phones (the game screen can
+  freeze when a match starts) is under investigation.
 
 None of these affect the core loop: playing correct, well‑presented chess —
 against the computer, a friend, or a matched opponent online — with a saved
@@ -1366,13 +1441,13 @@ rating, history, and progression.
 
 | Area | Features |
 |---|---|
-| **Gameplay** | Full standard chess rules; play vs. 5 computer levels (2 custom engine tiers + 3 professional‑engine tiers ~club/expert/master); local pass‑and‑play; tap or drag to move; legal‑move indicators; last‑move and check highlighting; captured‑piece trays; castling, en passant, and a promotion‑piece chooser; checkmate / stalemate / resignation / agreed draw / repetition / 50‑move / insufficient‑material endings; move and result sound effects; animated board |
-| **Multiplayer** | Real‑time online matches; automatic matchmaking by time control and venue tier; private rooms via 6‑character code; direct friend challenges; server‑verified moves; in‑game chat; live spectating; disconnect grace period with full reconnection; auto‑resign on leaving |
+| **Gameplay** | Full standard chess rules; play vs. 6 named computer opponents on 5 levels (2 custom engine tiers + 3 professional‑engine tiers ~club/expert/master); The Tour campaign with boss bots; Festival Run bot ladder; local pass‑and‑play; tap or drag to move; legal‑move indicators; last‑move and check highlighting; captured‑piece trays; castling, en passant, and a promotion‑piece chooser; checkmate / stalemate / resignation / agreed draw / repetition / 50‑move / insufficient‑material endings; move and result sound effects; animated board |
+| **Multiplayer** | Real‑time online matches; automatic matchmaking by time control and venue tier; chip wagers at paid venues; rematch; private rooms via 6‑character code; direct friend challenges (friendly, unrated); server‑verified moves; in‑game chat; live spectating; disconnect grace period with full reconnection; auto‑resign on leaving |
 | **User Accounts** | Email/password sign‑up and sign‑in; guest mode; onboarding (avatar + stage name); editable display name and avatar; logout; permanent account deletion; session remembered between launches |
 | **Competition** | Skill rating (standard formula, online games between accounts); global and friends leaderboards with podium and pinned self; win/loss/draw records and win streaks; levels and experience; saved match history with replay; paid computer analysis with move‑quality labels and an evaluation bar |
 | **Social** | Friends with real‑time presence (online / in‑game / offline); friend requests; add by friend code; direct friend challenges; private 1‑to‑1 messaging with saved history and unread counts; notification feed for social and match events; reaction emojis while spectating |
-| **Progress & Rewards** | Puzzle trainer (~250 puzzles, 5 tiers, tactic filters, hints, give‑up, local progress); 7‑day daily bonus; daily prize wheel; daily quests tied to real gameplay; achievement badges |
-| **Customization** | 5 board themes, 4 piece sets, 12 avatars; buy with in‑game currency and equip; owned‑items "Collections" view; equipped board and pieces appear in every game |
+| **Progress & Rewards** | Fame, levels, level rewards and titles with a post‑match Show Report; puzzle trainer (~250 puzzles, 5 tiers, tactic filters, hints, give‑up, local progress); 7‑day daily bonus; prize wheel (free, ad and chip spins); daily and weekly quests; achievement badges |
+| **Customization** | 5 board themes, 4 piece sets, 77 avatars in 3 classes; buy with in‑game currency and equip; owned‑items "Collections" view; equipped board and pieces appear in every game |
 | **UI / Design** | Single fixed dark "backstage arena" theme; meaningful accent colors (orange / gold / cyan / red); layered gradient‑and‑glow surfaces with soft rounded corners; three‑typeface system with poster‑style headings; consistent icon language; count‑up numbers, pulsing "live" states, pressable buttons; ambient background music plus six board sound effects; consistent locked‑item, in‑progress, and confirmation patterns |
 | **Settings** | Music and sound‑effects toggles (remembered); notifications with unread badge; account summary and "Edit Profile"; help center; logout; delete account |
 | **Responsive Experience** | Phone‑first (iOS and Android), portrait; adapts to different phone sizes, notches, and gesture bars; board scales cleanly to screen width; long lists virtualized; keyboard‑aware inputs; offline support for computer, local, and puzzle play; no dedicated tablet or desktop layout |
@@ -1381,18 +1456,18 @@ rating, history, and progression.
 
 ## Notes on Accuracy
 
-* This document is based on a direct review of the application's code as it
-  currently stands.
+* This document is based on a direct review of the application's code, last
+  updated on 23 October 2026.
 * Features are described as **working** only where the code implements them end
   to end. Where a screen exists but its actions are not connected to real
-  functionality (the currency/VIP store, tournaments, and the placeholder items
+  functionality (tournaments, the Backstage Pass, and the placeholder items
   listed in section 17), that is stated explicitly rather than implied to be
   finished.
-* Where a number or label in the interface is decorative (in‑game opponent
-  ratings, venue prize figures, the trophy case), that is noted rather than
-  presented as a live feature.
+* Where a number or label in the interface is decorative (the trophy case),
+  that is noted rather than presented as a live feature.
 * The underlying chess rules, the online multiplayer system, accounts and
   profiles, ratings, match history, puzzles, friends, messaging, the leaderboard,
-  daily bonus, spin, quests, achievements, cosmetic purchase/equip, and game
-  replay with paid analysis are all implemented and functional based on the
-  code.
+  daily bonus, spin, quests, achievements, cosmetic purchase/equip, game replay
+  with paid analysis, The Tour, Festival Run, venue wagers, Fame and levels,
+  rematch, real‑money purchases and ads are all implemented and functional based
+  on the code.

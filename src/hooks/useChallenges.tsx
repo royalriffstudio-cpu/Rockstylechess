@@ -97,6 +97,7 @@ export function ChallengesProvider({ children }: { children: ReactNode }) {
           clockW: String(p.clocks.w),
           clockB: String(p.clocks.b),
           incrementMs: String(p.incrementMs),
+          ...(p.friendly ? { friendly: '1' } : {}),
         },
       });
     };

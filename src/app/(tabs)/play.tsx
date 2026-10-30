@@ -44,13 +44,14 @@ interface Mode {
   sub: string;
   icon: keyof typeof ICONS;
   glow: Glow;
-  path: '/setup' | '/game-room' | '/tour' | '/bots' | '/puzzles' | '/replay';
+  path: '/setup' | '/game-room' | '/tour' | '/festival' | '/bots' | '/puzzles' | '/replay';
 }
 
 const COMPETITIVE: Mode[] = [
   { id: 'iron-duel', title: 'Iron Duel', sub: 'Custom 1v1 · pick venue & time control', icon: 'swords', glow: 'cyan', path: '/setup' },
   { id: 'friend', title: 'Play a Friend', sub: 'Private room · create or join by code', icon: 'handshake', glow: 'gold', path: '/game-room' },
   { id: 'tour', title: 'The Tour', sub: 'Six chapters · gigs · boss fights', icon: 'emoji_events', glow: 'gold', path: '/tour' },
+  { id: 'festival', title: 'Festival Run', sub: 'Pay an entry · beat the house band · bank the purse', icon: 'local_play', glow: 'cyan', path: '/festival' },
 ];
 
 const TRAINING: Mode[] = [

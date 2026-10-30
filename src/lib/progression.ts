@@ -22,8 +22,15 @@ let attached = false;
 export const LEVEL_TITLES = ECONOMY.levels.titles;
 // Chapter titles (earned by beating a Tour boss) live in the Tour catalog.
 const CHAPTER_TITLES = ECONOMY.tour.chapters.map((c) => c.title);
+// Festival Run titles (earned by clearing a run for the first time).
+const FESTIVAL_TITLES = ECONOMY.festival.tiers.map((t) => t.title);
 export function titleName(id: string | null | undefined): string | null {
-  return LEVEL_TITLES.find((t) => t.id === id)?.name ?? CHAPTER_TITLES.find((t) => t.id === id)?.name ?? null;
+  return (
+    LEVEL_TITLES.find((t) => t.id === id)?.name ??
+    CHAPTER_TITLES.find((t) => t.id === id)?.name ??
+    FESTIVAL_TITLES.find((t) => t.id === id)?.name ??
+    null
+  );
 }
 
 function isCelebratory(report: ProgressionReport): boolean {

@@ -1,0 +1,1 @@
+ALTER TABLE "player_profiles" ADD COLUMN "analysis_credits" integer DEFAULT 0 NOT NULL;

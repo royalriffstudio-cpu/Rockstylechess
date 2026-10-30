@@ -36,6 +36,23 @@ export interface QueueMatchedPayload {
   venueTier: VenueTier;
   buyIn: number;
   prize: number;
+  // A friend challenge or private room: unrated, no chips/Fame/Tour (server/src/db/persistMatchResult.ts).
+  friendly?: boolean;
+  // Present only for a Festival set (a paid bot ladder run, see lib/festival.ts): the
+  // opponent is a bot the SERVER plays.
+  festival?: FestivalMatchInfo;
+}
+
+export interface FestivalMatchInfo {
+  runId: string;
+  tierId: string;
+  tierName: string;
+  setIndex: number;
+  totalSets: number;
+  purse: number[];
+  banked: number; // what the player holds right now (0 on set 1)
+  nextPurse: number; // what clearing THIS set banks
+  bot: { id: string; name: string; emoji: string; difficulty: string };
 }
 
 // Server -> client when a queue:join is refused (previously it failed silently).
@@ -62,6 +79,8 @@ export interface WagerSettledPayload {
   net: number; // payout - buyIn: +800, -1000, or 0
   chipsAfter: number;
   refunded: boolean;
+  // Safety Net: what THIS player paid for it and what it paid back (a loss only). null = none bought.
+  insurance: null | { premium: number; refund: number };
 }
 
 export interface MoveAppliedPayload {
@@ -125,4 +144,56 @@ export function isVenueTier(value: unknown): value is VenueTier {
 
 export function isDuration(value: unknown): value is Duration {
   return value === '3m' || value === '5m' || value === '10m';
+}
+
+// The /match route params for a server-announced match (queue:matched). Used by the rematch flow; the
+// matchmaking, game-room and challenge screens each still build their own copy of this.
+export function matchParamsFromPayload(payload: QueueMatchedPayload): Record<string, string> {
+  const params: Record<string, string | undefined> = {
+    mode: 'online',
+    matchId: payload.matchId,
+    color: payload.color,
+    fen: payload.fen,
+    opponentName: payload.opponent.displayName,
+    opponentAvatarId: payload.opponent.avatarId ?? undefined,
+    opponentCountry: payload.opponent.country ?? undefined,
+    opponentUserId: payload.opponent.userId ?? undefined,
+    opponentRating: payload.opponent.rating != null ? String(payload.opponent.rating) : undefined,
+    opponentTitle: payload.opponent.title ?? undefined,
+    clockW: String(payload.clocks.w),
+    clockB: String(payload.clocks.b),
+    incrementMs: String(payload.incrementMs),
+    venueTier: payload.venueTier,
+    buyIn: String(payload.buyIn ?? 0),
+    prize: String(payload.prize ?? 0),
+    friendly: payload.friendly ? '1' : undefined,
+  };
+  return Object.fromEntries(Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined));
+}
+
+// Rematch (server/src/rematch.ts): events for the "play again with the same opponent" offer.
+export type RematchErrorReason =
+  | 'unavailable'
+  | 'opponent-left'
+  | 'already-in-match'
+  | 'insufficient-chips'
+  | 'opponent-short'
+  | 'rating-too-low'
+  | 'opponent-ineligible'
+  | 'auth-required';
+
+export interface RematchOfferedPayload {
+  matchId: string;
+  from: string;
+  venueTier: VenueTier | null;
+  buyIn: number;
+  prize: number;
+  insured: boolean; // YOUR Safety Net choice from the last game carries over
+  friendly: boolean;
+}
+export interface RematchErrorPayload {
+  matchId?: string;
+  reason: RematchErrorReason;
+  required?: number;
+  current?: number;
 }

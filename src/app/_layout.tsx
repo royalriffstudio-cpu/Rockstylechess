@@ -14,15 +14,19 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableFreeze } from 'react-native-screens';
 
+import { EmailGateModal } from '@/components/auth/EmailGateModal';
 import { ChallengeModals } from '@/components/friends/ChallengeModals';
 import { ProgressionOverlay } from '@/components/progression/ProgressionOverlay';
+import { AppErrorScreen } from '@/components/ui/AppErrorScreen';
 import { BottomNav, bottomNavTabForRoute } from '@/components/ui';
 import { SplashReveal } from '@/components/ui/SplashReveal';
 import { Colors } from '@/constants/theme';
 import { ChallengesProvider } from '@/hooks/useChallenges';
 import { FriendsProvider } from '@/hooks/useFriends';
 import { PlayerProfileProvider } from '@/hooks/usePlayerProfile';
+import { PushNotificationsProvider } from '@/hooks/usePushNotifications';
 import { initAds } from '@/lib/ads';
+import { addCrashBreadcrumb, initCrashReporting, wrapRoot } from '@/lib/crashReporting';
 import { loadMusicPreference, playMenuMusic, stopMenuMusic } from '@/lib/backgroundMusic';
 import { BLOCKED_BACK, goUp, ROOT_ROUTES } from '@/lib/navigation';
 import { loadSoundFxPreference } from '@/lib/soundEffects';
@@ -32,6 +36,10 @@ import { loadSoundFxPreference } from '@/lib/soundEffects';
 // tournaments, puzzles, bots, replay, result-placeholder) that are still
 // "menu", so this can't just be a route-group check.
 const GAMEPLAY_ROUTES = new Set(['/match', '/puzzle-match']);
+
+// Crash reporting starts at module load so even an error during the first render is captured
+// (no-op in development, on web, and whenever EXPO_PUBLIC_SENTRY_DSN is unset).
+initCrashReporting();
 
 // Suspend rendering of screens that aren't the active one (e.g. the bot
 // picker sitting under a live match) -- a background provider re-render then
@@ -51,7 +59,12 @@ function KeyboardProviderOrFragment({ children }: { children: ReactNode }) {
 // no flash of unstyled text on first launch.
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+// A render error anywhere under the root shows this instead of a hard crash, and is reported.
+export function ErrorBoundary(props: { error: Error; retry: () => Promise<void> }) {
+  return <AppErrorScreen error={props.error} retry={props.retry} />;
+}
+
+function RootLayout() {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
@@ -61,6 +74,11 @@ export default function RootLayout() {
     Inter_400Regular,
   });
   const [showSplashReveal, setShowSplashReveal] = useState(true);
+
+  // Where the player was is the most useful context on any later crash report.
+  useEffect(() => {
+    addCrashBreadcrumb('navigation', pathname);
+  }, [pathname]);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -136,26 +154,29 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <KeyboardProviderOrFragment>
           <PlayerProfileProvider>
-            <FriendsProvider>
-              <ChallengesProvider>
-                <StatusBar style="light" />
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    contentStyle: { backgroundColor: Colors.bgBase },
-                    // The iOS left-edge swipe-back is a plain history pop, which
-                    // contradicts the hierarchical "back = up" model (and would
-                    // let a player swipe out of a live match). All back
-                    // navigation goes through the header button or the hardware
-                    // back handler instead.
-                    gestureEnabled: false,
-                  }}
-                />
-                {navTab ? <BottomNav activeTab={navTab} /> : null}
-                <ChallengeModals />
-                <ProgressionOverlay />
-              </ChallengesProvider>
-            </FriendsProvider>
+            <PushNotificationsProvider>
+              <FriendsProvider>
+                <ChallengesProvider>
+                  <StatusBar style="light" />
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      contentStyle: { backgroundColor: Colors.bgBase },
+                      // The iOS left-edge swipe-back is a plain history pop, which
+                      // contradicts the hierarchical "back = up" model (and would
+                      // let a player swipe out of a live match). All back
+                      // navigation goes through the header button or the hardware
+                      // back handler instead.
+                      gestureEnabled: false,
+                    }}
+                  />
+                  {navTab ? <BottomNav activeTab={navTab} /> : null}
+                  <ChallengeModals />
+                  <EmailGateModal />
+                  <ProgressionOverlay />
+                </ChallengesProvider>
+              </FriendsProvider>
+            </PushNotificationsProvider>
           </PlayerProfileProvider>
         </KeyboardProviderOrFragment>
         {showSplashReveal && <SplashReveal onDone={() => setShowSplashReveal(false)} />}
@@ -163,3 +184,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default wrapRoot(RootLayout);

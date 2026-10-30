@@ -8,11 +8,20 @@ Shared, reusable UI building blocks — not full screens.
   `RewardedAdButton` (one rewarded-ad reward: handles guest/sign-in, daily-cap and
   not-ready states and the redeem retry; built on `RockButton`).
   Import from `@/components/ui`.
+- `festival/` — `FestivalSetPanel`: the Set Break on the result screen after a Festival set (bank the purse or start the next set; end states for cleared / lost / interrupted runs). Reads the cached `festival:update` from `src/lib/festival.ts`.
+- `social/` — `PlayerProfileSheet`: the tap-a-player profile popup (Modal, so it can open over a live match); data from `GET /users/:id/profile`.
+- `match/` — `PushPrimer` (one-time "turn on notifications?" card under the result buttons; either answer retires it) and `RematchPanel`: the result screen's online "play again" (Rematch button, waiting state, accept/decline prompt, wager affordability); the protocol is `useRematch` + `server/src/rematch.ts`.
+- `shop/` — `GearPanel`: the Shop's Gear tab (Backstage Gear consumables: the bag, buy with chips, activate one copy; all rules live on the server, see `server/README.md` -> "Backstage Gear") and `ReviewPackCard` (10 Game Reviews at a discount, see "Review Packs").
 - `progression/` — the Fame/level moments: `Emblem` (`TitleEmblem` / `TierEmblem`: painted badges from `assets/progression/emblems`, cut out of the generated green-screen originals by `scripts/cutout-green.py`), `ShowReport` (the post-match report card section)
   and `ProgressionOverlay` (global Level Up / New Title celebration, queued from
   `src/lib/progression.ts`, with sound + haptics via `src/lib/celebration.ts`).
-- `layout/` — headers, modal chrome (not built yet — `BottomNav` lives in
-  `ui/` since it's a reusable primitive on its own, not page layout)
+- `layout/` — page chrome: `SubPageHeader` (the back button + title + currency pill
+  header nearly every pushed screen uses, back via `goUp()`) and `TopAppBar` (the
+  identity + currency top bar on Home and Play). `BottomNav` lives in `ui/` since it's a reusable primitive on
+  its own, not page layout.
+- `friends/` — `FriendRow` (avatar, presence dot, per-row actions) and the global
+  `ChallengeModals` (incoming/outgoing friend-challenge prompts, mounted once in the
+  root `_layout.tsx`).
 - `StockfishEngine.tsx` — headless, no themed visual surface, so it lives
   directly in `components/` rather than `ui/`. Hosts the Stockfish WASM
   engine (see `src/lib/stockfishProtocol.ts`) inside a hidden WebView for
@@ -64,6 +73,17 @@ Four things about it are easy to break:
   autotraced with `vtracer` and corrected against `DESIGN.md`'s
   `pieceWhite*`/`pieceBlack*` tones, is what's actually in `assets/pieces/`
   now.
+
+  **Android rendering caveat (open issue).** On Android, expo-image does not
+  rasterize SVGs: each becomes a `PictureDrawable` whose 121-2,089 traced paths are
+  replayed by the GPU on every redraw of the board. That is the leading suspect for
+  the match-screen freeze on low-end Adreno phones (`TEMP-match-crash-notes.md`).
+  `scripts/rasterize-pieces.mjs` renders every set to 256x256 PNGs in
+  `assets/pieces/png/<set>/` (the SVGs stay the source files); `pieceSprites.ts` has
+  not been switched to them yet. The match screen also passes **`sizeFinal`**, which
+  holds the pieces back until the board's measured size has been stable for 150 ms,
+  and `debugNoPieces` / `debugPlain` are diagnostic-only props for the `dbg` route
+  param — remove them once the crash is fixed.
 - **Piece sets (piece skins).** `pieceSprites.ts` exports `getPieceSprites(id)`,
   resolving one of several variant sprite maps rather than a single flat
   export. Locked variants (Graphite Tour, Molten Gold, Crimson Reaper — see

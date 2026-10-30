@@ -25,15 +25,20 @@ export interface QueuedPlayer {
   // Public standing shown on the opponent's match header (null for guests).
   rating: number | null;
   title: string | null;
-  // The duration this player queued with. On a pairing, the player who was
-  // ALREADY waiting (returned as `opponent` from joinQueue below) sets the
-  // match's actual duration -- simplest reasonable tie-break given queues
-  // aren't segmented by duration, only by venue tier.
+  // The time control this player picked. A pairing is only ever made between players who picked the SAME
+  // one, unless a player has chosen to widen the search (`flex`): then they also accept another waiting
+  // player's pick, and the game is played at the time control the OTHER (non-flexible) player picked.
   duration: Duration;
+  // The player tapped "also search other time controls" after waiting. Opt-in, never the default.
+  flex?: boolean;
+  // Wagered venues: the player bought the Safety Net for this match (db/wagers.ts). Always false
+  // for guests and for free venues.
+  insured: boolean;
 }
 
 // One FIFO queue per venue tier -- players are only ever paired within the
 // same tier they queued for, mirroring the client's buy-in ladder (setup.tsx).
+// Within a tier the pick of time control decides who may play whom (see pairWith below).
 const queues = new Map<VenueTier, QueuedPlayer[]>();
 
 function queueFor(tier: VenueTier): QueuedPlayer[] {
@@ -45,10 +50,27 @@ function queueFor(tier: VenueTier): QueuedPlayer[] {
   return queue;
 }
 
+export interface Pairing {
+  opponent: QueuedPlayer; // the player who was already waiting
+  duration: Duration; // the time control the game is played at
+}
+
+// The time control a pairing is played at. Same pick -> that pick. One side widened -> the OTHER side's pick
+// (a player who widened agreed to play someone else's clock; the one who didn't never plays a clock they
+// did not choose). Both widened -> the player who waited longest decides.
+function agreedDuration(joiner: QueuedPlayer, waiting: QueuedPlayer): Duration {
+  if (joiner.duration === waiting.duration) return joiner.duration;
+  if (waiting.flex && !joiner.flex) return joiner.duration;
+  if (joiner.flex && !waiting.flex) return waiting.duration;
+  return waiting.duration;
+}
+
+const compatible = (a: QueuedPlayer, b: QueuedPlayer) => a.duration === b.duration || a.flex === true || b.flex === true;
+
 /**
- * Adds a player to the tier's queue and immediately pairs them with the
- * next waiting player in that same tier, if there is one. Returns the
- * opponent when a pair forms, or null if the player is now waiting.
+ * Adds a player to the tier's queue and pairs them with the longest-waiting COMPATIBLE player: someone who
+ * picked the same time control (always preferred), or a player who widened their search. Returns the
+ * pairing when one forms, or null if the player is now waiting.
  *
  * If this guestId already has an entry waiting in this tier's queue --
  * most commonly because a network blip triggered a Socket.IO reconnect (a
@@ -61,7 +83,7 @@ function queueFor(tier: VenueTier): QueuedPlayer[] {
  * client re-emits queue:join on every reconnect (see matchmaking.tsx) to
  * make this path actually run.
  */
-export function joinQueue(tier: VenueTier, player: QueuedPlayer): QueuedPlayer | null {
+export function joinQueue(tier: VenueTier, player: QueuedPlayer): Pairing | null {
   const queue = queueFor(tier);
 
   const staleIndex = queue.findIndex((p) => p.guestId === player.guestId);
@@ -70,10 +92,41 @@ export function joinQueue(tier: VenueTier, player: QueuedPlayer): QueuedPlayer |
     return null; // still waiting, just refreshed
   }
 
-  const opponent = queue.shift();
-  if (opponent) return opponent;
+  let index = queue.findIndex((w) => w.duration === player.duration);
+  if (index === -1) index = queue.findIndex((w) => compatible(player, w));
+  if (index !== -1) {
+    const [opponent] = queue.splice(index, 1);
+    return { opponent, duration: agreedDuration(player, opponent) };
+  }
   queue.push(player);
   return null;
+}
+
+/**
+ * The waiting player tapped "also search other time controls": from now on they accept any pick, and if
+ * someone is already waiting on another clock they are paired at once (at that player's clock).
+ * Returns null when the socket is not waiting, or nobody else is.
+ */
+export function widenQueued(socketId: string): { tier: VenueTier; player: QueuedPlayer; pairing: Pairing } | null {
+  for (const [tier, queue] of queues) {
+    const index = queue.findIndex((p) => p.socketId === socketId);
+    if (index === -1) continue;
+    const player = queue[index];
+    player.flex = true;
+    const otherIndex = queue.findIndex((w) => w !== player);
+    if (otherIndex === -1) return null;
+    const [opponent] = queue.splice(otherIndex, 1);
+    queue.splice(queue.indexOf(player), 1);
+    return { tier, player, pairing: { opponent, duration: agreedDuration(player, opponent) } };
+  }
+  return null;
+}
+
+/** How many players are waiting per time control in a tier (flexible players count under their own pick). */
+export function queueCounts(tier: VenueTier): Record<Duration, number> {
+  const counts: Record<Duration, number> = { '3m': 0, '5m': 0, '10m': 0 };
+  for (const p of queues.get(tier) ?? []) counts[p.duration] += 1;
+  return counts;
 }
 
 // Drops every queue entry matching `predicate` (across all tiers) and returns

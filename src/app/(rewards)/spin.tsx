@@ -10,7 +10,7 @@ import { SubPageHeader } from '@/components/layout';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useAdStatus } from '@/hooks/useAdStatus';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
-import { getSpinStatus, spinWheel, type SpinResult } from '@/lib/api';
+import { getSpinStatus, spinWheel, type SpinResult, type SpinStatus } from '@/lib/api';
 import { getAuthToken } from '@/lib/authStorage';
 import { ANGLE_PER_SEGMENT, SPIN_SEGMENTS, type SpinSegment } from '@/lib/spinPrizes';
 
@@ -27,13 +27,16 @@ function buildSegmentPath(startAngle: number, endAngle: number): string {
 export default function SpinScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { status: profileStatus, gems, refresh } = usePlayerProfile();
+  const { status: profileStatus, gems, chips, refresh } = usePlayerProfile();
   const rotation = useSharedValue(0);
   const totalRotationRef = useRef(0);
   const [canSpin, setCanSpin] = useState<boolean | null>(null); // null = not loaded yet
   const [isSpinning, setIsSpinning] = useState(false);
   const [result, setResult] = useState<SpinSegment | null>(null);
   const { adStatus, refetch: refetchAdStatus } = useAdStatus();
+  // Chip-priced extra spins (after the free one): used / cap / next price, from the server.
+  const [paid, setPaid] = useState<SpinStatus['paid'] | null>(null);
+  const [spinError, setSpinError] = useState<string | null>(null);
 
   useEffect(() => {
     if (profileStatus !== 'ready') return;
@@ -43,7 +46,10 @@ export default function SpinScreen() {
       if (!token) return;
       try {
         const status = await getSpinStatus(token);
-        if (!cancelled) setCanSpin(status.canSpin);
+        if (!cancelled) {
+          setCanSpin(status.canSpin);
+          setPaid(status.paid);
+        }
       } catch (error) {
         console.log('Failed to load spin status', error);
       }
@@ -58,25 +64,43 @@ export default function SpinScreen() {
     setCanSpin(false);
     setResult(SPIN_SEGMENTS[segmentIndex] ?? null);
     refresh();
+    // The next paid spin costs more (or none are left): ask the server, never guess.
+    void (async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+      try {
+        setPaid((await getSpinStatus(token)).paid);
+      } catch (error) {
+        console.log('Failed to refresh spin status', error);
+      }
+    })();
   }
 
   // `withAd`: the one extra daily spin earned by a rewarded ad. On that path a
   // failed request is rethrown so RewardedAdButton can explain it; the normal
   // path keeps the original swallow-and-disable behaviour.
-  async function runSpin(withAd: boolean) {
-    if (isSpinning || (!withAd && !canSpin)) return;
+  async function runSpin(withAd: boolean, withChips = false) {
+    if (isSpinning || (!withAd && !withChips && !canSpin)) return;
     const token = await getAuthToken();
     if (!token) return;
 
     setIsSpinning(true);
     setResult(null);
+    setSpinError(null);
 
     let spinResult: SpinResult;
     try {
-      spinResult = await spinWheel(token, { withAd });
+      spinResult = await spinWheel(token, { withAd, withChips });
     } catch (error) {
       console.log('Spin failed', error);
       setIsSpinning(false);
+      if (withChips) {
+        // A refused paid spin changes nothing about today's free spin: explain, keep the screen as it is.
+        const code = error instanceof Error ? error.message : '';
+        setSpinError(code === 'insufficient-funds' ? 'Not enough chips for that spin.' : code === 'paid-spins-used' ? "You've used today's extra spins." : "That spin didn't go through. Try again.");
+        void refresh();
+        return;
+      }
       setCanSpin(false);
       if (withAd) throw error;
       return;
@@ -198,6 +222,32 @@ export default function SpinScreen() {
               disabled={!canSpin}
               onPress={handleSpin}
             />
+            {!canSpin && !isSpinning && paid ? (
+              <View style={{ marginTop: 10, gap: 6 }}>
+                <RockButton
+                  label={paid.nextPrice === null ? 'Extra spins used today' : `Spin again · ${paid.nextPrice} chips`}
+                  loadingLabel="Spinning..."
+                  icon={<AppIcon name="casino" size={18} color={Colors.bgBase} />}
+                  variant="primary"
+                  loading={isSpinning}
+                  disabled={paid.nextPrice === null || chips < paid.nextPrice}
+                  onPress={() => void runSpin(false, true)}
+                />
+                <Text className="text-center font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                  {paid.nextPrice === null
+                    ? 'Come back tomorrow for a free spin.'
+                    : chips < paid.nextPrice
+                      ? `${(paid.nextPrice - chips).toLocaleString('en-US')} more chips needed. `
+                      : ''}
+                  {paid.nextPrice !== null ? `Extra spins cost more each time (${paid.used}/${paid.cap} used today). On average the wheel pays back less than you pay.` : ''}
+                </Text>
+                {spinError ? (
+                  <Text className="text-center font-body-sm" style={{ fontSize: 11, color: Colors.crimson }}>
+                    {spinError}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             {!canSpin && !isSpinning ? (
               <RewardedAdButton
                 label="Watch ad · 1 extra spin"

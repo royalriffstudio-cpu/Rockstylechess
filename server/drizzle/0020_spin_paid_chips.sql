@@ -1,0 +1,1 @@
+ALTER TABLE "user_spin_log" ADD COLUMN "paid_chips" integer;

@@ -14,7 +14,8 @@ import { getVenue } from '@/constants/venues';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
 import { useTour } from '@/hooks/useTour';
 import type { BotDifficulty } from '@/hooks/useChessGame';
-import type { TourChapter } from '@/lib/api';
+import { startBotMatch, type TourChapter } from '@/lib/api';
+import { getAuthToken } from '@/lib/authStorage';
 
 const NODE = 58; // chapter badge size on the map
 
@@ -27,9 +28,13 @@ const NODE = 58; // chapter badge size on the map
 export default function TourScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { status, gems } = usePlayerProfile();
+  const { status, gems, chips, refresh: refreshProfile } = usePlayerProfile();
   const { tour, error, reload } = useTour();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Roadie Kit opt-in for the next boss fight (each fight asks again), and the purchase in flight.
+  const [kitOn, setKitOn] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const panelY = useRef(0);
 
@@ -40,17 +45,47 @@ export default function TourScreen() {
     setSelectedId(active.id);
   }, [tour, selectedId]);
 
-  function challenge(botId: string, chapter: TourChapter) {
+  async function challenge(botId: string, chapter: TourChapter) {
     const bot = ROSTER.find((b) => b.id === botId);
-    if (!bot) return;
-    router.push({
-      pathname: '/match',
-      params: { mode: 'bot', difficulty: bot.difficulty, botName: bot.name, botId: bot.id, botEmoji: bot.emoji, color: 'w', duration: '5m', venueTier: chapter.venue },
-    });
+    if (!bot || launching) return;
+    const params = { mode: 'bot', difficulty: bot.difficulty, botName: bot.name, botId: bot.id, botEmoji: bot.emoji, color: 'w', duration: '5m', venueTier: chapter.venue };
+    if (!kitOn || !chapter.backstage?.kitOpen) {
+      router.push({ pathname: '/match', params });
+      return;
+    }
+    // The kit is bought HERE, when the fight is launched: the server takes the chips and opens
+    // the boss session in one step, and the match screen reuses that session.
+    setLaunching(true);
+    setLaunchError(null);
+    try {
+      const token = await getAuthToken();
+      if (!token) throw new Error('signed-out');
+      const started = await startBotMatch(token, bot.id, 'w', true);
+      void refreshProfile();
+      setKitOn(false);
+      router.push({
+        pathname: '/match',
+        params: { ...params, sessionId: started.sessionId, kitTakeTwos: String(started.kit?.takeTwos ?? 0), kitTips: String(started.kit?.tips ?? 0) },
+      });
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      setLaunchError(
+        code === 'insufficient-chips'
+          ? 'Not enough chips for the Roadie Kit.'
+          : code === 'kit-locked'
+            ? 'The Roadie Kit is not open yet. Keep fighting.'
+            : 'Couldn\'t open the Roadie Kit. Try again, or fight without it.',
+      );
+      void reload();
+    } finally {
+      setLaunching(false);
+    }
   }
 
   function select(id: string) {
     setSelectedId(id);
+    setKitOn(false);
+    setLaunchError(null);
     // Bring the details into view (they sit below the map).
     setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, panelY.current - 8), animated: true }), 60);
   }
@@ -94,6 +129,23 @@ export default function TourScreen() {
             </View>
           </RockCard>
 
+          <Pressable onPress={() => router.push('/festival')}>
+            <RockCard variant="surface" glowColor={Colors.cyan} contentPadding={12}>
+              <View className="flex-row items-center gap-md">
+                <MaterialCommunityIcons name="ticket-confirmation" size={26} color={Colors.cyan} />
+                <View className="flex-1">
+                  <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 14 }}>
+                    Festival Run
+                  </Text>
+                  <Text className="font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                    Put chips on a run of bot sets. Bank the purse or push on.
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.chromeMid} />
+              </View>
+            </RockCard>
+          </Pressable>
+
           {/* The map: one painted road, a badge at each chapter's stop. */}
           <View style={{ width: '100%', aspectRatio: TOUR_MAP_ASPECT, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: withOpacity(Colors.gold, 0.35), boxShadow: `0px 0px 24px ${withOpacity(Colors.gold, 0.18)}` }}>
             <Image source={TOUR_MAP} style={{ width: '100%', height: '100%' }} contentFit="cover" cachePolicy="memory-disk" />
@@ -106,7 +158,16 @@ export default function TourScreen() {
 
           {selected ? (
             <View onLayout={(e) => (panelY.current = e.nativeEvent.layout.y)}>
-              <ChapterPanel chapter={selected} previous={selectedIndex > 0 ? tour.chapters[selectedIndex - 1] : null} onChallenge={(botId) => challenge(botId, selected)} />
+              <ChapterPanel
+                chapter={selected}
+                previous={selectedIndex > 0 ? tour.chapters[selectedIndex - 1] : null}
+                onChallenge={(botId) => void challenge(botId, selected)}
+                kitOn={kitOn}
+                onToggleKit={() => setKitOn((on) => !on)}
+                chips={chips}
+                launching={launching}
+                launchError={launchError}
+              />
             </View>
           ) : null}
         </ScrollView>
@@ -147,7 +208,16 @@ function MapNode({ chapter, x, y, active, onPress }: { chapter: TourChapter; x: 
   );
 }
 
-function ChapterPanel({ chapter, previous, onChallenge }: { chapter: TourChapter; previous: TourChapter | null; onChallenge: (botId: string) => void }) {
+interface BossProps {
+  onChallenge: (botId: string) => void;
+  kitOn: boolean;
+  onToggleKit: () => void;
+  chips: number;
+  launching: boolean;
+  launchError: string | null;
+}
+
+function ChapterPanel({ chapter, previous, onChallenge, kitOn, onToggleKit, chips, launching, launchError }: { chapter: TourChapter; previous: TourChapter | null } & BossProps) {
   const venue = getVenue(chapter.venue);
   const accent = venue.accentColor;
   const locked = !chapter.unlocked;
@@ -205,7 +275,7 @@ function ChapterPanel({ chapter, previous, onChallenge }: { chapter: TourChapter
         </View>
 
         <View style={{ height: 1, backgroundColor: withOpacity(Colors.chromeDark, 0.4) }} />
-        <BossSection chapter={chapter} accent={accent} locked={locked} onChallenge={onChallenge} />
+        <BossSection chapter={chapter} accent={accent} locked={locked} onChallenge={onChallenge} kitOn={kitOn} onToggleKit={onToggleKit} chips={chips} launching={launching} launchError={launchError} />
       </View>
     </RockCard>
   );
@@ -216,7 +286,7 @@ function BossAvatar({ botId, emoji, size }: { botId: string; emoji: string; size
   return portrait ? <PlayerAvatar source={portrait} size={size} /> : <PlayerAvatar emoji={emoji} size={size} />;
 }
 
-function BossSection({ chapter, accent, locked, onChallenge }: { chapter: TourChapter; accent: string; locked: boolean; onChallenge: (botId: string) => void }) {
+function BossSection({ chapter, accent, locked, onChallenge, kitOn, onToggleKit, chips, launching, launchError }: { chapter: TourChapter; accent: string; locked: boolean } & BossProps) {
   const reward = (
     <View className="flex-row flex-wrap items-center gap-sm">
       <View className="flex-row items-center gap-1">
@@ -263,7 +333,10 @@ function BossSection({ chapter, accent, locked, onChallenge }: { chapter: TourCh
             Encore complete. You are a World Tour legend.
           </Text>
         ) : locked ? null : (
-          <RockButton label={`Next: ${nextBot.name}`} variant="primary" onPress={() => onChallenge(nextBot.id)} />
+          <>
+            <Backstage chapter={chapter} kitOn={kitOn} onToggleKit={onToggleKit} chips={chips} error={launchError} />
+            <RockButton label={launching ? 'Opening…' : `Next: ${nextBot.name}${kitOn && chapter.backstage?.kitOpen ? ' + Kit' : ''}`} variant="primary" onPress={() => onChallenge(nextBot.id)} disabled={launching} />
+          </>
         )}
       </View>
     );
@@ -293,8 +366,104 @@ function BossSection({ chapter, accent, locked, onChallenge }: { chapter: TourCh
           Defeated. Rematch any time from the Bots screen.
         </Text>
       ) : locked ? null : (
-        <RockButton label={`Challenge ${boss.name}`} variant="primary" onPress={() => onChallenge(boss.botId)} />
+        <>
+          <Backstage chapter={chapter} kitOn={kitOn} onToggleKit={onToggleKit} chips={chips} error={launchError} />
+          <RockButton label={launching ? 'Opening…' : `Challenge ${boss.name}${kitOn && chapter.backstage?.kitOpen ? ' + Kit' : ''}`} variant="primary" onPress={() => onChallenge(boss.botId)} disabled={launching} />
+        </>
       )}
+    </View>
+  );
+}
+
+// Backstage: Crowd Energy and the Roadie Kit for a boss the player is stuck on. Crowd Energy
+// is earned only by real attempts (the server ignores an early resign); the kit is an
+// optional, limited help for ONE boss game and costs chips unless the crowd hands it over.
+function Backstage({ chapter, kitOn, onToggleKit, chips, error }: { chapter: TourChapter; kitOn: boolean; onToggleKit: () => void; chips: number; error: string | null }) {
+  const b = chapter.backstage;
+  if (!b) return null;
+  // Nothing to show until the player has actually tried: the first fight should feel like a fight.
+  if (b.losses === 0) return null;
+
+  const pips = b.kitOpen ? b.crowdFreeEvery : b.kitUnlockLosses;
+  const filled = b.kitOpen ? b.losses % b.crowdFreeEvery : b.losses;
+  const free = b.freeKit;
+  const canAfford = free || chips >= b.price;
+  const kitLine = `Take Two ×${b.kit.takeTwos} · Roadie's Tip ×${b.kit.tips}`;
+
+  return (
+    <View className="gap-sm rounded-lg" style={{ padding: 10, backgroundColor: withOpacity(Colors.ember, 0.08), borderWidth: 1, borderColor: withOpacity(Colors.ember, 0.4) }}>
+      <View className="flex-row items-center justify-between">
+        <Text className="font-heading-md uppercase" style={{ fontSize: 12, letterSpacing: 1.2, color: Colors.ember }}>
+          Crowd Energy
+        </Text>
+        <View className="flex-row items-center gap-1">
+          {Array.from({ length: pips }, (_, i) => (
+            <View
+              key={i}
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 6,
+                backgroundColor: i < filled ? Colors.ember : 'transparent',
+                borderWidth: 1,
+                borderColor: i < filled ? Colors.ember : withOpacity(Colors.ember, 0.5),
+              }}
+            />
+          ))}
+        </View>
+      </View>
+
+      {!b.kitOpen ? (
+        <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+          The crowd feeds on real attempts, not quick exits. {b.kitUnlockLosses - b.losses} more and the Roadie Kit opens backstage.
+        </Text>
+      ) : (
+        <>
+          <Text className="font-body-sm text-text-muted" style={{ fontSize: 12 }}>
+            {free ? 'The crowd has your back: a Roadie Kit is on the house.' : `${b.toNextFree} more real attempt${b.toNextFree === 1 ? '' : 's'} and the crowd hands you a free kit.`}
+          </Text>
+          <Pressable
+            onPress={canAfford ? onToggleKit : undefined}
+            className="flex-row items-center gap-md rounded-lg"
+            style={{ padding: 10, opacity: canAfford ? 1 : 0.55, backgroundColor: withOpacity(Colors.bgBase, 0.5), borderWidth: 1, borderColor: kitOn ? Colors.gold : withOpacity(Colors.chromeDark, 0.6) }}
+          >
+            <MaterialCommunityIcons name={kitOn ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'} size={22} color={kitOn ? Colors.gold : Colors.textMuted} />
+            <View className="flex-1">
+              <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 13 }}>
+                Roadie Kit
+              </Text>
+              <Text className="font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                {kitLine}
+              </Text>
+              <Text className="font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                One boss game. You still have to win it, and no gigs count while the kit is in play.
+              </Text>
+            </View>
+            {free ? (
+              <Text className="font-heading-md text-gold" style={{ fontSize: 13 }}>
+                FREE
+              </Text>
+            ) : (
+              <View className="flex-row items-center gap-1">
+                <CurrencyIcon type="chips" size={14} />
+                <Text className="font-heading-md text-text-primary" style={{ fontSize: 13 }}>
+                  {b.price}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+          {!canAfford ? (
+            <Text className="font-body-sm" style={{ fontSize: 11, color: Colors.crimson }}>
+              {b.price - chips} more chips for the Roadie Kit. Win a few games, or keep fighting for the free one.
+            </Text>
+          ) : null}
+        </>
+      )}
+      {error ? (
+        <Text className="font-body-sm" style={{ fontSize: 11, color: Colors.crimson }}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }

@@ -113,6 +113,55 @@
       "when": 1792313018276,
       "tag": "0015_nostalgic_grandmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792335410785,
+      "tag": "0016_warm_fallen_one",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792510772368,
+      "tag": "0017_backstage_roadie_kit",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792603943162,
+      "tag": "0018_backstage_gear",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792605016395,
+      "tag": "0019_analysis_credits",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792736050173,
+      "tag": "0020_spin_paid_chips",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792827388211,
+      "tag": "0021_push_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792836063812,
+      "tag": "0022_email_verification",
+      "breakpoints": true
     }
   ]
 }

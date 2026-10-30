@@ -1,11 +1,16 @@
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 
 import {
   allGigs,
+  BACKSTAGE,
   bossGigId,
   botById,
   CHAPTERS,
+  freeKitsEarned,
   gigDelta,
+  isBossOf,
+  kitPrice,
+  kitUnlocked,
   perfectGigId,
   PERFECT_BONUS_GEMS,
   type Chapter,
@@ -13,7 +18,7 @@ import {
   type TourMatchEvent,
 } from '../tour.js';
 import { db } from './client.js';
-import { playerProfiles, tourProgress, tourState, userTitles } from './schema/index.js';
+import { playerProfiles, tourBossAttempts, tourProgress, tourState, userTitles } from './schema/index.js';
 
 // The Tour, persisted. Rewards are paid in the SAME transaction that records the
 // progress, and a gig/boss/perfect row is only ever completed once (its
@@ -29,6 +34,16 @@ export interface TourUpdate {
   perfect: null | { chapterId: string; chapterName: string; gems: number };
   chapterUnlocked: null | { id: string; name: string };
   encore: null | { progress: number; total: number };
+  // A real (long enough) loss to a chapter's boss: Crowd Energy grew. See "Backstage" below.
+  bossAttempt: null | {
+    chapterId: string;
+    chapterName: string;
+    losses: number;
+    toUnlock: number; // real losses still needed to open the Roadie Kit (0 = open)
+    kitJustOpened: boolean;
+    freeKitJustEarned: boolean;
+    toNextFree: number; // real losses until the crowd's next free kit
+  };
   chips: number;
   gems: number;
 }
@@ -42,12 +57,13 @@ const emptyUpdate = (): TourUpdate => ({
   perfect: null,
   chapterUnlocked: null,
   encore: null,
+  bossAttempt: null,
   chips: 0,
   gems: 0,
 });
 
 const isEmpty = (u: TourUpdate) =>
-  u.gigsCompleted.length === 0 && u.gigsProgressed.length === 0 && !u.bossBeaten && !u.perfect && !u.encore;
+  u.gigsCompleted.length === 0 && u.gigsProgressed.length === 0 && !u.bossBeaten && !u.perfect && !u.encore && !u.bossAttempt;
 
 function unlockedChapters(done: Set<string>): Chapter[] {
   const out: Chapter[] = [];
@@ -93,7 +109,8 @@ export async function applyTour(userId: string, input: TourInput, now = new Date
         if (done.has(gig.id)) continue;
         const before = progress.get(gig.id) ?? 0;
         let next = before;
-        if (input.event) {
+        // A Roadie Kit game is a boss fight only: it never advances a gig.
+        if (input.event && !input.event.assisted) {
           const delta = gigDelta(gig, input.event);
           if (delta && 'add' in delta) next = before + delta.add;
           else if (delta && 'max' in delta) next = Math.max(before, delta.max);
@@ -121,6 +138,10 @@ export async function applyTour(userId: string, input: TourInput, now = new Date
     for (const chapter of unlockedBefore) {
       const bossId = bossGigId(chapter.id);
       if (done.has(bossId) || !e || e.source !== 'bot' || !e.botId) continue;
+      // A real loss to this chapter's boss feeds Crowd Energy (an early resign does not).
+      if (e.outcome === 'loss' && isBossOf(chapter, e.botId) && (e.plies ?? 0) >= BACKSTAGE.minAttemptPlies) {
+        update.bossAttempt = await recordBossLoss(tx, userId, chapter, now);
+      }
       let beaten = false;
       if (chapter.encore) {
         const [state] = await tx.select().from(tourState).where(eq(tourState.userId, userId)).for('update');
@@ -187,6 +208,94 @@ export async function applyTour(userId: string, input: TourInput, now = new Date
   });
 }
 
+// ---- Backstage: Crowd Energy and the Roadie Kit --------------------------------
+// A player stuck on a boss is helped, not rescued. Every REAL loss to the boss (past
+// backstage.minAttemptPlies, so resigning early earns nothing) grows Crowd Energy. After
+// `kitUnlockLosses` the Roadie Kit can be bought, and every `crowdFreeEvery` losses the crowd
+// hands one over free, so a broke-but-persistent player is never locked out. The kit is
+// Take Two + Roadie's Tip for ONE boss game: it can still beat the boss (the win must be
+// played and is verified like any other), advances no gigs, and can't be bought once the
+// boss is beaten. The price is the chip sink.
+
+async function recordBossLoss(tx: Tx, userId: string, chapter: Chapter, now: Date): Promise<NonNullable<TourUpdate['bossAttempt']>> {
+  const [row] = await tx
+    .insert(tourBossAttempts)
+    .values({ userId, chapterId: chapter.id, losses: 1, updatedAt: now })
+    .onConflictDoUpdate({
+      target: [tourBossAttempts.userId, tourBossAttempts.chapterId],
+      set: { losses: sql`${tourBossAttempts.losses} + 1`, updatedAt: now },
+    })
+    .returning({ losses: tourBossAttempts.losses });
+  const losses = row.losses;
+  return {
+    chapterId: chapter.id,
+    chapterName: chapter.name,
+    losses,
+    toUnlock: Math.max(0, BACKSTAGE.kitUnlockLosses - losses),
+    kitJustOpened: losses === BACKSTAGE.kitUnlockLosses,
+    freeKitJustEarned: losses % BACKSTAGE.crowdFreeEvery === 0,
+    toNextFree: BACKSTAGE.crowdFreeEvery - (losses % BACKSTAGE.crowdFreeEvery),
+  };
+}
+
+export type KitClaim =
+  | { ok: true; paid: number; chapterId: string; chips: number | null }
+  | { ok: false; reason: 'not-a-boss' | 'kit-locked' | 'insufficient-chips' };
+
+// Buys (or takes the free) Roadie Kit for a boss fight against `botId`. Runs INSIDE the
+// caller's transaction (db/botSessions.ts), so the chips leave in the very transaction that
+// creates the session: either you have a kit session or you still have your chips.
+export async function claimBossKit(tx: Tx, userId: string, botId: string, now = new Date()): Promise<KitClaim> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`tour:${userId}`}))`);
+  const { done } = await loadProgress(tx, userId);
+  const chapter = unlockedChapters(done).find((c) => !done.has(bossGigId(c.id)) && isBossOf(c, botId));
+  if (!chapter) return { ok: false, reason: 'not-a-boss' };
+
+  const [attempts] = await tx
+    .select()
+    .from(tourBossAttempts)
+    .where(and(eq(tourBossAttempts.userId, userId), eq(tourBossAttempts.chapterId, chapter.id)))
+    .for('update');
+  const losses = attempts?.losses ?? 0;
+  if (!kitUnlocked(losses)) return { ok: false, reason: 'kit-locked' };
+
+  if (freeKitsEarned(losses) > (attempts?.freeKitsUsed ?? 0)) {
+    await tx
+      .update(tourBossAttempts)
+      .set({ freeKitsUsed: sql`${tourBossAttempts.freeKitsUsed} + 1`, updatedAt: now })
+      .where(and(eq(tourBossAttempts.userId, userId), eq(tourBossAttempts.chapterId, chapter.id)));
+    return { ok: true, paid: 0, chapterId: chapter.id, chips: null };
+  }
+
+  const price = kitPrice(chapter);
+  const [paid] = await tx
+    .update(playerProfiles)
+    .set({ chips: sql`${playerProfiles.chips} - ${price}`, updatedAt: now })
+    .where(and(eq(playerProfiles.userId, userId), gte(playerProfiles.chips, price)))
+    .returning({ chips: playerProfiles.chips });
+  if (!paid) return { ok: false, reason: 'insufficient-chips' };
+  return { ok: true, paid: price, chapterId: chapter.id, chips: paid.chips };
+}
+
+// A kit game that could not be verified (too short, never finished properly) is refunded --
+// nothing was won or lost, so the kit goes back in the case. Called once per session (the
+// session is claimed atomically before it gets here).
+export async function refundBossKit(userId: string, chapterId: string, kitPaid: number, now = new Date()): Promise<void> {
+  await db.transaction(async (tx) => {
+    if (kitPaid > 0) {
+      await tx
+        .update(playerProfiles)
+        .set({ chips: sql`${playerProfiles.chips} + ${kitPaid}`, updatedAt: now })
+        .where(eq(playerProfiles.userId, userId));
+    } else {
+      await tx
+        .update(tourBossAttempts)
+        .set({ freeKitsUsed: sql`greatest(${tourBossAttempts.freeKitsUsed} - 1, 0)`, updatedAt: now })
+        .where(and(eq(tourBossAttempts.userId, userId), eq(tourBossAttempts.chapterId, chapterId)));
+    }
+  });
+}
+
 // ---- read model for the Tour screen ----------------------------------------
 
 export interface TourGigView {
@@ -212,7 +321,33 @@ export interface TourChapterView {
   boss: null | { botId: string; name: string; emoji: string; difficulty: string };
   encore: null | { progress: number; bots: { id: string; name: string; emoji: string }[] };
   reward: { chips: number; gems: number; titleName: string };
+  // Crowd Energy + the Roadie Kit; null when there is no boss to be stuck on (locked / beaten).
+  backstage: null | {
+    losses: number;
+    kitUnlockLosses: number;
+    kitOpen: boolean;
+    toNextFree: number;
+    crowdFreeEvery: number;
+    freeKit: boolean; // a free kit is waiting
+    price: number; // chips, when no free kit is waiting
+    kit: { takeTwos: number; tips: number };
+  };
   gigs: TourGigView[];
+}
+
+function backstageView(chapter: Chapter, fightable: boolean, attempts?: { losses: number; freeKitsUsed: number }): TourChapterView['backstage'] {
+  if (!fightable) return null;
+  const losses = attempts?.losses ?? 0;
+  return {
+    losses,
+    kitUnlockLosses: BACKSTAGE.kitUnlockLosses,
+    kitOpen: kitUnlocked(losses),
+    toNextFree: BACKSTAGE.crowdFreeEvery - (losses % BACKSTAGE.crowdFreeEvery),
+    crowdFreeEvery: BACKSTAGE.crowdFreeEvery,
+    freeKit: freeKitsEarned(losses) > (attempts?.freeKitsUsed ?? 0),
+    price: kitPrice(chapter),
+    kit: { takeTwos: BACKSTAGE.kit.takeTwos, tips: BACKSTAGE.kit.tips },
+  };
 }
 
 export async function getTour(userId: string): Promise<{ chapters: TourChapterView[]; gigsDone: number; gigsTotal: number }> {
@@ -222,6 +357,8 @@ export async function getTour(userId: string): Promise<{ chapters: TourChapterVi
 
   const { progress, done } = await db.transaction((tx) => loadProgress(tx, userId));
   const [state] = await db.select().from(tourState).where(eq(tourState.userId, userId)).limit(1);
+  const attemptRows = await db.select().from(tourBossAttempts).where(eq(tourBossAttempts.userId, userId));
+  const attemptsByChapter = new Map(attemptRows.map((r) => [r.chapterId, r]));
   const unlocked = new Set(unlockedChapters(done).map((c) => c.id));
   const gigView = (gig: Gig): TourGigView => ({
     id: gig.id,
@@ -253,6 +390,7 @@ export async function getTour(userId: string): Promise<{ chapters: TourChapterVi
           }
         : null,
       reward: { chips: chapter.bossReward.chips, gems: chapter.bossReward.gems, titleName: chapter.title.name },
+      backstage: backstageView(chapter, unlocked.has(chapter.id) && !done.has(bossGigId(chapter.id)), attemptsByChapter.get(chapter.id)),
       gigs: chapter.gigs.map(gigView),
     };
   });

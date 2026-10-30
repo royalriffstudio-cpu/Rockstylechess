@@ -6,7 +6,7 @@ import { playSound } from '@/lib/soundEffects';
 // One call per "moment" -- sound plus a matching haptic. Both honour the
 // player's sound setting / device capabilities and can never throw into the UI
 // (a missing haptic engine or an audio hiccup must not break a result screen).
-export type CelebrationKind = 'levelUp' | 'reward' | 'title';
+export type CelebrationKind = 'levelUp' | 'reward' | 'title' | 'runOver';
 
 export function celebrate(kind: CelebrationKind): void {
   try {
@@ -18,6 +18,7 @@ export function celebrate(kind: CelebrationKind): void {
   try {
     if (kind === 'levelUp') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     else if (kind === 'title') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    else if (kind === 'runOver') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     else void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   } catch {
     // no haptic engine

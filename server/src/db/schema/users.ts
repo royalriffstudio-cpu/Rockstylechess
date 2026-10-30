@@ -9,6 +9,9 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   emailVerified: boolean('email_verified').notNull().default(false),
+  // Accounts that existed (with an unverified email) when email verification was introduced: never gated,
+  // never locked out. New sign-ups default to false and are gated until verified (db/emailGate.ts).
+  emailGrandfathered: boolean('email_grandfathered').notNull().default(false),
   // Populated with the email's local-part at signup; pick-rockstar.tsx
   // collects the real display name (playerProfiles.displayName) one screen
   // later, unchanged.
@@ -25,6 +28,9 @@ export const playerProfiles = pgTable('player_profiles', {
   userId: uuid('user_id')
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
+  // True for a new email/password account whose 4,000-chip welcome bonus is held until the email is
+  // verified (db/emailGate.ts grantWelcomeBonus clears it in the same UPDATE that pays it).
+  welcomeBonusPending: boolean('welcome_bonus_pending').notNull().default(false),
   displayName: varchar('display_name', { length: 40 }),
   avatarId: varchar('avatar_id', { length: 40 }),
   // Short human-typed code another player enters to send a friend request
@@ -39,6 +45,12 @@ export const playerProfiles = pgTable('player_profiles', {
   // rankings.tsx's pinned-row 1650), which are just placeholder content.
   rating: integer('rating').notNull().default(1200),
   winStreak: integer('win_streak').notNull().default(0),
+  // Consecutive online wins with NO Lucky Pick forgiveness (db/boosts.ts): `winStreak` can be kept
+  // alive through a loss by a Lucky Pick, but "win N in a row" achievements read this one.
+  winRun: integer('win_run').notNull().default(0),
+  // Game Reviews bought in a Review Pack and not yet spent (db/analysisCharge.ts). The Analyze Game
+  // button spends one of these before any chips/gems; they never expire and never convert back.
+  analysisCredits: integer('analysis_credits').notNull().default(0),
   wins: integer('wins').notNull().default(0),
   losses: integer('losses').notNull().default(0),
   draws: integer('draws').notNull().default(0),

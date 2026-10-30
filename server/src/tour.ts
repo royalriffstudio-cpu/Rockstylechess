@@ -56,6 +56,25 @@ export const PERFECT_BONUS_GEMS = ECONOMY.tour.perfectBonusGems;
 export const MIN_BOT_PLIES = ECONOMY.tour.minBotPlies;
 export const TOUR_TITLES = CHAPTERS.map((c) => c.title);
 
+// Backstage: the Roadie Kit and Crowd Energy (db/tour.ts). Help for a player stuck on a
+// chapter boss -- never a shortcut. See economy.config.json -> tour.backstage.
+export const BACKSTAGE = ECONOMY.tour.backstage;
+
+// What the kit costs for a chapter: a fraction of that boss's chip reward, to the nearest 10.
+export function kitPrice(chapter: Chapter): number {
+  return Math.round((chapter.bossReward.chips * BACKSTAGE.kitPriceFraction) / 10) * 10;
+}
+
+// Is this bot one of the chapter's boss fights (its boss, or any bot of the Encore gauntlet)?
+export function isBossOf(chapter: Chapter, botId: string): boolean {
+  return chapter.bossBotId === botId || (chapter.encore?.includes(botId) ?? false);
+}
+
+// Crowd Energy for `losses` real boss losses: is the kit open, and how many of the crowd's
+// free kits have been earned so far (one every `crowdFreeEvery` losses)?
+export const kitUnlocked = (losses: number) => losses >= BACKSTAGE.kitUnlockLosses;
+export const freeKitsEarned = (losses: number) => Math.floor(losses / BACKSTAGE.crowdFreeEvery);
+
 export const bossGigId = (chapterId: string) => `boss-${chapterId}`;
 export const perfectGigId = (chapterId: string) => `perfect-${chapterId}`;
 
@@ -67,6 +86,9 @@ export interface TourMatchEvent {
   outcome: 'win' | 'loss' | 'draw';
   color: 'w' | 'b';
   moveCount: number; // full moves
+  plies?: number; // half-moves (bot games; used to tell a real boss attempt from a quick resign)
+  // A Roadie Kit game: it can still beat the boss, but it advances no gigs.
+  assisted?: boolean;
   myCaptures: number;
   queenLost: boolean; // the opponent captured my queen at some point
   checkmate: boolean;

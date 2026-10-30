@@ -60,6 +60,7 @@ export default function GameRoomScreen() {
           clockW: String(payload.clocks.w),
           clockB: String(payload.clocks.b),
           incrementMs: String(payload.incrementMs),
+          ...(payload.friendly ? { friendly: '1' } : {}),
         },
       });
     }

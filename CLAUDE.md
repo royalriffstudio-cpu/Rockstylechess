@@ -23,7 +23,9 @@ Most `src/` subdirectories — every route group under `src/app/` (e.g.
 `README.md` with file-level rationale (why a screen exists, what Stitch
 mockup it came from, which parts are still mock data). Check the relevant
 one before making structural changes in that area; this file only covers
-the cross-cutting picture.
+the cross-cutting picture. `ROADMAP.md` is the prioritized list of what is
+still missing or broken (launch blockers, production readiness, game gaps,
+known bugs) — update it when you fix or find one.
 
 ## Commands
 
@@ -124,6 +126,11 @@ as `pendingPromotion` until `PromotionPicker` resolves the piece
 
 ### ChessBoard rendering — `src/components/ui/ChessBoard.tsx`
 
+Open issue: the match screen can freeze/crash on low-end Android GPUs. The
+leading suspect is that expo-image draws the traced piece SVGs as vector
+`PictureDrawable`s every frame; see `TEMP-match-crash-notes.md` before
+touching piece rendering.
+
 Pieces have **persistent identity**: a `LivePiece {id, type, square}` list is
 reconciled incrementally per move (normal move, capture including en
 passant, castling — both king and rook, promotion) rather than re-derived
@@ -137,7 +144,10 @@ move fields; anything ambiguous (reset, puzzle retry, non-forward replay
 scrub) falls back to `resyncFromBoard`, which snaps instantly instead of
 animating. Dragging reuses the same persistent piece (no separate ghost
 component) via a `draggingIdSV` shared value read directly in the
-`useAnimatedStyle` worklet. Per-move-kind travel timing, captures fading
+`useAnimatedStyle` worklet; only the dragged piece is handed the real
+`dragX`/`dragY` (the other 31 get a never-written shared value), so a finger
+move re-runs one worklet, not 32. Taps and drags go through ONE board-wide
+gesture that derives the square from the touch position. Per-move-kind travel timing, captures fading
 out, and check/checkmate flourishes are all keyed off `lastMoveSound`
 (`src/lib/chessBoardSnapshot.ts`'s `classifyMoveSound`), which also drives
 which sound effect plays — animation and audio are driven by the same value
@@ -161,11 +171,13 @@ for anything else gameplay-related.
 
 ### Bots — `src/lib/botEngine.ts`
 
-Dispatches by difficulty: `randomBot.ts` (easy, 1-ply), `heuristicBot.ts`
-(medium — negamax/alpha-beta, iteratively deepened against a wall-clock
+Dispatches by difficulty: `heuristicBot.ts` for easy (depth 1) and medium
+(negamax/alpha-beta + quiescence, iteratively deepened against a wall-clock
 deadline so a complex position can't freeze the single JS thread), or three
 Stockfish 18 WASM tiers run inside a hidden `react-native-webview`
-(`StockfishEngine.tsx` + `stockfishProtocol.ts`).
+(`StockfishEngine.tsx` + `stockfishProtocol.ts`). `randomBot.ts` is only a
+fallback when no engine is available. The six roster bots (and which is a Tour
+boss) come from `economy.config.json` -> `bots`.
 
 ### Multiplayer server (`server/`)
 
@@ -179,8 +191,8 @@ independent single-shot `setTimeout`-per-color mechanisms live on
 `RECONNECT_GRACE_MS` = 60s) and `clock.deadlineTimer` (real flag-fall) — kept
 deliberately separate (different reschedule cadence) rather than merged.
 Auth is **better-auth** (`server/src/betterAuth.ts`, Drizzle adapter, Expo +
-bearer plugins — not a hand-rolled bcrypt/JWT scheme, despite what the
-READMEs' prose still says), mounted at `/api/auth/*`; a socket with no/invalid
+bearer plugins — not a hand-rolled bcrypt/JWT scheme), mounted at
+`/api/auth/*`; a socket with no/invalid
 token still connects and plays as an anonymous guest
 (`src/lib/playerId.ts`'s persisted device UUID) — `requireAuth`/`socketAuth`
 in `authMiddleware.ts` are the two enforcement points. Match persistence
@@ -231,6 +243,18 @@ PGN, bot matches via a server-issued session whose PGN the server replays
 (`finishBotSession`), puzzles. Never re-add a route that pays from a client-claimed
 result; bot rewards must go through `botSessions.ts`. Details: `server/README.md` → "The Tour".
 
+### Festival Run — `server/src/db/festival.ts` / `server/src/serverBot.ts`
+
+The repeatable chip sink: pay an entry, beat a ladder of bots one set at a time, bank the purse
+between sets or push on (`economy.config.json` -> `festival`; `check-economy.mjs` solves the
+bank/push-on EV per skill profile). The bot is played by the **server** (a bot seat on an ordinary
+`MatchState`), never by the device, because the server cannot prove a device-played bot game was
+against the engine and the purse is several times the entry. The entry is debited in the
+transaction that inserts the run; every payout is a locked conditional status flip out of
+`active`. Never move chips for a run outside `festival.ts`; never pay a Festival set from a
+client-reported result; run `node scripts/gen-server-bots.mjs` after changing the app's bots.
+Details: `server/README.md` → "Festival Run".
+
 ### Wagers — `server/src/db/wagers.ts`
 
 Online matches at venues with a buy-in (Club and up) are played for chips: both buy-ins
@@ -256,12 +280,58 @@ ids are the default until real ones are set — a Play Store build must not ship
 them. "Remove Ads" is a non-consumable entitlement (`ads_removed`, acknowledge-only
 verify path). Full detail: root `README.md` → "Ads", `server/README.md` → "Ads".
 
+### Google sign-in — `src/lib/googleSignIn.ts` / `src/lib/authClient.ts`
+
+Native account chooser (`@react-native-google-signin/google-signin`), not a browser. The SDK is imported ONLY by
+`src/lib/googleSignIn.ts` (`googleSignIn.web.ts` is the web stub, same rule as `src/lib/ads`). It returns a Google ID
+token; `signInWithGoogle` / `linkGoogleAccount` in `authClient.ts` send it to better-auth (`signIn.social` /
+`linkSocial` with `idToken`), whose audience check is the server's `GOOGLE_CLIENT_ID` (the Web client). Account
+rules (verified email, no auto-link of password accounts, welcome bonus) live server-side and are unchanged. Setup
+(Android OAuth client + SHA-1s): root `README.md` -> "Google sign-in".
+
+### Push notifications — `server/src/push.ts` / `src/lib/pushNotifications/`
+
+Expo Push Service (Android first). `src/lib/pushNotifications/index.ts` is the only file that imports
+`expo-notifications` (`index.web.ts` is the web stub — keep exports identical). The app registers its token on
+every launch (`pushRegistration.ts`, `usePushNotifications` provider in `_layout.tsx`); the server stores it in
+`push_devices` (token = primary key, so a shared phone follows the signed-in account) and four per-account
+category switches in `push_preferences`. Almost every push goes out through ONE choke point:
+`insertNotification` (`db/notifications.ts`) maps the stored type to a category; DMs call `pushDirectMessage`;
+the daily reminder is `pushScheduler.ts` (atomic once-a-day claim). A push is skipped while any socket of the
+account reports the app in the foreground (`app:state`). New notification types: add them to `PUSH_CATEGORY`
+and to `src/lib/notificationRoutes.ts` (shared with the Backstage Alerts feed). Never call `fetch` assuming it
+survives the Stockfish loader unpatched — `bots/stockfishNode.ts` restores it. Setup steps: root `README.md`
+-> "Push notifications"; server detail: `server/README.md`.
+
+### Email accounts — `server/src/emailPolicy.ts` / `db/emailGate.ts` / `mailer.ts`
+
+Email/password sign-up is checked (`emailPolicy.ts`: syntax, typos, disposable, MX) and, with `EMAIL_GATE=1`, verified by a
+6-digit code (better-auth `emailOTP`, mailed by `mailer.ts`). Unverified NEW accounts are softly gated: online matchmaking, rooms,
+festival, friend requests/challenges and DMs refuse them (`blockedByEmailGate`, `requireVerifiedEmail`), and their welcome bonus is
+held until `grantWelcomeBonus` (idempotent) runs on verification. Existing accounts are `email_grandfathered`; Google and test-domain
+accounts are verified at creation. The local test domain lives only in `TEST_EMAIL_DOMAIN` (never in source or docs) and
+`isTestEmail` is false on any non-local database: never branch on a literal domain. New online/social actions must call the gate.
+
+### Crash reporting — `src/lib/crashReporting.ts` / `server/src/monitoring.ts`
+
+Sentry, **anonymous by policy** (`docs/privacy-policy.html` Section 2j): no user id, email, name,
+headers, bodies or tokens are ever sent, and that is enforced centrally in `beforeSend` /
+`beforeBreadcrumb` (app) and `dataCollection` + `beforeSend` (server), not at call sites. The app
+SDK is imported ONLY by `src/lib/crashReporting.ts` (`crashReporting.web.ts` is the web stub, same
+rule as `src/lib/ads`); everything else calls its helpers (`reportError`, `setCrashTags`,
+`addCrashBreadcrumb`). It does nothing in `__DEV__` or without `EXPO_PUBLIC_SENTRY_DSN`; the server
+does nothing without `SENTRY_DSN`. Never add a tag or breadcrumb carrying a player id/email/name:
+if the privacy policy's description of what is sent changes, update it in the same change.
+Details: root `README.md` → "Crash reporting", `server/README.md` → "Crash reporting".
+
 ### Sound — `src/lib/soundEffects.ts` / `src/lib/backgroundMusic.ts`
 
-Five short SFX (move/capture/castle/check/checkmate/illegal), each a
-pre-instantiated `expo-audio` `AudioPlayer` (eager, no pooling — chess is
-turn-sequential). A looping menu-only background track is lazily created
-instead. Both toggle off a persisted preference; the root layout
+Six short gameplay SFX (move/capture/castle/check/checkmate/illegal) plus
+four celebration cues (level-up/reward/title/run-over, played by
+`src/lib/celebration.ts`), each a pre-instantiated `expo-audio` `AudioPlayer`
+in `soundEffects.ts` (eager, no pooling — chess is turn-sequential). The celebration wavs are produced from `*_raw.wav` by `scripts/process-celebration-sounds.mjs` — edit the raw, rerun, don't hand-edit the output. Menu
+music (three tracks played in a fixed cycle) is lazily created instead.
+Both toggle off a persisted preference; the root layout
 (`src/app/_layout.tsx`) starts/stops menu music by exact route (not route
 group — `(play)/` contains non-gameplay screens like the bot picker and
 setup that should still play menu music).

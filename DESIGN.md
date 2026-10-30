@@ -136,6 +136,26 @@ derived from a component's own dimensions rather than reused elsewhere.
 
 ---
 
+## Gradients
+
+Canonical multi-stop recipes live in `Gradients` (`src/constants/theme.ts`); use them
+instead of composing new stop lists. Stops that aren't a named `Colors` token are
+tints/shades of one and appear only as gradient stops.
+
+| Token | Stops | Used by |
+|---|---|---|
+| `primaryButton` | `emberLight` → `ember` → `crimson` | RockButton `primary` |
+| `goldButton` | `#FFDA7A` → `gold` → `#D9A01C` | RockButton `gold` / `reward` |
+| `cyanButton` | `#9CF0FF` → `cyan` → `#006470` | RockButton `cyan` |
+| `dangerButton` | `#FF4D58` → `crimson` → `#991019` | RockButton `danger` |
+| `avatarRing` | `ember` → `gold` → `crimson` → `ember` | PlayerAvatar default "fire" ring |
+| `avatarRingSteel` | `#E6EAF0` → `chromeMid` → `#7C8390` → `chromeMid` | Garage Band frame |
+| `avatarRingNeon` | `#E3B8FF` → `neon` → `#5A1E96` → `neon` | Main Stage frame |
+| `avatarRingGold` | `#FFF1B8` → `gold` → `#A9741A` → `gold` → `#FFF1B8` | Hall of Fame frame |
+| `cardSurface` | `bgPanel`@0.9 → `bgBase`@0.95 (vertical) | RockCard `surface` variant |
+
+---
+
 ## Shadows & Glow
 
 No shadow token scale — every glow is built live from `withOpacity()` against
@@ -176,12 +196,14 @@ from real layered `LinearGradient`s, per the Component Depth Standard in
   pull `useSafeAreaInsets()` directly rather than a wrapper (see `BottomNav`,
   `home.tsx` top bar) and add insets into padding/height manually.
 - **Status bar**: always `style="light"` (dark theme only, no variant).
-- **Screen shell convention** (e.g. `home.tsx`): a root `View` with ambient
-  radial glow `View`s (`ambientGlowCyan`, `ambientGlowEmber`) plus an
-  `EmberParticles` layer behind the content for atmosphere, `ScrollView` for
-  content, `BottomNav` docked at the bottom.
-- **Bento-style tile grids**: home screen composes `BentoTile[]` entries with
-  `size: 'lg' | 'sm'` for an irregular grid of action cards.
+- **Screen shell convention** (e.g. `home.tsx`): a root `bg-bg-base` `View`
+  with two absolute ambient haze circles (cyan top-right, ember bottom-left,
+  `withOpacity` fill + a modest `boxShadow` blur), `TopAppBar`, a `ScrollView`
+  for content, and the global `BottomNav` (rendered by the root layout) docked
+  at the bottom. Art-backed screens use `ScreenBackdrop` (bundled `ScreenArt`
+  image + scrim) instead. The ember particle layer was removed for render cost.
+- **Bento-style tile grids**: Home's `HOME_TILES` is a 2x2 grid of equal, wide
+  `RockCard variant="surface"` tiles with one fixed gap on both axes.
 - **Bottom nav**: fixed 4-tab bar (`home`, `ranks`, `shop`, `profile`) with a
   5th floating circular "play" action button overlapping the top edge,
   offset by `-PLAY_SIZE * 0.4`.
@@ -202,16 +224,22 @@ All in [`src/components/ui/`](src/components/ui/), imported via
 
 | Component | Purpose |
 |---|---|
-| `RockButton` | Primary CTA — 3 variants (primary/reward/danger), gradient fill + gloss + glow, press feedback |
-| `RockCard` | General panel/container — gradient fill, optional accent glow, optional hero background image with scrim |
+| `RockButton` | Primary CTA — 6 variants (`primary` / `reward` / `gold` / `cyan` / `danger` / `secondary`), gradient fill + gloss + glow, press feedback |
+| `RewardedAdButton` | A `RockButton` that runs one rewarded ad (guest, daily-cap and not-ready states built in) |
+| `RockCard` | General panel/container — `depth` (default) or `surface` variant, gradient fill, optional accent glow, optional hero background image with scrim |
 | `CurrencyPill` | Chips/gems balance chip with optional inline "+" add action |
 | `PlayerAvatar` | Circular avatar — gradient "fire" ring (swaps to cyan when `selected`), optional level badge, image or emoji fallback (see [Avatars](#avatars)) |
 | `SectionLabel` | Uppercase label + fading gold rule line, for section headers |
 | `ProgressBar` | Gradient (ember→gold) fill bar with glow, optional caption |
-| `BottomNav` | 4-tab bottom bar + floating circular play button |
+| `BottomNav` | 4-tab bottom bar + floating circular play button (rendered once from the root layout) |
 | `ChessBoard` | Self-contained board primitive (interactive or read-only), integer-pixel grid, per-rank square coloring, two-ellipse piece contact shadows, swappable piece-set art via its `pieceSprites` prop |
 | `ChatPanel` / `ChatToast` | In-match chat UI |
-| `EmberParticles` | Decorative ambient particle layer |
+| `CurrencyIcon` | Chip / gem glyph |
+| `AvatarClassTabs` | Garage Band / Main Stage / Hall of Fame picker header (owned/total) |
+| `ScreenBackdrop` / `VenueBackdrop` | Full-screen art + scrim behind a screen / a match (venue accent and intensity) |
+| `BoardSwatch` / `PieceSwatch` | Cosmetic previews in the Forge and Collections |
+| `PromotionPicker` | Q/R/B/N chooser for a pending promotion |
+| `ConfirmModal`, `Checkbox`, `GlowBox`, `AppIcon`, `CountryFlag`, `CountryPickerModal`, `KeyboardAwareScrollView` | Smaller shared pieces |
 
 Non-UI: `StockfishEngine.tsx` (headless WASM engine host, no themed visual
 surface — lives in `components/` directly, not `ui/`).

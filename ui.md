@@ -118,8 +118,10 @@ match, puzzle, replay, and cosmetic-preview board in the app. Key mechanics:
 
 ## 4. Audio Integration
 
-- **Sound effects** (`src/lib/soundEffects.ts`): five bundled WAVs — `move`,
-  `capture`, `castle`, `check`, `checkmate` — plus `illegal`. Each has its own
+- **Sound effects** (`src/lib/soundEffects.ts`): six gameplay cues — `move`,
+  `capture`, `castle`, `check`, `checkmate`, `illegal` — plus four celebration
+  cues (`level-up`, `reward`, `title`, `run-over` (a lost Festival run), played by `src/lib/celebration.ts` with
+  haptics). Each has its own
   pre-instantiated `expo-audio` `AudioPlayer` (eager, one per cue — chess is
   turn-sequential, so no pooling/overlap handling is needed). `playSound(kind)`
   seeks to 0 then plays, gated by a persisted (`AsyncStorage`) on/off
@@ -132,17 +134,19 @@ match, puzzle, replay, and cosmetic-preview board in the app. Key mechanics:
   > capture > move). This same classification also drives the ChessBoard
   animation config in §3.1 — sound and animation are driven by the same value,
   so they stay conceptually in sync.
-- **Background music** (`src/lib/backgroundMusic.ts`): a single ~75s looping
-  ambient track, lazily created (not eagerly like the SFX players, since it's
-  a much larger file with no reason to pay its load cost before the menu is
-  reached), loop-seamed (trimmed/faded so the loop point is inaudible).
+- **Background music** (`src/lib/backgroundMusic.ts`): three menu tracks
+  played back-to-back in a fixed cycle (1 -> 2 -> 3 -> 1), lazily created (not
+  eagerly like the SFX players, since they're much larger files with no reason
+  to pay the load cost before the menu is reached). Paused while an ad is up.
 - **Menu-music lifecycle**: the root layout starts menu music on every route
   *except* actual gameplay (`/match`, `/puzzle-match`) — checked by exact route,
   not by route group, since `(play)/` also contains non-gameplay lobby/setup
   screens (bots, setup, matchmaking, tournaments, etc.) where menu music should
   keep playing.
 - **Settings**: both toggles ("Music" / "Sound FX") live in Control Core
-  (`(settings)/control-core.tsx`), each a labeled `Switch` row.
+  (`(settings)/control-core.tsx`), each a labeled `Switch` row. Below them, signed-in players get a
+  "Push Notifications" card: an "Allow notifications" row (system prompt, or "Open" once denied) and
+  four category switches (friends & messages, match invites, match results, daily rewards).
 
 ---
 
@@ -162,7 +166,7 @@ navigation.
 `PARENT` map (every route → its canonical parent, root `/home`) and `goUp()`
 (`router.dismissTo(parent)` — pops to the parent if it's in the stack, else
 replaces the current screen with it). Every back affordance goes through it:
-`SubPageHeader`'s button, the custom-header chevrons (shop / bands / front-row /
+`SubPageHeader`'s button, the custom-header chevrons (shop / front-row /
 puzzle-match), and a single global Android hardware-back handler in
 `_layout.tsx`. The iOS swipe-back gesture is disabled app-wide so it can't do a
 plain pop. `BottomNav` / `TopAppBar` navigate with `router.dismissTo` (not
@@ -174,17 +178,18 @@ Draw.
 ### 5.2 Entry / auth flow
 
 ```
-index.tsx (checks stored auth token)
-  ├─ no token  → sign-up ──→ pick-rockstar ──→ welcome-reward ──→ home
-  │                  ↕ (link)
-  │              sign-in ─────────────────────────────────────→ home
-  └─ has token → home directly
+index.tsx (checks stored session token + the guest latch)
+  ├─ neither   → sign-in ─────────────────────────────────────→ home
+  │                ↕ (link)          └─ Continue as Guest ────→ home
+  │              sign-up ──→ pick-rockstar ──→ welcome-reward ──→ home
+  └─ token or guest → home directly
 ```
 
 - Sign-up funnels new accounts through the full onboarding chain (avatar pick →
   celebratory reward). Sign-in (returning players) skips straight to home.
-- Logout and Delete Account both clear the stored token + socket auth and
-  `router.replace('/sign-up')`, resetting back to the top of this chain.
+  Guests latch `lib/guestMode.ts` and play unsaved.
+- Logout and Delete Account both clear the stored token, the guest latch and
+  socket auth, then `router.replace('/sign-in')`.
 - `index.tsx` renders nothing (a bare `bgBase` view, no spinner — deemed
   imperceptible) while resolving, then issues a `<Redirect>`.
 
@@ -199,13 +204,13 @@ index.tsx (checks stored auth token)
   `Fonts.display` title + a `CurrencyPill` (gems or chips) on the right.
 - **Primary-tab screen pattern** (home, iron-id, world-rankings — screens
   reachable via `BottomNav`): a fixed top bar (avatar/identity + currency
-  pills) instead of a back button, `EmberParticles` + ambient glow blobs behind
-  the content, a scrollable body, and `BottomNav` docked absolutely at the
-  bottom.
+  pills) instead of a back button, ambient glow blobs behind the content, a
+  scrollable body, and the global `BottomNav` docked at the bottom.
 - **Atmosphere layer**: many screens use a full-bleed remote background image
   (character art, arena/lounge/stage photography) with a `LinearGradient` scrim
-  fading to `bgBase`, plus `EmberParticles` on top — see §9 for a caveat on
-  these image sources.
+  fading to `bgBase` (`ScreenBackdrop` / `VenueBackdrop`). All art is bundled
+  (`src/constants/screenArt.ts`); the particle layer was removed for render
+  cost.
 - **Bottom nav**: fixed 4 tabs (`home`, `ranks`→world-rankings, `shop`,
   `profile`→iron-id) plus a 5th floating circular "play" button overlapping the
   bar's top edge. `BottomNav` navigates internally (via `router.dismissTo`) —
@@ -219,8 +224,10 @@ Beyond DESIGN.md's prop-level reference, here's how the shared components
 actually get used across real screens:
 
 - **`RockButton`** — the only interactive CTA primitive app-wide.
-  `variant="primary"` (cyan) for main actions, `"reward"` (gold) for
-  claim/purchase actions, `"danger"` (crimson) for resign/logout/delete. Label
+  `variant="primary"` (ember) for main actions, `"gold"` (alias `"reward"`) for
+  claim/purchase actions, `"cyan"` for secondary highlighted actions (e.g.
+  Analyze Game), `"danger"` (crimson) for resign/logout/delete, `"secondary"`
+  for a flat outline. Label
   swaps to a loading string ("Creating...", "Equipping...", "Spinning…") and
   the button disables itself during any in-flight async action — a consistent
   convention, not screen-specific.
@@ -236,14 +243,14 @@ actually get used across real screens:
   plus inline wherever a price is shown (locked cosmetics, venue buy-ins,
   analysis-charge confirmations).
 - **`SectionLabel`** — used inconsistently in practice: some screens use it as
-  documented, several others (bands.tsx, tournaments.tsx section headers) hand-
+  documented, several others (e.g. tournaments.tsx section headers) hand-
   roll an equivalent-looking label instead of importing the shared component —
   worth normalizing if touching those screens.
 - **`ProgressBar`** — XP bars, tournament fill %, quest/achievement progress,
   daily-bonus jackpot progress, and (repurposed) the replay/analysis eval bar
   and Stockfish-analysis progress meter.
-- **`BottomNav`** — docked on every primary-tab-reachable screen; `activeTab`
-  set per screen. A `dev-preview.tsx` route exists purely to visually catalog
+- **`BottomNav`** — rendered once by the root layout on the five tab routes,
+  with the active tab derived from the route (`bottomNavTabForRoute`). A `dev-preview.tsx` route exists purely to visually catalog
   every shared component (including an interactive `BottomNav`) before wiring
   real screens on top — explicitly marked "safe to delete once approved."
 
@@ -260,17 +267,18 @@ gems or chips (not real money — currency purchases happen separately in
 |---|---|---|---|
 | **Board themes** | `src/constants/boardThemes.ts` | 5 | Classic Chrome (free) + Cyan Storm, Gold Rush, Crimson Stage, Obsidian Void. Colors are *derived programmatically* (`deriveSquares`/`mixHex` blending an accent into the base per-rank square arrays), not hand-authored per square. Accents are deliberately duller/"weathered" than the app's neon UI palette — a full board painted in arcade-bright neon reads poorly at board scale. |
 | **Piece sets** | `src/constants/pieceSets.ts` | 4 | Classic Chrome (free) + Graphite Tour, Molten Gold, Crimson Reaper. Two art pipelines: bespoke vectorized geometry (real distinct sets — Molten Gold, Crimson Reaper) vs. recolor-derived (Graphite Tour, transitional). `accentColor` here is informational only — actual art is separate SVGs resolved via `pieceSprites.ts`. |
-| **Avatars** | `src/constants/avatars.ts` | 12 | AXE 🎸, NOVA ⚡, RIFF 🤘, AXL 🕶️, BLAZE 🔥, BEATS 🥁, MIC DROP 🎤, SYNTH 🎹, REAPER 💀, KING 👑, REBEL ⛓️, LEGEND 🏆 — all currently unlocked/free. Shared by onboarding's avatar-picker and Forge. `id`s are permanent once shipped (persisted as the profile's `avatarId`); `king-axl` was deliberately avoided as an id since it's already a bot character's name. |
+| **Avatars** | `src/constants/avatars.ts` + generated `avatarImages.generated.ts` | 77 | Three classes: **Garage Band** (the 12 original free badges), **Main Stage** (41, gems or chips) and **Hall of Fame** (24, gems only + a rating gate). Each class has its own frame (steel / neon / gold). Generated by `scripts/gen-avatar-catalog.mjs`; onboarding only offers Garage Band. `id`s are permanent once shipped (persisted as the profile's `avatarId`). |
 
-**Purchase flow** (Forge): tapping a locked item opens a native `Alert` with
-Cancel / pay-in-gems / pay-in-chips options → server call → profile refresh →
+**Purchase flow** (Forge): tapping a locked board/piece set opens a native
+`Alert` (a premium avatar opens `UnlockModal`, which hides chips for Hall of
+Fame and shows the rating requirement) with Cancel / pay-in-gems / pay-in-chips options → server call → profile refresh →
 the item auto-*selects* but does **not** auto-equip (equip is a separate
 deliberate bottom-bar action, one per tab). `insufficient-funds` shows a
 dedicated alert; `already-owned` silently re-selects.
 
 Server mirrors of the board/piece catalogs exist at `server/src/boardThemes.ts`
-/ `server/src/pieceSets.ts` for equip validation — kept in sync manually, not
-generated from one source.
+/ `server/src/pieceSets.ts` for equip validation — kept in sync manually.
+Prices come from `economy.config.json`'s tier ladder.
 
 ---
 
@@ -291,110 +299,109 @@ Every screen's header uses the sub-page pattern from §5.3 unless noted.
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `home.tsx` | Main lobby / mode selection | Venue selector row, hero "Play Now" card, 2-col bento grid to Iron Duel/Tournaments/Bots/Puzzles/Game Room, daily-engagement row (Spin/Daily Bonus/Quests). The one home-adjacent screen reading *live* profile data rather than placeholder copy. |
+| `home.tsx` | Main lobby | `TopAppBar`, venue picker hero card ("Play Now" with buy-in confirmation and locked-venue explanations via `useVenueEntry`), 2x2 bento grid (Iron Duel / The Tour / Bots / Puzzles), daily row (Daily Bonus, Spin) |
+| `play.tsx` | Mode picker (center tab) | Quick Match card with time-format chips + "Find Match"; Competitive (Iron Duel, Play a Friend, The Tour, Festival Run) and Casual & Training (Vs Bots, Puzzles, Analysis Board) rows. The chip clock labels don't match the queues played (see `ROADMAP.md`) |
 
 ### `(play)` — Gameplay
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `bots.tsx` | Pick a bot opponent | 6 named bots with decorative star ratings + a real `BotDifficulty` tier each |
+| `bots.tsx` | Pick a bot opponent | 6 named bots (painted portraits) with a real `BotDifficulty` tier each; Match Options modal (side / time / venue) |
+| `tour.tsx` | The Tour campaign | Painted road map with a badge per chapter; tapping a stop lists its five gigs and the boss; Crowd Energy + Roadie Kit offer after real boss losses |
+| `festival.tsx` | Festival Run | Three tier cards (entry, bot ladder, purse per set, unlock), an active-run card (play next set / cash out / rejoin) |
 | `game-room.tsx` | Private room create/join | 6-char room code, copy-to-clipboard, pulsing "waiting" state |
-| `matchmaking.tsx` | Public queue wait | Pulsing `❓` opponent avatar, re-joins queue on socket reconnect |
-| `setup.tsx` | Venue/stakes + duration picker | Horizontal-scroll stakes ladder (Garage→World Tour), selected tile *grows* |
-| `match.tsx` | **Core live match screen** | See §3.1/§4 for the full animation+sound system; player rows with captured-piece trays, in-match `ActionBar` (Chat/Hint-stub/Resign/Draw-stub/Menu-stub), 900ms pause before routing to results so the final position is visible |
+| `matchmaking.tsx` | Public queue wait | Pulsing `❓` opponent avatar, elapsed timer, re-joins queue on socket reconnect, opt-in "Also search other time controls" after ~25 s, `queue:error` state |
+| `setup.tsx` | Venue/stakes + duration picker | Horizontal-scroll stakes ladder (Garage→World Tour), selected tile *grows*, "N searching" per clock, Safety Net add-on and active-gear pills at wagered venues |
+| `match.tsx` | **Core live match screen** | See §3.1/§4 for the animation+sound system; player rows with real rating/title, clocks and captured-piece trays (+N material lead); header venue pill + "WIN N" pot pill; action bar (Chat or the Roadie Kit pills, Moves peek, Draw, Resign); tap the opponent for their profile; 900ms pause before routing to results |
 | `puzzle-match.tsx` | Solve one tactic | Status card reacts to solve state (Find/Solved/Try again), Hint/Give-Up vs. Back/Reset action rows |
 | `puzzles.tsx` | Puzzle catalog | Virtualized `SectionList` grouped into rating bands (chosen over `ScrollView`+`.map` after ~4,000 native views became a perf problem) |
 | `replay.tsx` | Post-game replay + paid analysis | Transport controls, eval bar, move-quality callouts (best/good/inaccuracy/mistake/blunder — blunder uses a skull icon, a nod to the "Reaper" bot), accuracy verdicts |
-| `result-placeholder.tsx` | Win/Loss/Draw summary | Outcome-colored banner + glow, count-up reward chips, conditional Replay/Analyze-Game (paid, via Alert confirmation)/Home actions |
-| `tournaments.tsx` | Browse tournaments | Live tournament card w/ fill-progress bar, ticket card, upcoming-events list (mostly stubbed) |
+| `result-placeholder.tsx` | Win/Loss/Draw summary (the real result screen; name is historical) | Outcome-colored banner + glow, count-up reward chips, Show Report, wager settlement line, Festival Set Break, Rematch (bot: same bot, colours swapped; online: offer/accept via `RematchPanel`), Replay / Analyze Game (review credit or chips/gems) / Home |
+| `tournaments.tsx` | Tournaments | Honest "Coming Soon" screen; nothing is joinable |
 
 ### `(rewards)` — Engagement loops
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `achievements.tsx` | Badge hall of fame | 3-col badge grid (gold/chrome gradient fills when unlocked), one featured long-form challenge card |
-| `collections.tsx` | Collectible character cards | Set-grouped 2-col card grid — the one screen using per-item character portrait images instead of emoji |
-| `daily-bonus.tsx` | Daily login streak | Guest-gated; 6-day grid + a distinct Day-7 jackpot card; icon varies by actual reward type (chips/gems/both) |
-| `quests.tsx` | Daily/weekly objectives | Claimed quests get strikethrough + cyan title; Weekly tab is a full locked-state placeholder |
-| `spin.tsx` | Daily prize wheel | Guest-gated; hand-drawn SVG wheel, server-decided-then-animated-to outcome (see §3.2) |
+| `achievements.tsx` | Badge hall of fame | 3-col badge grid (gold/chrome gradient fills when unlocked), one featured long-form challenge card; real server progress + claim |
+| `collections.tsx` | Owned cosmetics inventory | Boards / Pieces / Avatars tabs (avatars per class via `AvatarClassTabs`), tap to equip |
+| `daily-bonus.tsx` | Daily login streak | Guest-gated; 6-day grid + a distinct Day-7 jackpot card; "Watch ad · claim x2" when claimable |
+| `quests.tsx` | Daily/weekly objectives | Real server progress + claim; claimed quests get strikethrough + cyan title; the Weekly ("Tour Dates") tab unlocks at level 5 |
+| `spin.tsx` | Daily prize wheel | Guest-gated; hand-drawn SVG wheel, server-decided-then-animated-to outcome (see §3.2); after the free spin: one ad spin and up to three chip-priced spins |
 
 ### `(settings)`
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `control-core.tsx` | Settings hub | Audio toggles, game-settings list, account summary, Logout (danger) |
+| `control-core.tsx` | Settings hub | Audio toggles, game-settings list (Notifications, Language*, Terms*, Privacy & Ad Choices where required, Help), account summary, Logout (danger). *not wired |
 | `backstage-alerts.tsx` | Notifications inbox | Accent-colored left border per item, unread/read state with distinct action-pill styling |
-| `account-security.tsx` | Linked accounts + deletion | ID-badge-styled profile card (4 decorative corner rivets), real `Alert`-confirmed account deletion |
-| `roadie-support.tsx` | Help center | 2×2 category grid (Report a Player flagged in danger styling), contact CTA |
+| `account-security.tsx` | Linked accounts + blocked players + deletion | ID-badge-styled profile card (4 decorative corner rivets), real `Alert`-confirmed account deletion. The linked-accounts list is hardcoded mock data |
+| `blocked-players.tsx` | Block list | Unblock with confirmation |
+| `roadie-support.tsx` | Help center | Category grid: FAQ, email support (pre-filled version/platform), Report a Player (danger styling) |
+| `faq.tsx` | FAQ | Expandable static entries |
+| `report-player.tsx` | Report a player | Pick a friend or recent opponent, then `ReportPlayerModal` |
 
 ### `(shop)`
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `shop.tsx` | Currency purchases (Chips/Gems/VIP) | Cosmetics deliberately excluded — a persistent "Forge" entry card routes there instead of a 4th tab; one "HOT" ribbon-badged highlighted pack |
+| `shop.tsx` | Rock Shop | Chips / Gems / Gear / VIP tabs. Chips and Gems are real Google Play Billing packs; Chips also holds Remove Ads (+ restore) and the Free Chips rewarded ad; Gear holds Backstage Gear + the Review Pack; VIP (Backstage Pass) is "Coming soon". A persistent "Forge" card routes to cosmetics |
 | `forge.tsx` | Cosmetic preview + equip | See §7 |
 
 ### `(social)`
 
 | Screen | Purpose | Notable UX |
 |---|---|---|
-| `iron-id.tsx` | Full player profile (primary tab) | 4-state (guest/loading/error/ready), rating card with ghost trending-icon backdrop, trophy case (flavor-only, no backend), tappable match history → replay |
-| `world-rankings.tsx` | Global leaderboard (primary tab) | Podium layout (2nd/1st/3rd visual order, gold pedestal for 1st), only "Global" filter tab implemented |
-| `friends.tsx` | Friends list | Status-dot-coded avatars (online/offline/in-game), per-status action (Watch/Challenge/Chat-stub) |
-| `front-row.tsx` | Spectate a live match | Pulsing `LiveBadge`, floating emoji reactions, scrolling chat ticker — the most animation-dense screen outside the board itself |
-| `bands.tsx` | Guild/clan browser | Entirely mock/flavor — no backend band system exists yet |
-| `messages.tsx` | DM inbox + chat thread | Bespoke speech-bubble UI (asymmetric corner radius per sender), local-only send (not persisted) |
+| `iron-id.tsx` | Full player profile (primary tab) | 4-state (guest/loading/error/ready), rating card with tier, level/title, trophy case (flavor-only), friend code, social cards (Friends / Messages / Spectate with badges), tappable match history → replay |
+| `world-rankings.tsx` | Leaderboard (primary tab) | Podium layout (2nd/1st/3rd visual order, gold pedestal for 1st), pinned "you" row; Global and Friends tabs live, Venue/Country "Coming Soon"; tap a player for their profile |
+| `friends.tsx` | Friends list | Presence-dot avatars (online/in-game/offline), requests, add by friend code, per-row Challenge (3/5/10m) / Message / Remove |
+| `front-row.tsx` | Spectate a live match | Live match list, real position + clocks over `spectate:*`, pulsing `LiveBadge`, floating emoji reactions (local-only) |
+| `messages.tsx` | DM inbox + chat thread | Bespoke speech-bubble UI (asymmetric corner radius per sender); real persisted, friends-only DMs with unread badges |
+
+Shared sheet: `components/social/PlayerProfileSheet` opens over any screen (including a
+live match) from the opponent header, the result screen, friends rows and rankings.
 
 ---
 
 ## 9. Recurring UX Patterns & Conventions
 
-- **Guest-gating**: `daily-bonus.tsx`, `spin.tsx`, and `iron-id.tsx` all check
-  a `guest` profile state and swap the whole screen body for a sign-in prompt
-  rather than showing empty/fake data to an unauthenticated user.
-- **Locked-item treatment**: consistent across venues (setup.tsx), bots
-  (bots.tsx), cosmetics (forge.tsx), tournaments, and quests — dim to reduced
-  opacity, swap the icon/label to a muted color, overlay a small lock glyph,
-  and (where purchasable) show a price pill instead of the normal action.
-- **Loading/error/empty states**: iron-id.tsx and replay.tsx both follow the
-  same discipline of not blanking already-loaded content on a background
-  refresh error — loading/error UI only appears when there's nothing cached
+- **Guest-gating**: daily bonus, spin, Iron ID, friends, messages, the Tour and Festival Run check a
+  `guest` profile state and swap the whole screen body for a sign-in prompt rather than
+  showing empty/fake data to an unauthenticated user.
+- **Locked-item treatment**: consistent across venues (setup.tsx / Home), bots,
+  cosmetics (forge.tsx), Tour chapters, Festival tiers and weekly quests — dim to reduced
+  opacity, swap the icon/label to a muted color, overlay a small lock glyph, and (where
+  purchasable) show a price pill instead of the normal action.
+- **Loading/error/empty states**: screens don't blank already-loaded content on a
+  background refresh error — loading/error UI only appears when there's nothing cached
   yet to show instead.
-- **In-flight action locking**: buttons that trigger an async call disable
-  themselves and swap their label to a present-participle state ("Creating...",
-  "Equipping...", "Spinning…") for the duration — applied uniformly rather than
-  per-screen.
-- **Confirmation via native `Alert`**: destructive or paid actions (delete
-  account, Forge purchases, paid game analysis) go through `Alert.alert(...)`
-  rather than a custom in-app modal.
-- **Stub/placeholder convention**: a large fraction of interactive elements
-  across the app (social login, "Link Now", most Support/Tournament/Quest/
-  Bands actions, several home bento tiles) are intentionally `console.log`-only
-  stubs pending real backend wiring — this is a normal, current-in-progress
-  state of the app, not a bug to "fix" reflexively if encountered while working
-  on an unrelated screen.
-- **Asset provenance caveat**: several screens' background/hero images are live
-  Stitch-mockup preview URLs (`lh3.googleusercontent.com/aida-public/...`),
-  explicitly commented in-code as having no permanence guarantee — worth
-  swapping for bundled assets before shipping those screens for real.
+- **In-flight action locking**: buttons that trigger an async call disable themselves
+  and swap their label to a present-participle state ("Creating...", "Equipping...",
+  "Spinning…") for the duration — applied uniformly rather than per-screen.
+- **Confirmation**: destructive or paid actions go through `Alert.alert(...)` or the
+  shared `ConfirmModal` (e.g. resign, logout, unblock, account deletion).
+- **Remaining stubs** (intentional, tracked in `ROADMAP.md`, not bugs to fix
+  reflexively while working on something else): Forgot Password, Language and Terms
+  rows, the linked-accounts list, Tournaments, Backstage Pass/VIP, Venue/Country
+  leaderboards, the trophy case, spectator emoji reactions.
+- **Assets**: all background/hero art is bundled (`src/constants/screenArt.ts`); no
+  screen loads remote Stitch preview URLs any more.
 
 ---
 
 ## 10. Current Implementation State
 
-For an honest snapshot of what's real vs. decorative as of this writing:
+**Real, server-backed**: auth (better-auth sign-up/sign-in, guest mode, logout,
+delete), profile + avatar classes, matchmaking per venue and time control, private
+rooms, friend challenges, online play with server clocks, draw offers, rematch,
+reconnection, chat and spectating; verified bot sessions, The Tour, Festival Run,
+chip wagers + Safety Net; Fame/levels/titles + Show Report; daily bonus, spin (free,
+ad and chip-priced), daily + weekly quests, achievements; Forge purchases/equip and
+Collections; Backstage Gear and Review Packs; replay + paid analysis; friends,
+DMs, notifications, global/friends rankings, public profiles, report/block; Google
+Play Billing (packs, Remove Ads) and AdMob ads (test ids).
 
-**Fully wired to real backend logic**: auth (sign-up/sign-in/logout/delete),
-profile fetch/update, matchmaking + private rooms (sockets), live match play
-(all modes: bot/online/local/puzzle), replay + paid Stockfish analysis, daily
-bonus claim, daily spin, Forge purchase/equip.
+**Device-only**: bot and local clocks, puzzle progress, Roadie Kit helps (the kit
+itself is sold by the server), local pass-and-play.
 
-**Presentational / flavor-only (no backend yet)**: Bands, most of Tournaments,
-Quests' claim actions, Achievements, Collections, Messages (local-only),
-in-match Hint/Draw/Menu buttons, most Settings sub-actions (language, ToS,
-social account linking, support categories), the in-match player rating/clock
-display (static placeholder numbers, not live), and `MoveTicker`'s move-history
-text (a hardcoded sample, not the live game's actual moves).
-
-This split is intentional and documented in-code screen-by-screen — treat it as
-a map of "what's real" rather than a todo list to silently start fixing.
+**Not built**: see the stub list in §9 and `ROADMAP.md`.

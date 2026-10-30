@@ -129,6 +129,8 @@ export const userSpinLog = pgTable('user_spin_log', {
     .notNull()
     .references(() => spinPrizes.id),
   spunAt: timestamp('spun_at', { withTimezone: true }).notNull().defaultNow(),
+  // Chips paid for this spin (a chip-priced extra spin, db/spin.ts); null = the free daily spin or the ad spin.
+  paidChips: integer('paid_chips'),
 });
 
 export const cardSets = pgTable('card_sets', {
@@ -260,6 +262,24 @@ export const tourState = pgTable('tour_state', {
   encoreProgress: integer('encore_progress').notNull().default(0),
 });
 
+// Per-player, per-chapter boss attempts (db/tourKit.ts): `losses` counts REAL losses to the
+// chapter's boss (past backstage.minAttemptPlies) and drives Crowd Energy; `freeKitsUsed`
+// is how many of the crowd's free kits were spent. Both only ever go up (a refund of an
+// unused free kit is the one decrement).
+export const tourBossAttempts = pgTable(
+  'tour_boss_attempts',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    chapterId: varchar('chapter_id', { length: 40 }).notNull(),
+    losses: integer('losses').notNull().default(0),
+    freeKitsUsed: integer('free_kits_used').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.chapterId] })],
+);
+
 // A bot match the SERVER knows about. Bot games are played on the device, so the
 // only way to stop "POST me a win" farming is to make the server issue the match
 // first (it records which bot and which colour) and verify the finished game's PGN
@@ -277,6 +297,10 @@ export const botSessions = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     result: varchar('result', { length: 20 }),
+    // The Roadie Kit (db/tourKit.ts): null = no kit, 0 = the crowd's free kit, >0 = chips paid.
+    // A kit session advances no gigs; an unverifiable result refunds it.
+    kitPaid: integer('kit_paid'),
+    kitChapterId: varchar('kit_chapter_id', { length: 40 }),
   },
   (t) => [index('bot_sessions_user_idx').on(t.userId, t.finishedAt)],
 );

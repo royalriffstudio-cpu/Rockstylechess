@@ -1,7 +1,9 @@
+import { emitEmailGate } from './emailGate';
+
 const SERVER_URL = process.env.EXPO_PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
 interface RequestOptions {
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   token?: string;
 }
@@ -18,6 +20,8 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
 
   const data = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
+    // New email/password account that has not entered its code yet: open the "verify your email" prompt.
+    if (data.error === 'email-not-verified') emitEmailGate();
     throw new Error(data.error ?? `request failed (${response.status})`);
   }
   return data;
@@ -72,11 +76,21 @@ export function verifyPurchase(
 // Premium action: charges chips or gems every time Game Analysis is used
 // (no persistent "unlocked" record). Rejects with Error('insufficient-funds')
 // -- callers catch that specifically, same pattern as unlockCosmetic.
+// currency 'credit' spends one review stored from a Review Pack (price 0).
 export function chargeForAnalysis(
   token: string,
-  currency: 'chips' | 'gems',
-): Promise<{ ok: true; currency: 'chips' | 'gems'; price: number; chips: number; gems: number }> {
+  currency: 'chips' | 'gems' | 'credit',
+): Promise<{ ok: true; currency: 'chips' | 'gems' | 'credit'; price: number; chips: number; gems: number; credits: number }> {
   return request('/me/analysis/charge', { method: 'POST', body: { currency }, token });
+}
+
+// Review Pack: ten reviews at once for less than ten singles, paid in chips or gems and stored as
+// credits. Rejects with Error('insufficient-funds' | 'stock-full').
+export function buyAnalysisPack(
+  token: string,
+  currency: 'chips' | 'gems',
+): Promise<{ ok: true; currency: 'chips' | 'gems'; price: number; reviews: number; chips: number; gems: number; credits: number }> {
+  return request('/me/analysis/packs/buy', { method: 'POST', body: { currency }, token });
 }
 
 // ---- Progression (Fame / level / titles) -- mirrors server/src/db/progression.ts ----
@@ -104,6 +118,11 @@ export interface ProgressionReport {
     streak: number;
     capped: boolean;
     botFameLeftToday: number | null;
+    // Backstage Gear: Amp Boost bonus applied to this win (0 = none) and wins left on it, and the
+    // win streak a Lucky Pick just saved from this loss (0 = none).
+    ampBonus: number;
+    ampWinsLeft: number;
+    luckyPickSaved: number;
   };
   xpBefore: number;
   xpAfter: number;
@@ -148,11 +167,21 @@ export interface PlayerProfile {
   equippedPieceId: string | null;
   equippedAvatarCosmeticId: string | null;
   ownedCosmeticIds: string[];
+  // Game Reviews bought in a Review Pack and not yet spent (Analyze Game spends these first).
+  analysisCredits: number;
   // True once the player bought Remove Ads (server-set only, never writable
   // through PATCH /me/profile). Switches off interstitials; rewarded ads stay.
   adsRemoved: boolean;
   // Title shown under the name (id from economy.config.json levels.titles).
   equippedTitleId: string | null;
+  // The login email and the ways this account can sign in ('password' and/or 'google'); own account only.
+  email?: string | null;
+  signInMethods?: string[];
+  // Email verification (server/src/db/emailGate.ts). needsEmailVerification = a new email/password account that
+  // has not entered its code (soft gate on online play); welcomeBonusPending = its 4,000 chips are still held.
+  emailVerified?: boolean;
+  needsEmailVerification?: boolean;
+  welcomeBonusPending?: boolean;
 }
 
 export function getMyProfile(token: string): Promise<{ profile: PlayerProfile }> {
@@ -162,8 +191,16 @@ export function getMyProfile(token: string): Promise<{ profile: PlayerProfile }>
 // ---- Verified bot matches (server/src/db/botSessions.ts) ----
 // Bot games are played on the device, so the server issues each one first and only
 // pays when the finished game's PGN replays as a legal game with a real result.
-export function startBotMatch(token: string, botId: string, color: 'w' | 'b'): Promise<{ ok: true; sessionId: string }> {
-  return request('/me/bot-matches', { method: 'POST', body: { botId, color }, token });
+// `kit: true` also buys the Roadie Kit for a Tour boss fight (the chips leave in the same call).
+// It rejects with Error('kit-locked' | 'insufficient-chips' | 'not-a-boss').
+export interface BotMatchKit {
+  takeTwos: number;
+  tips: number;
+  paid: number; // chips paid (0 = the crowd's free kit)
+  chips: number | null; // balance after paying
+}
+export function startBotMatch(token: string, botId: string, color: 'w' | 'b', kit = false): Promise<{ ok: true; sessionId: string; kit: BotMatchKit | null }> {
+  return request('/me/bot-matches', { method: 'POST', body: { botId, color, ...(kit ? { kit: true } : {}) }, token });
 }
 
 export type BotFinishReason = 'game' | 'resign' | 'timeout' | 'abandon' | 'bot-timeout';
@@ -181,6 +218,38 @@ export interface BotFinishResult {
 
 export function finishBotMatch(token: string, sessionId: string, pgn: string, endedBy: BotFinishReason): Promise<BotFinishResult> {
   return request(`/me/bot-matches/${sessionId}/finish`, { method: 'POST', body: { pgn, endedBy }, token });
+}
+
+// ---- Backstage Gear: consumables (server/src/db/boosts.ts) ----
+export interface GearItemStatus {
+  id: string;
+  name: string;
+  tagline: string;
+  price: number;
+  charges: number; // uses on one copy
+  quantity: number; // in the bag
+  activeCharges: number; // left on the activated copy (0 = none active)
+  atCap: boolean;
+}
+
+export interface GearStatus {
+  items: GearItemStatus[];
+  maxStock: number;
+  chips: number;
+}
+
+export function getGear(token: string): Promise<GearStatus> {
+  return request('/me/gear', { method: 'GET', token });
+}
+
+// Rejects with Error('insufficient-chips' | 'stock-full' | 'unknown-item').
+export function buyGear(token: string, itemId: string): Promise<{ ok: true; chips: number; quantity: number }> {
+  return request(`/me/gear/${encodeURIComponent(itemId)}/buy`, { method: 'POST', token });
+}
+
+// Rejects with Error('already-active' | 'none-in-bag' | 'unknown-item').
+export function activateGear(token: string, itemId: string): Promise<{ ok: true; quantity: number; activeCharges: number }> {
+  return request(`/me/gear/${encodeURIComponent(itemId)}/activate`, { method: 'POST', token });
 }
 
 // ---- The Tour (campaign) ----
@@ -207,6 +276,17 @@ export interface TourChapter {
   boss: null | { botId: string; name: string; emoji: string; difficulty: string };
   encore: null | { progress: number; bots: { id: string; name: string; emoji: string }[] };
   reward: { chips: number; gems: number; titleName: string };
+  // Crowd Energy + the Roadie Kit (server/src/db/tour.ts); null when there is no boss to be stuck on.
+  backstage: null | {
+    losses: number;
+    kitUnlockLosses: number;
+    kitOpen: boolean;
+    toNextFree: number;
+    crowdFreeEvery: number;
+    freeKit: boolean;
+    price: number;
+    kit: { takeTwos: number; tips: number };
+  };
   gigs: TourGig[];
 }
 
@@ -220,6 +300,88 @@ export function getTour(token: string): Promise<TourStatus> {
   return request('/me/tour', { method: 'GET', token });
 }
 
+// ---- Festival Run (server/src/db/festival.ts) ----------------------------------------------
+
+export interface FestivalSet {
+  botId: string;
+  name: string;
+  emoji: string;
+  difficulty: string;
+}
+
+export interface FestivalTierView {
+  id: string;
+  name: string;
+  tagline: string;
+  entry: number;
+  nextEntry: number; // today's price for the next run (repeat surcharge included)
+  purse: number[];
+  sets: FestivalSet[];
+  unlocked: boolean;
+  unlockChapterId: string;
+  unlockChapterName: string;
+  runsToday: number;
+  dailyRuns: number;
+  cleared: boolean;
+  titleName: string;
+}
+
+export interface FestivalRunView {
+  id: string;
+  tierId: string;
+  status: 'active' | 'cashed' | 'won' | 'lost' | 'refunded';
+  phase: 'ready' | 'playing';
+  entryPaid: number;
+  setIndex: number;
+  setsCleared: number;
+  totalSets: number;
+  replaysUsed: number;
+  purse: number[];
+  banked: number;
+  nextPurse: number | null;
+  canCashOut: boolean;
+  sets: (FestivalSet & { state: 'done' | 'current' | 'next' })[];
+  payout: number | null;
+  matchId: string | null;
+}
+
+export interface FestivalStatus {
+  tiers: FestivalTierView[];
+  activeRun: FestivalRunView | null;
+}
+
+export function getFestival(token: string): Promise<FestivalStatus> {
+  return request('/me/festival', { method: 'GET', token });
+}
+
+// Entering can be refused for reasons the screen explains (locked, daily limit, chips), so
+// this returns the refusal instead of throwing it away as a bare error string.
+export type EnterFestivalResult =
+  | { ok: true; run: FestivalRunView; chips: number; fee: number }
+  | { ok: false; error: 'unknown-tier' | 'profile-not-found' | 'locked' | 'daily-limit' | 'already-active' | 'insufficient-chips' | 'network'; required?: number; chips?: number; chapterName?: string; limit?: number; run?: FestivalRunView };
+
+export async function enterFestival(token: string, tierId: string): Promise<EnterFestivalResult> {
+  try {
+    const response = await fetch(`${SERVER_URL}/me/festival/${encodeURIComponent(tierId)}/enter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) return { ok: true, run: data.run, chips: data.chips, fee: data.fee };
+    return { ok: false, error: data.error ?? 'network', required: data.required, chips: data.chips, chapterName: data.chapterName, limit: data.limit, run: data.run };
+  } catch {
+    return { ok: false, error: 'network' };
+  }
+}
+
+export function cashOutFestival(token: string, runId: string): Promise<{ ok: true; run: FestivalRunView; payout: number; chips: number }> {
+  return request(`/me/festival/runs/${runId}/cash-out`, { method: 'POST', token });
+}
+
+export function recoverFestivalRun(token: string, runId: string): Promise<{ ok: true; how: 'cashed' | 'refunded'; payout: number; chips: number; run: FestivalRunView }> {
+  return request(`/me/festival/runs/${runId}/recover`, { method: 'POST', token });
+}
+
 // What the Tour did with ONE finished match (part of the Show Report).
 export interface TourUpdate {
   gigsCompleted: { id: string; title: string; chapterId: string; chips: number }[];
@@ -228,6 +390,15 @@ export interface TourUpdate {
   perfect: null | { chapterId: string; chapterName: string; gems: number };
   chapterUnlocked: null | { id: string; name: string };
   encore: null | { progress: number; total: number };
+  bossAttempt: null | {
+    chapterId: string;
+    chapterName: string;
+    losses: number;
+    toUnlock: number;
+    kitJustOpened: boolean;
+    freeKitJustEarned: boolean;
+    toNextFree: number;
+  };
   chips: number;
   gems: number;
 }
@@ -267,8 +438,42 @@ export function claimDailyBonus(token: string, options: { doubleWithAd?: boolean
   });
 }
 
+// Another player's public profile (server/src/db/publicProfile.ts): public fields only. Rejects with
+// Error('not-found') for an unknown or blocked player.
+export interface PublicProfile {
+  userId: string;
+  displayName: string | null;
+  avatarId: string | null;
+  country: string | null;
+  rating: number;
+  tier: RatingTier;
+  level: number;
+  title: { id: string; name: string } | null;
+  wins: number;
+  losses: number;
+  draws: number;
+  gamesPlayed: number;
+  winRate: number | null;
+  online: boolean;
+  relation: 'self' | 'friends' | 'outgoing' | 'incoming' | 'none';
+  headToHead: null | { games: number; yourWins: number; theirWins: number; draws: number };
+}
+
+export function getPlayerProfile(token: string, userId: string): Promise<{ profile: PublicProfile }> {
+  return request(`/users/${encodeURIComponent(userId)}/profile`, { method: 'GET', token });
+}
+
+// How many players are waiting per time control at a venue (server/src/matchmaking.ts queueCounts): display
+// only, for the "N searching" line under the time picker. Public, no sign-in needed.
+export function getQueueStats(venueTier: string): Promise<{ venueTier: string; waiting: Record<'3m' | '5m' | '10m', number> }> {
+  return request(`/queue/stats?venueTier=${encodeURIComponent(venueTier)}`, { method: 'GET' });
+}
+
 export interface SpinStatus {
   canSpin: boolean;
+  // Chip-priced extra spins (after the free one): how many today, the daily cap, and what the next one
+  // costs (null once today's are used up). Prices step up; see economy.config.json -> spinExtra.
+  paid: { used: number; cap: number; nextPrice: number | null };
 }
 
 export function getSpinStatus(token: string): Promise<SpinStatus> {
@@ -281,6 +486,7 @@ export interface SpinResult {
   label: string;
   rewardType: 'chips' | 'gems' | 'xp';
   rewardAmount: number;
+  paidChips: number | null; // chips this spin cost (null = the free or ad spin)
   chips: number;
   gems: number;
 }
@@ -292,10 +498,13 @@ export interface SpinResult {
 //
 // `withAd`: the one extra daily spin, earned by a rewarded ad. Also rejects
 // with Error('ad-daily-cap-reached' | 'ad-not-verified').
-export function spinWheel(token: string, options: { withAd?: boolean } = {}): Promise<SpinResult> {
+//
+// `withChips`: a chip-priced extra spin, only after the free one. Rejects with
+// Error('free-spin-available' | 'paid-spins-used' | 'insufficient-funds').
+export function spinWheel(token: string, options: { withAd?: boolean; withChips?: boolean } = {}): Promise<SpinResult> {
   return request('/me/spin', {
     method: 'POST',
-    body: options.withAd ? { withAd: true } : undefined,
+    body: options.withAd ? { withAd: true } : options.withChips ? { withChips: true } : undefined,
     token,
   });
 }
@@ -307,7 +516,7 @@ export interface AdPlacementStatus {
   remaining: number;
 }
 export interface AdStatus {
-  placements: Record<'free-chips' | 'extra-spin' | 'daily-double', AdPlacementStatus>;
+  placements: Record<'free-chips' | 'extra-spin' | 'daily-double' | 'venue-refill', AdPlacementStatus>;
   ssvRequired: boolean;
 }
 
@@ -318,6 +527,12 @@ export function getAdStatus(token: string): Promise<AdStatus> {
 // Free-chips placement. Rejects with Error('ad-daily-cap-reached' | 'ad-not-verified').
 export function redeemFreeChipsAd(token: string): Promise<{ ok: true; chipsGranted: number; chips: number; gems: number }> {
   return request('/me/ads/redeem', { method: 'POST', body: { placement: 'free-chips' }, token });
+}
+
+// Out-of-chips lifeline: an ad pays the shortfall to the cheapest buy-in (server/src/adRewards.ts,
+// refillAmount). Rejects with Error('ad-daily-cap-reached' | 'ad-not-verified' | 'refill-not-needed').
+export function redeemVenueRefillAd(token: string): Promise<{ ok: true; chipsGranted: number; chips: number; gems: number }> {
+  return request('/me/ads/redeem', { method: 'POST', body: { placement: 'venue-refill' }, token });
 }
 
 export interface QuestStatus {
@@ -655,4 +870,33 @@ export function markNotificationRead(token: string, notificationId: string): Pro
 
 export function markAllNotificationsRead(token: string): Promise<{ ok: true }> {
   return request('/me/notifications/read-all', { method: 'POST', token });
+}
+
+// --- Push notifications (server/src/push.ts) -----------------------------------------------------------
+
+export interface PushPreferences {
+  social: boolean;
+  invites: boolean;
+  results: boolean;
+  daily: boolean;
+}
+
+export function registerPushDevice(token: string, device: { pushToken: string; platform: string; tzOffsetMin: number }): Promise<{ ok: true }> {
+  return request('/me/push/devices', {
+    method: 'POST',
+    body: { token: device.pushToken, platform: device.platform, tzOffsetMin: device.tzOffsetMin },
+    token,
+  });
+}
+
+export function unregisterPushDevice(token: string, pushToken: string): Promise<{ ok: true }> {
+  return request('/me/push/devices', { method: 'DELETE', body: { token: pushToken }, token });
+}
+
+export function getPushPreferences(token: string): Promise<{ preferences: PushPreferences }> {
+  return request('/me/push/preferences', { method: 'GET', token });
+}
+
+export function updatePushPreferences(token: string, patch: Partial<PushPreferences>): Promise<{ preferences: PushPreferences }> {
+  return request('/me/push/preferences', { method: 'PUT', body: patch, token });
 }

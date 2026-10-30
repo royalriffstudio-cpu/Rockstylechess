@@ -1,6 +1,6 @@
 # (social) route group
 
-Everything about other players: rankings, identity, clubs, friends, messaging, and
+Everything about other players: rankings, identity, friends, messaging, and
 spectating a live match. Grouped together since they're all reachable from each other
 (mostly via Iron ID's social row) rather than from a single Home tile, distinct from
 `(play)`'s own-match flow and `(rewards)`'s solo engagement loops.
@@ -13,6 +13,7 @@ files without adding `/social` to the URL/deep-link path.
   destination for the "Ranks" tab. **Global** and **Friends** tabs are live (Friends
   reads `useFriends()`, ranked by rating); Venue/Country still "Coming Soon". Ranked
   rows carry an inline "Add Friend" button.
+- **Tap-to-view profiles:** friends rows, the rankings (podium, ranked rows, friends tab), the match header (opponent) and the result screen all open `components/social/PlayerProfileSheet` for that player (`GET /users/:id/profile`: rating, tier, record, head-to-head, online, Add friend / Message).
 - `iron-id.tsx` — the player's own profile: rating, stats, trophy case, match history,
   built from `iron_id_pro_stage_animated`. Real `BottomNav` destination for the
   "Profile" tab. Hosts the entry points into Friends/Messages/Front Row (Friends/
@@ -33,8 +34,11 @@ files without adding `/social` to the URL/deep-link path.
 - `front-row.tsx` — live spectate screen. Reuses the shared `ChessBoard` component
   (`src/components/ui/ChessBoard.tsx`, extracted out of `(play)/match.tsx`) for the
   board instead of the source's throwaway decorative grid, built from
-  `front_row_pro_stage_animated`. Still mock — spectating is deliberately deferred; the
-  friends list's "in-game" status is real but "Watch" is not wired.
+  `front_row_pro_stage_animated`. **Real live spectating:** lists live matches
+  (`getLiveMatches`), joins one over `spectate:join` / `spectate:leave`
+  (`src/lib/spectateSocket.ts`, server `spectate:*` handlers) and shows the live position
+  and both clocks. Festival sets are never listed. Reached from Iron ID's "Spectate" card.
+  The floating emoji reactions are local-only (not sent to anyone).
 
 ## Friends feature wiring (cross-cutting)
 

@@ -1,4 +1,5 @@
-import { bigint, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { bigint, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
 
 import { users } from './users.js';
 
@@ -125,8 +126,86 @@ export const wagers = pgTable(
     payout: bigint('payout', { mode: 'number' }),
     rake: bigint('rake', { mode: 'number' }),
     plies: integer('plies'),
+    // Safety Net (db/wagers.ts): per seat, the premium paid at escrow on top of the buy-in and
+    // the cover a LOSS pays back. 0 = not insured. Fixed at escrow time, so a later config
+    // change cannot re-price a wager already held.
+    whitePremium: bigint('white_premium', { mode: 'number' }).notNull().default(0),
+    blackPremium: bigint('black_premium', { mode: 'number' }).notNull().default(0),
+    whiteCover: bigint('white_cover', { mode: 'number' }).notNull().default(0),
+    blackCover: bigint('black_cover', { mode: 'number' }).notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     settledAt: timestamp('settled_at', { withTimezone: true }),
   },
   (t) => [index('wagers_status_idx').on(t.status, t.createdAt)],
+);
+
+// Backstage Gear inventory (db/boosts.ts; items in economy.config.json -> gear). One row per
+// (player, item): `quantity` is stock in the bag, `charges` is what is left on the copy the player
+// has ACTIVATED (Amp Boost: wins left; Lucky Pick: 1 while armed). Both only change inside
+// db/boosts.ts or the one transaction that spends a charge.
+export const playerItems = pgTable(
+  'player_items',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    itemId: text('item_id').notNull(),
+    quantity: integer('quantity').notNull().default(0),
+    charges: integer('charges').notNull().default(0),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.itemId] })],
+);
+
+// Festival Run: a paid ladder of server-hosted bot sets (see db/festival.ts). One row
+// per run; the entry is debited in the same transaction that inserts it.
+//   status 'active'   -- in progress; phase says whether a set is being played
+//          'cashed'   -- banked the purse between sets
+//          'won'      -- cleared every set, full purse paid
+//          'lost'     -- lost (or twice drew) a set, or walked away: nothing paid
+//          'refunded' -- a server fault (restart, stale sweep) returned the entry
+// The partial unique index allows ONE active run per player, which also makes a
+// double "enter" race safe. The conditional status flip out of 'active' is what
+// makes cash-out / settlement idempotent.
+export const festivalRuns = pgTable(
+  'festival_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tierId: text('tier_id').notNull(),
+    entryPaid: bigint('entry_paid', { mode: 'number' }).notNull(),
+    // The set to play next (0-based). setsCleared = purse step reached.
+    setIndex: integer('set_index').notNull().default(0),
+    setsCleared: integer('sets_cleared').notNull().default(0),
+    replaysUsed: integer('replays_used').notNull().default(0),
+    status: text('status').notNull().default('active'),
+    // 'ready' = waiting to start the next set; 'playing' = a set match is live.
+    phase: text('phase').notNull().default('ready'),
+    currentMatchId: uuid('current_match_id'),
+    payout: bigint('payout', { mode: 'number' }),
+    utcDay: text('utc_day').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('festival_runs_one_active_idx').on(t.userId).where(sql`${t.status} = 'active'`),
+    index('festival_runs_user_day_idx').on(t.userId, t.tierId, t.utcDay),
+    index('festival_runs_status_idx').on(t.status, t.updatedAt),
+  ],
+);
+
+// First clear of each tier (the one-time title is granted when this row is inserted).
+export const festivalClears = pgTable(
+  'festival_clears',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tierId: text('tier_id').notNull(),
+    clearedAt: timestamp('cleared_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.tierId] })],
 );

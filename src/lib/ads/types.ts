@@ -9,7 +9,7 @@ export type InterstitialPlacement = 'result-exit' | 'puzzle-next';
 
 // Server-side counterparts (caps, rewards) live in server/src/adRewards.ts;
 // the string ids are the contract between the two.
-export type RewardedPlacement = 'free-chips' | 'extra-spin' | 'daily-double';
+export type RewardedPlacement = 'free-chips' | 'extra-spin' | 'daily-double' | 'venue-refill';
 
 // earned      -> the player watched far enough; ask the server to redeem it
 // dismissed   -> closed early, no reward

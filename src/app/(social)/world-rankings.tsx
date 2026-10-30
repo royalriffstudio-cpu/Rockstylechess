@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FriendRow } from '@/components/friends/FriendRow';
+import { PlayerProfileSheet } from '@/components/social/PlayerProfileSheet';
 import { AppIcon, CountryFlag, CurrencyPill, PlayerAvatar, RockButton, RockCard } from '@/components/ui';
 import { Colors, withOpacity } from '@/constants/theme';
 import { useFriends } from '@/hooks/useFriends';
@@ -38,6 +39,8 @@ export default function WorldRankingsScreen() {
   const friends = useFriends();
   const [activeFilter, setActiveFilter] = useState<FilterTab>('global');
   const [refreshing, setRefreshing] = useState(false);
+  // Tap a player to see their profile.
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [addState, setAddState] = useState<Record<string, 'sending' | 'sent' | 'error'>>({});
 
   async function handleAddFromRanking(userId: string) {
@@ -175,6 +178,7 @@ export default function WorldRankingsScreen() {
                   avatarId={f.avatarId}
                   rating={f.rating}
                   presence={friends.presenceOf(f.userId)}
+                  onPress={() => setProfileUserId(f.userId)}
                   right={
                     <Text className="font-heading-md text-cyan" style={{ fontSize: 15 }}>
                       #{index + 1}
@@ -212,7 +216,7 @@ export default function WorldRankingsScreen() {
                     const rank = (index === 1 ? 1 : index === 0 ? 2 : 3) as 1 | 2 | 3;
                     const accent = PODIUM_ACCENT[rank];
                     return (
-                      <View key={entry.userId} className="flex-1 items-center gap-sm" style={{ maxWidth: rank === 1 ? 116 : 100 }}>
+                      <Pressable key={entry.userId} onPress={() => setProfileUserId(entry.userId)} className="flex-1 items-center gap-sm" style={{ maxWidth: rank === 1 ? 116 : 100 }}>
                         {rank === 1 ? <AppIcon name="workspace_premium" size={28} color={Colors.gold} /> : null}
 
                         <View>
@@ -249,7 +253,7 @@ export default function WorldRankingsScreen() {
                             boxShadow: rank === 1 ? `0px 0px 14px ${withOpacity(Colors.gold, 0.2)}` : undefined,
                           }}
                         />
-                      </View>
+                      </Pressable>
                     );
                   })}
                 </View>
@@ -263,7 +267,7 @@ export default function WorldRankingsScreen() {
                       className="flex-row items-center justify-between rounded-lg p-md"
                       style={{ backgroundColor: Colors.bgPanel, borderWidth: 1, borderColor: withOpacity(Colors.chromeDark, 0.3) }}
                     >
-                      <View className="flex-1 flex-row items-center gap-md">
+                      <Pressable onPress={() => setProfileUserId(entry.userId)} className="flex-1 flex-row items-center gap-md">
                         <Text className="w-6 text-center font-display-hero text-text-muted" style={{ fontSize: 20 }}>
                           {index + 4}
                         </Text>
@@ -279,7 +283,7 @@ export default function WorldRankingsScreen() {
                             {formatRecord(entry)}
                           </Text>
                         </View>
-                      </View>
+                      </Pressable>
                       <View className="flex-row items-center gap-sm">
                         <Text className="font-heading-md text-cyan" style={{ fontSize: 14 }}>
                           {entry.rating}
@@ -357,6 +361,7 @@ export default function WorldRankingsScreen() {
         </ScrollView>
       )}
 
+      <PlayerProfileSheet userId={profileUserId} onClose={() => setProfileUserId(null)} />
     </View>
   );
 }

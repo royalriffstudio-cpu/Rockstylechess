@@ -7,6 +7,10 @@
 > old raster set — don't, unless that's actually what you're trying to undo.
 > This file is kept for the **square colour** measurement, which is still
 > current, and as a record of how the old sprite extractor worked.
+>
+> Not to be confused with `scripts/rasterize-pieces.mjs`, which renders the
+> current SVG sets to `assets/pieces/png/<set>/` as a proposed fix for the
+> Android match-screen crash (see `TEMP-match-crash-notes.md`).
 
 `Board.jpeg` is the design render the in-app board is matched against. It is the
 source of truth for two things: the **square colours** in `BoardSquares`

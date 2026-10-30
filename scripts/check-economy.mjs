@@ -71,6 +71,13 @@ check('spin weights sum to 100', wTotal === 100, String(wTotal));
 check('spin has 8 segments (wheel art)', cfg.spin.length === 8);
 const spinChipsEv = cfg.spin.filter((p) => p.rewardType === 'chips').reduce((s, p) => s + (p.rewardAmount * p.weight) / wTotal, 0);
 const spinGemsEv = cfg.spin.filter((p) => p.rewardType === 'gems').reduce((s, p) => s + (p.rewardAmount * p.weight) / wTotal, 0);
+// Chip-priced extra spins: every price must beat the wheel's FULL expected value, gems valued at 40:1.
+const spinEvChipEq = spinChipsEv + spinGemsEv * R;
+const spinPrices = cfg.spinExtra.prices;
+console.log(`Paid spins: wheel EV ${spinEvChipEq.toFixed(0)} chips-equivalent per spin; prices ${spinPrices.join(' / ')} (EV is ${spinPrices.map((p) => ((spinEvChipEq / p) * 100).toFixed(0) + '%').join(' / ')} of price)`);
+check('every paid-spin price is above the wheel EV, with a margin (EV <= 75% of price)', spinPrices.every((p) => spinEvChipEq <= 0.75 * p), `EV ${spinEvChipEq.toFixed(0)}`);
+check('paid-spin prices strictly increase and are capped at 1-3 a day', spinPrices.every((p, i) => i === 0 || p > spinPrices[i - 1]) && spinPrices.length >= 1 && spinPrices.length <= 3);
+check('even the cheapest paid spin costs more than the wheel is worth on average', spinPrices[0] > spinEvChipEq, `${spinPrices[0]} vs ${spinEvChipEq.toFixed(0)}`);
 check('spin EV about 151 chips + 1.1 gems', Math.abs(spinChipsEv - 151) < 2 && Math.abs(spinGemsEv - 1.14) < 0.1, `${spinChipsEv.toFixed(1)} / ${spinGemsEv.toFixed(2)}`);
 
 // ---- payout sanity -----------------------------------------------------
@@ -84,6 +91,14 @@ const weekChips = cfg.dailyBonus.reduce((s, d) => s + d.chips, 0);
 const weekGems = cfg.dailyBonus.reduce((s, d) => s + d.gems, 0);
 check('daily-bonus week under 5 online wins', weekChips < 5 * cfg.matchRewards.online.win, String(weekChips));
 check('analysis priced at the same 40:1 rate', cfg.analysis.chips === cfg.analysis.gems * R, `${cfg.analysis.chips} vs ${cfg.analysis.gems}x${R}`);
+// Review Pack: ten reviews at once for less than ten single ones. One fixed discount step.
+const pk = cfg.analysis.pack;
+const packDiscount = (price, single) => 1 - price / (single * pk.reviews);
+console.log(`Review Pack: ${pk.reviews} for ${pk.chips} chips (${(packDiscount(pk.chips, cfg.analysis.chips) * 100).toFixed(0)}% off, ${pk.chips / pk.reviews} each) or ${pk.gems} gems (${(packDiscount(pk.gems, cfg.analysis.gems) * 100).toFixed(0)}% off, ${pk.gems / pk.reviews} each)`);
+check('a Review Pack costs less than the same number of single reviews, in chips and in gems', pk.chips < cfg.analysis.chips * pk.reviews && pk.gems < cfg.analysis.gems * pk.reviews);
+check('the Review Pack discount is real but modest (10-25%)', [packDiscount(pk.chips, cfg.analysis.chips), packDiscount(pk.gems, cfg.analysis.gems)].every((d) => d >= 0.1 && d <= 0.25));
+check('Review Pack chips and gems keep the 40:1 rate (no arbitrage between currencies)', pk.chips === pk.gems * R, `${pk.chips} vs ${pk.gems}x${R}`);
+check('a Review Pack fits under the credit cap, with room for more than one', pk.maxCredits >= 2 * pk.reviews && pk.maxCredits <= 5 * pk.reviews);
 check('welcome bonus buys exactly one Common', cfg.welcomeChips === t.common.gems * R, String(cfg.welcomeChips));
 
 // ---- venue ladder ------------------------------------------------------
@@ -106,6 +121,12 @@ const quests = Object.values(cfg.quests).reduce((s, v) => s + v, 0);
 const bonus = weekChips / 7;
 const base = online + bot + quests + bonus + spinChipsEv;
 const adsDay = ads.dailyCap * ads.rewardChips;
+// Venue refill: a lifeline for a player who cannot afford ANY paid venue.
+const refill = cfg.ads['venue-refill'];
+const cheapestBuyIn = Math.min(...Object.values(cfg.venues).map((v) => v.buyIn).filter((b) => b > 0));
+check('a day of refill ads stays under one online win', refill.dailyCap * refill.rewardChips <= cfg.matchRewards.online.win, `${refill.dailyCap * refill.rewardChips}`);
+check('one refill ad is less than the cheapest buy-in (it takes several to get back in)', refill.rewardChips < cheapestBuyIn, `${refill.rewardChips} vs ${cheapestBuyIn}`);
+check('refill + free-chips ads together can cover the cheapest buy-in from zero (a broke player is not stuck)', refill.dailyCap * refill.rewardChips + adsDay >= cheapestBuyIn, `${refill.dailyCap * refill.rewardChips + adsDay} vs ${cheapestBuyIn}`);
 const gemsDay = weekGems / 7 + spinGemsEv;
 console.log(`\nIncome model (ESTIMATE): online ${online.toFixed(0)} + bot ${bot.toFixed(0)} + quests ${quests} + daily bonus ${bonus.toFixed(0)} + spin ${spinChipsEv.toFixed(0)} = ${base.toFixed(0)} chips/day (+${adsDay} if all ads watched), ${gemsDay.toFixed(1)} gems/day`);
 const days = (chips) => (chips / base).toFixed(1);
@@ -175,12 +196,89 @@ const tourGems = tour.chapters.reduce((s, c) => s + c.bossReward.gems + tour.per
 console.log(`\nTour totals (one-time): ${tourChips.toLocaleString()} chips + ${tourGems} gems = about ${(tourChips / base).toFixed(0)} casual days of chip income`);
 check('the whole Tour is worth under 35% of 90 days of chip income', tourChips < 0.35 * base * 90, `${tourChips} vs ${(0.35 * base * 90).toFixed(0)}`);
 check('Tour gems stay under the achievement gem pool', tourGems < 920, String(tourGems));
+
+// Backstage: the Roadie Kit. Help for a stuck player that must stay a sink and never a shortcut.
+const bs = tour.backstage;
+const kitPrice = (c) => Math.round((c.bossReward.chips * bs.kitPriceFraction) / 10) * 10;
+console.log(`\nRoadie Kit prices: ${tour.chapters.map((c) => `${c.id} ${kitPrice(c)}`).join(', ')}`);
+check('a loss only counts as a real attempt after 12+ plies (no resign-farming)', bs.minAttemptPlies >= 12 && bs.minAttemptPlies > tour.minBotPlies);
+check('the kit opens before the free one arrives', bs.kitUnlockLosses >= 1 && bs.crowdFreeEvery > bs.kitUnlockLosses);
+check('a kit costs 5-15% of its boss reward (a real sink, never a trap)', tour.chapters.every((c) => kitPrice(c) >= 0.05 * c.bossReward.chips && kitPrice(c) <= 0.15 * c.bossReward.chips));
+check('the kit is small: 1-2 take-backs and 1-3 tips', bs.kit.takeTwos >= 1 && bs.kit.takeTwos <= 2 && bs.kit.tips >= 1 && bs.kit.tips <= 3);
+check('one kit never costs more than one casual day of chip income at the first two chapters', kitPrice(tour.chapters[0]) < base && kitPrice(tour.chapters[1]) < base, `${kitPrice(tour.chapters[0])}/${kitPrice(tour.chapters[1])} vs ${base}`);
 const wk = cfg.weeklyQuests;
 const weeklyChips = wk['win-weekly'] + wk['online-weekly'] + wk['puzzles-weekly'];
 check('weekly quests pay under 20% of a week of income', weeklyChips < 0.2 * base * 7, `${weeklyChips} vs ${(0.2 * base * 7).toFixed(0)}`);
 check('weekly quests unlock after the first hook levels', wk.minLevel >= 3 && wk.minLevel <= 10);
 
+// ---- Festival Run (the first repeatable chip sink) -------------------------------------------
+// The purse ladders are sized with estimated win rates (incomeModel.festivalSkill, NOT
+// measurements). Best strategy = bank or push on after each set, solved backwards.
+const fest = cfg.festival;
+const skill = cfg.incomeModel.festivalSkill;
+function festivalEv(tier, profile) {
+  const p = tier.sets.map((id) => skill[profile][rankOf[botsById[id].difficulty]]);
+  let value = tier.purse[tier.purse.length - 1];
+  for (let k = tier.purse.length - 2; k >= 0; k--) value = Math.max(tier.purse[k], p[k + 1] * value);
+  return (p[0] * value) / tier.entry;
+}
+const festIds = fest.tiers.map((t) => t.id);
+const bossOrder = tour.chapters.map((c) => c.id);
+check('3 Festival tiers with unique ids', fest.tiers.length === 3 && new Set(festIds).size === 3);
+check('Festival entries strictly increase', fest.tiers.every((t, i) => i === 0 || t.entry > fest.tiers[i - 1].entry));
+check('Festival sets are real bots, never getting easier within a tier', fest.tiers.every((t) => t.sets.every((id) => botsById[id]) && t.sets.every((id, i) => i === 0 || rankOf[botsById[id].difficulty] >= rankOf[botsById[t.sets[i - 1]].difficulty])));
+check('one purse step per set, strictly increasing', fest.tiers.every((t) => t.purse.length === t.sets.length && t.purse.every((v, i) => i === 0 || v > t.purse[i - 1])));
+check('banking after the first set never beats the entry (no free money)', fest.tiers.every((t) => t.purse[0] < t.entry));
+check('the top purse is at most 8x the entry', fest.tiers.every((t) => t.purse[t.purse.length - 1] <= 8 * t.entry));
+check('unlock chapters exist and rise with the tier', fest.tiers.every((t, i) => bossOrder.includes(t.unlockChapter) && (i === 0 || bossOrder.indexOf(t.unlockChapter) > bossOrder.indexOf(fest.tiers[i - 1].unlockChapter))));
+check('Festival titles unique and do not clash with other titles', new Set([...fest.tiers.map((t) => t.title.id), ...tour.chapters.map((c) => c.title.id), ...cfg.levels.titles.map((t) => t.id)]).size === fest.tiers.length + tour.chapters.length + cfg.levels.titles.length);
+check('every tier has a daily run cap and a sane repeat surcharge', fest.tiers.every((t) => fest.dailyRuns[t.id] >= 1 && fest.dailyRuns[t.id] <= 3) && fest.repeatSurcharge > 0 && fest.repeatSurcharge <= 1);
+const evRows = fest.tiers.map((t) => ({ t, casual: festivalEv(t, 'casual'), good: festivalEv(t, 'good'), strong: festivalEv(t, 'strong') }));
+console.log('\nFestival expected return per chip staked (ESTIMATE, best bank/push-on strategy):');
+for (const r of evRows) console.log(`  ${r.t.id.padEnd(10)} entry ${String(r.t.entry).padStart(5)}  casual ${r.casual.toFixed(2)}  good ${r.good.toFixed(2)}  strong ${r.strong.toFixed(2)}`);
+const [evOpen, evMain, evHead] = evRows;
+check('Open Mic is a real sink for a casual player (return 0.65-0.90)', evOpen.casual >= 0.65 && evOpen.casual <= 0.9, evOpen.casual.toFixed(2));
+check('Main Set is a sink for a good player (return 0.55-0.95)', evMain.good >= 0.55 && evMain.good <= 0.95, evMain.good.toFixed(2));
+check('Headliner is roughly fair for a strong player (return 0.9-1.25)', evHead.strong >= 0.9 && evHead.strong <= 1.25, evHead.strong.toFixed(2));
+check('no skill level exceeds 2.5x its stake in expectation on any tier', evRows.every((r) => Math.max(r.casual, r.good, r.strong) <= 2.5));
+const festDailyStrong = evRows.reduce((s, r) => {
+  const runs = fest.dailyRuns[r.t.id];
+  let gain = 0;
+  for (let i = 0; i < runs; i++) gain += Math.max(0, r.strong * r.t.entry - r.t.entry * (i === 0 ? 1 : 1 + fest.repeatSurcharge));
+  return s + gain;
+}, 0);
+console.log(`  best-case expected daily gain for a strong player across all tiers: ${Math.round(festDailyStrong)} chips (casual daily income ${Math.round(base)})`);
+check('a strong player farming every tier gains under 3 days of casual income per day', festDailyStrong < 3 * base, `${Math.round(festDailyStrong)} vs ${Math.round(3 * base)}`);
+
 // achievements (one-time) -- read from the server catalog
+// ---- Backstage Gear (consumables) -----------------------------------------
+const gear = cfg.gear;
+const amp = gear.items.find((i) => i.id === 'amp-boost');
+const pick = gear.items.find((i) => i.id === 'lucky-pick');
+check('gear has Amp Boost and Lucky Pick with unique ids', !!amp && !!pick && new Set(gear.items.map((i) => i.id)).size === gear.items.length);
+// The most chips-equivalent a booster's extra Fame can ever pay back in level rewards: the best
+// reward-per-Fame level, times the extra Fame of the best possible boosted run (3 online wins).
+let bestChipsPerFame = 0;
+for (let L = 2; L <= 50; L++) {
+  const rw = levelRewards[L] ?? { chips: 0, gems: 0 };
+  const span = xpFor(L) - xpFor(L - 1);
+  bestChipsPerFame = Math.max(bestChipsPerFame, (rw.chips + rw.gems * R) / span);
+}
+const ampExtraFame = amp.charges * gear.ampBonus * cfg.fame.online.win;
+const ampMaxPayback = ampExtraFame * bestChipsPerFame;
+console.log(`\nAmp Boost: extra Fame at most ${ampExtraFame}, worth at most ~${ampMaxPayback.toFixed(0)} chips-equivalent in level rewards (price ${amp.chips})`);
+check('an Amp Boost never pays for itself (price >= 1.25x its best-case level-reward payback)', amp.chips >= 1.25 * ampMaxPayback, `${amp.chips} vs ${(1.25 * ampMaxPayback).toFixed(0)}`);
+check('a Review Pack costs under two casual days of chip income (an impulse-sized sink)', pk.chips < 2 * base, `${pk.chips} vs ${2 * base}`);
+check('gear prices are under one casual day of chip income', gear.items.every((i) => i.chips < base), String(base));
+check('Amp Boost bonus is modest (<= +50% of base Fame) and stock is capped at 3-10', gear.ampBonus <= 0.5 && gear.maxStock >= 3 && gear.maxStock <= 10);
+check('Lucky Pick only matters on a real streak (minStreak is the first Hot Streak step)', gear.minStreak === cfg.fame.hotStreak[0].minStreak);
+const sn = gear.safetyNet;
+check('Safety Net premium is more than half the cover (loses money unless you lose >57% of the time)', sn.premiumFraction / sn.coverFraction > 0.5, `${sn.premiumFraction}/${sn.coverFraction}`);
+// Two accounts: one loses on purpose to the other. The pair pays the rake (venueRake of the POT = 2x venueRake of one buy-in) plus the premium and gets the cover back.
+check('Safety Net cannot be farmed by two accounts (2 x rake + premium > cover)', 2 * cfg.venueRake + sn.premiumFraction > sn.coverFraction, `2 x ${cfg.venueRake} + ${sn.premiumFraction} vs ${sn.coverFraction}`);
+check('Safety Net cover is far below the buy-in (it softens a loss, never erases it)', sn.coverFraction <= 0.5);
+console.log(`  Safety Net by venue: ${Object.entries(cfg.venues).filter(([, v]) => v.buyIn > 0).map(([id, v]) => `${id} ${Math.round(v.buyIn * sn.premiumFraction)} -> back ${Math.round(v.buyIn * sn.coverFraction)}`).join(', ')}`);
+
 const ach = [...read('server/src/achievementCatalog.ts').matchAll(/rewardType: '(chips|gems)', rewardAmount: ([\d_]+)/g)];
 const achChips = ach.filter((a) => a[1] === 'chips').reduce((s, a) => s + Number(a[2].replace(/_/g, '')), 0);
 const achGems = ach.filter((a) => a[1] === 'gems').reduce((s, a) => s + Number(a[2].replace(/_/g, '')), 0);

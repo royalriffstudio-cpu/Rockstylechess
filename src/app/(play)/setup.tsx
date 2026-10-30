@@ -1,6 +1,7 @@
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { Image } from 'expo-image';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,23 +11,39 @@ import { SubPageHeader } from '@/components/layout';
 import { Colors, withOpacity } from '@/constants/theme';
 import { VENUES, formatChips, getVenue, type Venue } from '@/constants/venues';
 import { usePlayerProfile } from '@/hooks/usePlayerProfile';
+import { useGear } from '@/hooks/useGear';
+import { useQueueStats } from '@/hooks/useQueueStats';
 import { useVenueEntry } from '@/hooks/useVenueEntry';
+import { safetyNetTerms } from '@/lib/gear';
 import { DURATIONS, DURATION_LABELS, type Duration } from '@/lib/onlineMatch';
 
 export default function PlaySetupScreen() {
   const insets = useSafeAreaInsets();
-  const { chips, profile } = usePlayerProfile();
+  const router = useRouter();
+  const { chips, profile, status } = usePlayerProfile();
   const { requirementFor, explain, tryPlay } = useVenueEntry();
+  const { gear } = useGear();
+  // Safety Net: an optional add-on, only offered where there is a buy-in and an account to charge.
+  const [insured, setInsured] = useState(false);
   // Garage first: stakes are something you choose, never the default.
   const [selectedVenueId, setSelectedVenueId] = useState('garage');
   const [duration, setDuration] = useState<Duration>('5m');
 
   const selectedVenue = getVenue(selectedVenueId);
+  // Players searching per time control at this venue (you are only ever matched on the clock you pick).
+  const waiting = useQueueStats(selectedVenueId);
+  const netOffered = selectedVenue.buyIn > 0 && status === 'ready';
+  const net = netOffered ? safetyNetTerms(selectedVenue.buyIn) : null;
+  const insuredNow = insured && netOffered;
+  // What is on for the next match: gear the player has switched on, or sitting unused in the bag.
+  const gearPills = (gear?.items ?? [])
+    .map((item) => ({ item, state: item.activeCharges > 0 ? 'active' : item.quantity > 0 ? 'bag' : null }))
+    .filter((g): g is { item: NonNullable<typeof gear>['items'][number]; state: 'active' | 'bag' } => g.state !== null);
 
   function handleVenuePress(venue: Venue) {
     const requirement = requirementFor(venue);
     if (requirement) {
-      explain(venue, requirement);
+      void explain(venue, requirement);
       return;
     }
     setSelectedVenueId(venue.id);
@@ -108,6 +125,11 @@ export default function PlaySetupScreen() {
                     <Text className="font-caption text-caption uppercase" style={{ color: active ? withOpacity(Colors.cyan, 0.7) : Colors.chromeDark }}>
                       {DURATION_LABELS[d]}
                     </Text>
+                    {waiting ? (
+                      <Text className="font-caption" style={{ fontSize: 10, color: waiting[d] > 0 ? Colors.gold : Colors.chromeMid }}>
+                        {waiting[d] > 0 ? `${waiting[d]} searching` : 'no one waiting'}
+                      </Text>
+                    ) : null}
                   </View>
                 </Pressable>
               );
@@ -139,12 +161,51 @@ export default function PlaySetupScreen() {
             </View>
           </View>
 
+          {net ? (
+            <Pressable
+              onPress={() => setInsured((on) => !on)}
+              className="mt-lg flex-row items-center gap-md rounded-lg"
+              style={{ padding: 10, backgroundColor: withOpacity(Colors.bgBase, 0.55), borderWidth: 1, borderColor: insuredNow ? Colors.ember : withOpacity(Colors.chromeDark, 0.6) }}
+            >
+              <MaterialCommunityIcons name={insuredNow ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'} size={22} color={insuredNow ? Colors.ember : Colors.textMuted} />
+              <View className="flex-1">
+                <Text className="font-heading-md uppercase text-text-primary" style={{ fontSize: 13 }}>
+                  Safety Net · +{formatChips(net.premium)}
+                </Text>
+                <Text className="font-body-sm text-text-muted" style={{ fontSize: 11 }}>
+                  If you lose, {formatChips(net.cover)} of your buy-in comes back. A win or a draw doesn&apos;t get it back, so it is never free.
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
+
+          {gearPills.length > 0 ? (
+            <View className="mt-md flex-row flex-wrap gap-sm">
+              {gearPills.map(({ item, state }) => (
+                <Pressable
+                  key={item.id}
+                  onPress={state === 'bag' ? () => router.push('/shop') : undefined}
+                  className="rounded-full px-sm"
+                  style={{ paddingVertical: 3, backgroundColor: withOpacity(state === 'active' ? Colors.gold : Colors.chromeDark, 0.16), borderWidth: 1, borderColor: withOpacity(state === 'active' ? Colors.gold : Colors.chromeMid, 0.6) }}
+                >
+                  <Text className="font-heading-md uppercase" style={{ fontSize: 10, letterSpacing: 0.8, color: state === 'active' ? Colors.gold : Colors.textMuted }}>
+                    {state === 'active'
+                      ? item.id === 'lucky-pick'
+                        ? `${item.name} armed`
+                        : `${item.name} · ${item.activeCharges} win${item.activeCharges === 1 ? '' : 's'} left`
+                      : `${item.name} in bag · activate in shop`}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+
           <View className="mt-lg">
             <RockButton
               label="Play Now"
               variant="primary"
               icon={<MaterialCommunityIcons name="play" size={20} color={Colors.bgBase} />}
-              onPress={() => tryPlay(selectedVenue, duration)}
+              onPress={() => tryPlay(selectedVenue, duration, insuredNow)}
             />
           </View>
         </RockCard>

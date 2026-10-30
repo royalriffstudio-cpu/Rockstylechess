@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { resolveBotMove, type BotDifficulty, type RequestEngineMove } from '@/lib/botEngine';
 import { canDeliverMate } from '@/lib/chessEndgame';
+import { pickHeuristicMove } from '@/lib/heuristicBot';
 import {
   boardGridFromChess,
   checkSquareFromChess,
@@ -81,6 +82,8 @@ interface GameSnapshot {
   capturedByBlack: string[];
   /** Full moves played so far (conventional "move 60" sense, not plies) -- used by match.tsx's achievement report (marathon/quickdraw wins). */
   moveCount: number;
+  /** Half-moves played so far (a Roadie Kit "Take Two" needs at least 2 to rewind). */
+  ply: number;
   lastMove: VerboseLastMove | null;
   // Which side made this snapshot's move -- ChessBoard uses this to only
   // play the slide-in travel animation for moves that weren't this device's
@@ -215,6 +218,7 @@ function buildSnapshot(
     capturedByWhite: ledger.capturedByWhite.slice(),
     capturedByBlack: ledger.capturedByBlack.slice(),
     moveCount: Math.ceil(ledger.ply / 2),
+    ply: ledger.ply,
     lastMove,
     lastMoveSource,
     lastMoveSound,
@@ -297,10 +301,31 @@ export function useChessGame({
     ledger.lastMove = pickVerboseLastMove(move);
   }
 
+  // Legal moves per origin square for the CURRENT position, filled lazily and
+  // thrown away with the position (`snapshot` is a new object on every
+  // refresh()). Verbose move lists are expensive in chess.js (every move also
+  // recomputes the before/after FEN), and a tap used to build one for the
+  // highlight and another for the promotion check; now each square is built at
+  // most once per position and every later question is a lookup.
+  const legalMoves = useMemo(() => {
+    const bySquare = new Map<Square, Move[]>();
+    return {
+      from(square: Square): Move[] {
+        let moves = bySquare.get(square);
+        if (!moves) {
+          moves = chessRef.current.moves({ square, verbose: true });
+          bySquare.set(square, moves);
+        }
+        return moves;
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot]);
+
   const legalTargets = useMemo(() => {
     if (!selectedSquare) return NO_TARGETS;
-    return chessRef.current.moves({ square: selectedSquare, verbose: true }).map((move) => move.to);
-  }, [selectedSquare, snapshot]);
+    return legalMoves.from(selectedSquare).map((move) => move.to);
+  }, [selectedSquare, legalMoves]);
 
   function refresh(source: LastMoveSource = null, puzzleStatus: PuzzleStatus = 'playing') {
     setSnapshot(buildSnapshot(chessRef.current, ledgerRef.current, source, puzzleStatus));
@@ -402,7 +427,7 @@ export function useChessGame({
   // (the player must still choose the piece). chess.js emits one verbose move
   // per promotion option, all sharing the same `to`.
   function isPromotionMove(from: Square, to: Square): boolean {
-    return chessRef.current.moves({ square: from, verbose: true }).some((m) => m.to === to && Boolean(m.promotion));
+    return legalMoves.from(from).some((m) => m.to === to && Boolean(m.promotion));
   }
 
   function handleSquarePress(square: Square) {
@@ -812,6 +837,42 @@ export function useChessGame({
     setSelectedSquare(hintSquare);
   }
 
+  // ---- Roadie Kit (Tour boss fights, bot mode only; see server/src/db/tour.ts) ----
+  // Both helps work on the player's own turn only and never decide the game for them.
+
+  // "Take Two": rewind to the position before the player's last move (undoes the bot's reply
+  // and the move it answered). The clock is NOT given back -- the take costs real time.
+  // The ledger is re-derived (a backwards step is the one place it can't be updated in O(1)),
+  // and ChessBoard sees a non-forward change and snaps instead of animating.
+  function takeBack(): boolean {
+    if (mode !== 'bot' || gameOverFiredRef.current || pendingPromotion) return false;
+    const chess = chessRef.current;
+    const humanColor = botColor === 'w' ? 'b' : 'w';
+    if (chess.isGameOver() || chess.turn() !== humanColor || chess.history().length < 2) return false;
+    chess.undo();
+    chess.undo();
+    moveElapsedMsRef.current.splice(-2);
+    ledgerRef.current = deriveLedger(chess);
+    setSelectedSquare(null);
+    setDrawOfferFrom(null);
+    refresh(null);
+    return true;
+  }
+
+  // "Roadie's Tip": the roadie's read of the position -- a medium-strength search, so a
+  // decent move, not the best one. It only selects the PIECE to move (like the puzzle Hint);
+  // where it goes and whether it is right is still the player's call.
+  function suggestTip(): Square | null {
+    if (mode !== 'bot' || gameOverFiredRef.current || pendingPromotion) return null;
+    const chess = chessRef.current;
+    const humanColor = botColor === 'w' ? 'b' : 'w';
+    if (chess.isGameOver() || chess.turn() !== humanColor) return null;
+    const move = pickHeuristicMove(chess);
+    if (!move) return null;
+    setSelectedSquare(move.from);
+    return move.from;
+  }
+
   // Bot/local/online -- match.tsx's handleGameOver reads this once at
   // game-over and hands it to localMatchReplayStore.ts for the immediate
   // post-match "Replay"/"Analyze Game" entry points (a *separate* thing
@@ -836,6 +897,7 @@ export function useChessGame({
     capturedByWhite: snapshot.capturedByWhite,
     capturedByBlack: snapshot.capturedByBlack,
     moveCount: snapshot.moveCount,
+    ply: snapshot.ply,
     lastMove: snapshot.lastMove,
     lastMoveSource: snapshot.lastMoveSource,
     lastMoveSound: snapshot.lastMoveSound,
@@ -856,5 +918,7 @@ export function useChessGame({
     drawOfferFrom,
     reportTimeout,
     getReplayData,
+    takeBack,
+    suggestTip,
   };
 }
